@@ -1,0 +1,46 @@
+# Statement senders that `michelito sync` looks for in Gmail.
+#
+# Copy this file to the data folder (`~/michelito-data/sources.toml`, or the one in
+# MICHELITO_DATA_DIR) and edit it. If that file does not exist, exactly these same sources are
+# used: they are the defaults (`config.DEFAULT_SOURCES`). If it exists, only the ones it lists
+# are used: removing one here stops downloading its emails.
+#
+# Each [[source]]:
+#   name        lowercase letters, digits, "-" or "_"; it is the folder in raw/ and the value of
+#               --source. Do not change it for a source that already downloaded emails: the
+#               database stores this name.
+#   query       Gmail search (the same syntax as the search box).
+#   extensions  attachments that are saved, in lowercase.
+#   parse       optional (true). false: the attachment is archived without trying to parse it,
+#               like the AFPs, which have no parser yet.
+
+# The queries name the banks' real (Spanish) sender addresses and subjects.
+# spanish-data: begin
+[[source]]
+name = "popular"
+query = "from:estados@popularenlinea.com"
+extensions = [".pdf"]
+
+[[source]]
+name = "bhd"
+query = "from:servicios@bhd.com.do subject:(estado OR estados) subject:cuenta"
+extensions = [".pdf"]
+
+[[source]]
+name = "afp_reservas"
+query = "from:estadoscta@afpreservas.com.do"
+extensions = [".pdf", ".jpg", ".jpeg"]
+parse = false
+
+[[source]]
+name = "afp_siembra"
+query = "from:estadodecuenta@afpsiembra.com"
+extensions = [".pdf"]
+parse = false
+
+[[source]]
+name = "afp_crecer"
+query = "from:info@afpcrecer.com.do subject:cuenta"
+extensions = [".pdf"]
+parse = false
+# spanish-data: end

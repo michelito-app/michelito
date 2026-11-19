@@ -1,0 +1,98 @@
+# The public demo on the server (see docs/deployment.md). It lives in /opt/michelito next to
+# Caddyfile, deploy.sh and .env; the variables come from .env:
+#   MICHELITO_HOST   public host (demo.michelito.app)
+#   MICHELITO_IMAGE  image without a tag (ghcr.io/michelito-app/michelito)
+#   MICHELITO_TAG    sha of the running version  } written by deploy.sh:
+#   MICHELITO_DIGEST digest of its image         } not edited by hand
+#   GHCR_USER        user deploy.sh logs in to GHCR with (compose does not use it)
+#   MICHELITO_NET    optional: subnet of the internal network (172.30.53.0/24)
+#   MICHELITO_NET6   optional: IPv6 (ULA) subnet of the public network (fd4d:6963:6865:6c00::/64)
+#   MICHELITO_REPO   optional: "Open source" link in the demo notice
+# Sized for a 1 GB VPS: the app up to 512 MB and Caddy up to 128 MB.
+name: michelito
+
+services:
+  app:
+    # By digest: runs exactly the image the workflow built.
+    image: ${MICHELITO_IMAGE:?MICHELITO_IMAGE is missing in .env}@${MICHELITO_DIGEST:?MICHELITO_DIGEST is missing (deploy.sh writes it)}
+    restart: unless-stopped
+    environment:
+      MICHELITO_DEMO_HOST: ${MICHELITO_HOST:-demo.michelito.app}
+      # X-Forwarded-For is trusted only from Caddy (the internal network). If Cloudflare's proxy
+      # is put in front, see docs/deployment.md before changing anything here.
+      MICHELITO_DEMO_PROXIES: ${MICHELITO_NET:-172.30.53.0/24}
+      MICHELITO_DEMO_REPO: ${MICHELITO_REPO:-https://github.com/michelito-app/michelito}
+    volumes:
+      - data:/data
+    networks:
+      - internal
+    # No published ports: only Caddy reaches the app.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  caddy:
+    image: caddy:2.11-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      MICHELITO_HOST: ${MICHELITO_HOST:-demo.michelito.app}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+      - public
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
+    memswap_limit: 128m
+    logging: *logging
+
+networks:
+  # No way out to the internet: the app does not need to call anyone.
+  internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${MICHELITO_NET:-172.30.53.0/24}
+  # Caddy's way out (ports 80/443 and Let's Encrypt). With its own IPv6: otherwise Docker passes
+  # IPv6 connections through docker-proxy and Caddy sees the bridge gateway instead of the
+  # visitor's IP (and everyone would share one quota). See docs/deployment.md.
+  public:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: ${MICHELITO_NET6:-fd4d:6963:6865:6c00::/64}
+
+# The `name:` values are legacy Docker object names from before the English rename (project
+# `michelito`, volume keys `datos` and `caddy_datos`). They are pinned so the existing # spanish-data
+# volumes, with the demo's feedback and Caddy's Let's Encrypt certificates, keep their data.
+volumes:
+  data:
+    name: michelito_datos # spanish-data
+  caddy_data:
+    name: michelito_caddy_datos # spanish-data
+  caddy_config: {}

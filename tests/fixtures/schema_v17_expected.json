@@ -1,0 +1,1240 @@
+{
+ "movements": {
+  "6e298e5b797058bea5120c12": [
+   "2025-12-01",
+   "expense",
+   "25000",
+   "DOP",
+   "Vivienda",
+   "Vivienda",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "b34d99119386b8eb4a9aecb4": [
+   "2025-12-05",
+   "expense",
+   "1500",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "22d3ea1ccecf46e28e7b7e3a": [
+   "2025-12-05",
+   "expense",
+   "9.99",
+   "USD",
+   "Suscripciones digitales",
+   "Suscripciones digitales",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "fd6f592624e9a65b2ebbfc26": [
+   "2025-12-06",
+   "expense",
+   "9800",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "ficticio:credit_card"
+  ],
+  "db407150acdbeab6aab9439b": [
+   "2025-12-08",
+   "expense",
+   "2500",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "7277095a5cda8118ebafbf06": [
+   "2025-12-09",
+   "expense",
+   "450",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "e3bf36b15251f9d888e22201": [
+   "2025-12-12",
+   "transfer",
+   "-6000",
+   "DOP",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "ficticio:credit_card"
+  ],
+  "46c3922c1a289d0c1e60052d": [
+   "2025-12-14",
+   "expense",
+   "1200.5",
+   "DOP",
+   "Restaurantes",
+   "Restaurantes",
+   false,
+   "",
+   "",
+   "popular:credit_card"
+  ],
+  "e79a58e2b0d0263e01cbfef2": [
+   "2025-12-18",
+   "expense",
+   "2175.00",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "shared",
+   "ficticio:credit_card"
+  ],
+  "14765c23d52eb8ac49415505": [
+   "2025-12-18",
+   "expense",
+   "25",
+   "USD",
+   "Libros",
+   "Libros",
+   false,
+   "",
+   "",
+   "popular:credit_card"
+  ],
+  "cf6b2d28bda4405a6b74ec7d": [
+   "2025-12-20",
+   "expense",
+   "0",
+   "DOP",
+   "Ropa y tiendas",
+   "Ropa y tiendas",
+   false,
+   "",
+   "shared",
+   "demo:credit_card"
+  ],
+  "4e01b3e3d7c26c67e1734f35": [
+   "2025-12-28",
+   "expense",
+   "2000",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "bhd:credit_card"
+  ],
+  "9fc4ee521041bb64e055abe0": [
+   "2026-01-01",
+   "expense",
+   "300",
+   "DOP",
+   "Restaurantes",
+   "Restaurantes",
+   false,
+   "",
+   "",
+   "popular:credit_card"
+  ],
+  "7078559a89b116110578e2b3": [
+   "2026-01-01",
+   "expense",
+   "25000",
+   "DOP",
+   "Vivienda",
+   "Vivienda",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "35ed5329e7f1eda39d91c533": [
+   "2026-01-05",
+   "transfer",
+   "-5000",
+   "DOP",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "popular:credit_card"
+  ],
+  "6f3cdca1db0ea565aac075ca": [
+   "2026-01-05",
+   "expense",
+   "30",
+   "USD",
+   "Libros",
+   "Libros",
+   false,
+   "",
+   "",
+   "bhd:credit_card"
+  ],
+  "e7fea175f8a2429a18892d09": [
+   "2026-01-05",
+   "expense",
+   "9.99",
+   "USD",
+   "Suscripciones digitales",
+   "Suscripciones digitales",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "661aeb935e4e5cebba7705e4": [
+   "2026-01-06",
+   "expense",
+   "900",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "ceb4a9d35fe642d303f08f45": [
+   "2026-01-08",
+   "expense",
+   "2500",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "47f6034da7b6f6c5bd980440": [
+   "2026-01-09",
+   "expense",
+   "1200.00",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "shared",
+   "ficticio:credit_card"
+  ],
+  "c2e1706da62258f4312e9dbe": [
+   "2026-01-09",
+   "expense",
+   "450",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "a169d6d8dad9bd8c5db71158": [
+   "2026-01-10",
+   "expense",
+   "500",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "bhd:credit_card"
+  ],
+  "35f54a6f4de9f30911aaa5f9": [
+   "2026-01-10",
+   "expense",
+   "300",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "eb85808b5d232ddf209c783b": [
+   "2026-01-12",
+   "transfer",
+   "-8000",
+   "DOP",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "ficticio:credit_card"
+  ],
+  "53dbb2952516a11db34b3c93": [
+   "2026-01-15",
+   "transfer",
+   "-10",
+   "USD",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "bhd:credit_card"
+  ],
+  "211edaee61cfa76847a0f6a5": [
+   "2026-01-15",
+   "expense",
+   "4800",
+   "DOP",
+   "Seguros",
+   "Seguros",
+   false,
+   "Póliza ficticia",
+   "",
+   "hogar:credit_card"
+  ],
+  "31966ff4af5e9d3ea6c0ffbc": [
+   "2026-01-18",
+   "expense",
+   "7500",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   true,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "8ddb57423a71bc4e0737d919": [
+   "2026-01-19",
+   "transfer",
+   "-1000",
+   "DOP",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "bhd:credit_card"
+  ],
+  "b625e3ec49345949017a751b": [
+   "2026-01-20",
+   "expense",
+   "1850",
+   "DOP",
+   "Restaurantes",
+   "Restaurantes",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "73eb00db7f87c881388e0e87": [
+   "2026-01-20",
+   "expense",
+   "600",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "4067a5965945d2ff5b8af70c": [
+   "2026-01-20",
+   "expense",
+   "3400",
+   "DOP",
+   "Gobierno e impuestos",
+   "Gobierno e impuestos",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "5201604fbf3911b3c5e13dd5": [
+   "2026-01-28",
+   "expense",
+   "287.4",
+   "DOP",
+   "Cargos del banco",
+   "Cargos del banco",
+   false,
+   "",
+   "",
+   "ficticio:credit_card"
+  ],
+  "11b5efb72f4f3eab55df15fb": [
+   "2026-01-28",
+   "expense",
+   "2400",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "1e7fe74ef569175c04548191": [
+   "2026-02-01",
+   "expense",
+   "25000",
+   "DOP",
+   "Vivienda",
+   "Vivienda",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "800d7b3273302f16cb9c2189": [
+   "2026-02-02",
+   "expense",
+   "3000",
+   "DOP",
+   "Restaurantes",
+   "Restaurantes",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "36229f649d58292a243c2cd8": [
+   "2026-02-03",
+   "expense",
+   "3120.75",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "d5f6c5cec1cbe805fcce8337": [
+   "2026-02-04",
+   "expense",
+   "1500",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "b35e498c5531e50a71f1d4b6": [
+   "2026-02-04",
+   "expense",
+   "1500",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "cc5a2eadcf5f6b29b0822eb3": [
+   "2026-02-05",
+   "expense",
+   "11.99",
+   "USD",
+   "Suscripciones digitales",
+   "Suscripciones digitales",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "5dc2f3a9188189b8a694644c": [
+   "2026-02-06",
+   "expense",
+   "45000",
+   "DOP",
+   "Viajes",
+   "Viajes",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "160b45b9bcf7e7904df040de": [
+   "2026-02-07",
+   "expense",
+   "640",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "dfbf0973137eb9dac65ebeba": [
+   "2026-02-08",
+   "expense",
+   "2500",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "4c2a960bf9db1206541c56ba": [
+   "2026-02-09",
+   "expense",
+   "1733.33",
+   "DOP",
+   "Restaurantes",
+   "Restaurantes",
+   false,
+   "",
+   "shared",
+   "demo:credit_card"
+  ],
+  "82e1e58f6b27ace8a565f72a": [
+   "2026-02-09",
+   "expense",
+   "3",
+   "DOP",
+   "Otros",
+   "Otros",
+   false,
+   "",
+   "",
+   "demo:credit_card"
+  ],
+  "138d340174715b8da9b06a57": [
+   "2026-02-09",
+   "expense",
+   "450",
+   "DOP",
+   "Servicios (luz, teléfono)",
+   "Servicios (luz, teléfono)",
+   false,
+   "",
+   "",
+   "hogar:credit_card"
+  ],
+  "609075a2e029b35aafaa5c82": [
+   "2025-11-10",
+   "transfer",
+   "100",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "banreservas:savings:FIC-0"
+  ],
+  "ec6de4de1ac52624941142f8": [
+   "2025-11-11",
+   "transfer",
+   "100",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "banreservas:savings:FIC-1"
+  ],
+  "b3f418e207fe0f715cd922fa": [
+   "2025-11-12",
+   "transfer",
+   "100",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "bhd:savings:FIC-2"
+  ],
+  "d46b11107e5979c41945734b": [
+   "2025-11-13",
+   "transfer",
+   "100",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "popular:savings:FIC-3"
+  ],
+  "1c15f22bc85cf2878241856e": [
+   "2025-11-14",
+   "transfer",
+   "100",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "popular:savings:FIC-4"
+  ],
+  "c3d6eec7e50938bab09567e0": [
+   "2025-11-15",
+   "transfer",
+   "100",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "popular:savings:FIC-5"
+  ],
+  "a8fc6507f575731c000677b4": [
+   "2025-12-02",
+   "transfer",
+   "300000",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "ficticio:savings:888-1"
+  ],
+  "c4c0c2e52d190b835e1e5b01": [
+   "2025-12-03",
+   "transfer",
+   "31550",
+   "DOP",
+   "Cambio de divisas",
+   "Cambio de divisas",
+   false,
+   "",
+   "exchange",
+   "ficticio:savings:888-1"
+  ],
+  "7680bbc883e74e658fa1f1f7": [
+   "2025-12-04",
+   "transfer",
+   "-400",
+   "USD",
+   "Cambio de divisas",
+   "Cambio de divisas",
+   false,
+   "",
+   "exchange",
+   "ficticio:savings:888-1"
+  ],
+  "96d1b330a420d10dd8f5e851": [
+   "2025-12-05",
+   "transfer",
+   "50000",
+   "DOP",
+   "Inversiones",
+   "Inversiones",
+   false,
+   "",
+   "investment",
+   "ficticio:savings:888-1"
+  ],
+  "27fa93d1246b65fe3500492a": [
+   "2025-12-10",
+   "expense",
+   "12000",
+   "DOP",
+   "Préstamos",
+   "Préstamos",
+   false,
+   "",
+   "",
+   "hogar:checking:999-2"
+  ],
+  "04e8dc2ca60a0906883547f1": [
+   "2025-12-10",
+   "transfer",
+   "-18930",
+   "DOP",
+   "Cambio de divisas",
+   "Cambio de divisas",
+   false,
+   "Cambio con Pedro",
+   "exchange",
+   "ficticio:savings:888-1"
+  ],
+  "51e9619f52227657f064cff2": [
+   "2025-12-11",
+   "transfer",
+   "100",
+   "USD",
+   "Cambio de divisas",
+   "Cambio de divisas",
+   false,
+   "",
+   "exchange",
+   "ficticio:savings:888-1"
+  ],
+  "438dd99ab0d9f7a8bbf77365": [
+   "2025-12-15",
+   "income",
+   "-85000",
+   "DOP",
+   "Salario",
+   "Salario",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "2b80e011ce0f5d1250b380ac": [
+   "2025-12-15",
+   "transfer",
+   "100000",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "ficticio:savings:888-1"
+  ],
+  "22d549a1c6cbb4c701f8e06e": [
+   "2025-12-18",
+   "transfer",
+   "1500",
+   "DOP",
+   "Inversiones",
+   "Inversiones",
+   false,
+   "",
+   "investment",
+   "ficticio:savings:888-1"
+  ],
+  "ed3ffdc951b2eb08f7d9f1ef": [
+   "2025-12-22",
+   "income",
+   "-9000",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "ficticio:savings:888-1"
+  ],
+  "a31ce74e9c41af9490348a73": [
+   "2025-12-26",
+   "income",
+   "-2000",
+   "DOP",
+   "Rendimientos",
+   "Rendimientos",
+   false,
+   "",
+   "investment",
+   "ficticio:savings:888-1"
+  ],
+  "ec599575ece00cca8949e1c0": [
+   "2025-12-29",
+   "income",
+   "-60000",
+   "DOP",
+   "Rendimientos",
+   "Rendimientos",
+   false,
+   "",
+   "investment",
+   "ficticio:savings:888-1"
+  ],
+  "be52935011d885ca12c3f70a": [
+   "2026-01-05",
+   "income",
+   "-5000",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "bhd:savings:999-1"
+  ],
+  "b3464542fed5c8457d1b32c9": [
+   "2026-01-08",
+   "income",
+   "-12000",
+   "DOP",
+   "Salario",
+   "Salario",
+   false,
+   "",
+   "",
+   "hogar:checking:555-3"
+  ],
+  "38f80c8d0ad92ec9948fe18d": [
+   "2026-01-10",
+   "transfer",
+   "3000",
+   "DOP",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "bhd:savings:999-1"
+  ],
+  "7bb532a308b6d3a3f91e511d": [
+   "2026-01-10",
+   "expense",
+   "12000",
+   "DOP",
+   "Préstamos",
+   "Préstamos",
+   false,
+   "",
+   "",
+   "hogar:checking:999-2"
+  ],
+  "49ffb59f5d6cd2fc8626bed9": [
+   "2026-01-11",
+   "transfer",
+   "8000",
+   "DOP",
+   "Pago de tarjeta",
+   "Pago de tarjeta",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "780db553aa802a43685f41d1": [
+   "2026-01-15",
+   "income",
+   "-85000",
+   "DOP",
+   "Salario",
+   "Salario",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "9cd2a4aaebd9a95d05ac82bf": [
+   "2026-01-16",
+   "income",
+   "-8500",
+   "DOP",
+   "Salario",
+   "Salario",
+   false,
+   "",
+   "",
+   "hogar:checking:555-3"
+  ],
+  "cfe008585d589c1dee8ac5ef": [
+   "2026-01-18",
+   "transfer",
+   "5000",
+   "DOP",
+   "Caja fuerte",
+   "Caja fuerte",
+   false,
+   "",
+   "cash_box",
+   "ficticio:checking:777-0"
+  ],
+  "6fe64e395550170343efe2d6": [
+   "2026-01-20",
+   "transfer",
+   "3000",
+   "DOP",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "dece1baa60ee7ff93aa3aac7": [
+   "2026-01-20",
+   "income",
+   "-1000",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "hogar:checking:555-3"
+  ],
+  "e467d89a6bab2c46668ffc57": [
+   "2026-01-22",
+   "income",
+   "-12000",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "3cd865215b1f4674d081a43d": [
+   "2026-01-25",
+   "expense",
+   "2000",
+   "DOP",
+   "Préstamos",
+   "Préstamos",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "51a26b7878e6424c0915ebad": [
+   "2026-01-27",
+   "income",
+   "-20000",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "hogar:checking:555-3"
+  ],
+  "17fc4c292ae6e0bceadfccb4": [
+   "2026-01-28",
+   "expense",
+   "30000",
+   "DOP",
+   "Préstamos",
+   "Préstamos",
+   false,
+   "",
+   "",
+   "hogar:checking:999-2"
+  ],
+  "e1ec14da78470554a051a9d7": [
+   "2026-01-31",
+   "income",
+   "-0.5",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "bhd:savings:999-1"
+  ],
+  "de887c20749d806330335691": [
+   "2026-02-04",
+   "income",
+   "-1000",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "bfc657a963f9f563413fbfa0": [
+   "2026-02-06",
+   "income",
+   "-500",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "e6f268a7d0e9b227bfaa267d": [
+   "2026-02-09",
+   "income",
+   "-3760.75",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "c058733e884a5ea5df9f4996": [
+   "2026-02-10",
+   "expense",
+   "12000",
+   "DOP",
+   "Préstamos",
+   "Préstamos",
+   false,
+   "",
+   "",
+   "hogar:checking:999-2"
+  ],
+  "bd3fbfa0210592011e098f96": [
+   "2026-02-12",
+   "income",
+   "-63700",
+   "DOP",
+   "Otros ingresos",
+   "Otros ingresos",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "30f3f42a78a02ee34d1b42c0": [
+   "2026-02-13",
+   "transfer",
+   "1000",
+   "USD",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "4ed3aee1d94514457c5b09c1": [
+   "2026-02-14",
+   "transfer",
+   "61.67",
+   "USD",
+   "Transferencias a terceros",
+   "Transferencias a terceros",
+   false,
+   "",
+   "",
+   "ficticio:checking:777-0"
+  ],
+  "cash-2": [
+   "2026-01-05",
+   "expense",
+   "50",
+   "USD",
+   "Supermercado",
+   "Supermercado",
+   false,
+   "Efectivo ficticio",
+   "",
+   "manual:cash-box"
+  ]
+ },
+ "undo": {
+  "38": [
+   true,
+   false,
+   null
+  ],
+  "37": [
+   false,
+   true,
+   null
+  ],
+  "36": [
+   true,
+   false,
+   null
+  ],
+  "35": [
+   true,
+   false,
+   null
+  ],
+  "34": [
+   true,
+   false,
+   null
+  ],
+  "33": [
+   true,
+   false,
+   null
+  ],
+  "32": [
+   true,
+   false,
+   null
+  ],
+  "31": [
+   false,
+   false,
+   32
+  ],
+  "30": [
+   true,
+   false,
+   null
+  ],
+  "29": [
+   true,
+   false,
+   null
+  ],
+  "28": [
+   true,
+   false,
+   null
+  ],
+  "27": [
+   false,
+   false,
+   29
+  ],
+  "26": [
+   true,
+   false,
+   null
+  ],
+  "25": [
+   true,
+   false,
+   null
+  ],
+  "24": [
+   true,
+   false,
+   null
+  ],
+  "23": [
+   true,
+   false,
+   null
+  ],
+  "22": [
+   true,
+   false,
+   null
+  ],
+  "21": [
+   true,
+   false,
+   null
+  ],
+  "20": [
+   true,
+   false,
+   null
+  ],
+  "19": [
+   true,
+   false,
+   null
+  ],
+  "18": [
+   true,
+   false,
+   null
+  ],
+  "17": [
+   true,
+   false,
+   null
+  ],
+  "16": [
+   true,
+   false,
+   null
+  ],
+  "15": [
+   true,
+   false,
+   null
+  ],
+  "14": [
+   true,
+   false,
+   null
+  ],
+  "13": [
+   true,
+   false,
+   null
+  ],
+  "12": [
+   true,
+   false,
+   null
+  ],
+  "11": [
+   false,
+   false,
+   12
+  ],
+  "10": [
+   true,
+   false,
+   null
+  ],
+  "9": [
+   true,
+   false,
+   null
+  ],
+  "8": [
+   true,
+   false,
+   null
+  ],
+  "7": [
+   true,
+   false,
+   null
+  ],
+  "6": [
+   false,
+   false,
+   7
+  ],
+  "5": [
+   true,
+   false,
+   null
+  ],
+  "4": [
+   true,
+   false,
+   null
+  ],
+  "3": [
+   true,
+   false,
+   null
+  ],
+  "2": [
+   true,
+   false,
+   null
+  ],
+  "1": [
+   true,
+   false,
+   null
+  ]
+ }
+}

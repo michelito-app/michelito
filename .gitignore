@@ -1,0 +1,35 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Personal data: never goes into the repository
+*.db
+*.db-*
+*.pdf
+*.jpg
+*.jpeg
+*.png
+data/
+raw/
+client_secret*.json
+token*.json
+credentials*.json
+*.sqlite*
+*.csv
+.env*
+message.json
+
+# Board web
+src/michelito/web/static/
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+
+# Local work notes (kept out of the repository)
+.superpowers/

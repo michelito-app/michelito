@@ -1,0 +1,52 @@
+// Spanish UI text: accounts. Keys start with "accounts.".
+import type { Catalog } from '../index'
+
+export const accounts = {
+  'accounts.title': 'Cuentas',
+  'accounts.subtitle': 'Saldos según el último estado de cada cuenta',
+  'accounts.loadWhat': 'las cuentas',
+  'accounts.loading': 'Cargando las cuentas',
+  'accounts.none.before': 'Todavía no hay estados. Corre',
+  'accounts.labels.purchases': 'Compras',
+  'accounts.labels.payments': 'Pagos',
+  'accounts.labels.debits': 'Débitos',
+  'accounts.labels.credits': 'Créditos',
+  'accounts.bankType.savings': 'Ahorro',
+  'accounts.bankType.checking': 'Corriente',
+  'accounts.currencyJoin': ' y ',
+  'accounts.noStatementsYet': 'Sin estados todavía',
+  'accounts.cutLine': 'Corta el día {day} · {currencies}',
+  'accounts.period.printout': 'Impresión · {start}–{end}',
+  'accounts.period.range': '{start} – {end}',
+  'accounts.period.until': 'hasta {end}',
+  'accounts.status.upToDate': 'Al día · último estado del {day}',
+  'accounts.status.missing': 'Último estado del {day} · falta el estado de {month}',
+  'accounts.due.today': 'hoy',
+  'accounts.due.tomorrow': 'mañana',
+  'accounts.due.inDays': 'en {days} días',
+  'accounts.due.ofStatement': 'del estado del {day}',
+  'accounts.footnote.missing':
+    'El estado de {month} todavía no llega por correo; los meses que cubre se completan cuando llegue.',
+  'accounts.footnote.twoCurrencies':
+    'Esta cuenta tiene saldo en dos monedas; cada estado se verifica por separado en RD$ y en US$.',
+  'accounts.footnote.default':
+    'Aquí se ve cada estado tal como lo emitió el banco; el Resumen suma por mes de calendario.',
+  'accounts.list.cards': 'Tarjetas de crédito',
+  'accounts.list.noCards': 'Todavía no hay tarjetas de crédito',
+  'accounts.list.others': 'Cuentas de débito y ahorro',
+  'accounts.list.noOthers': 'Todavía no hay cuentas de débito',
+  'accounts.list.emptyHint':
+    'Aparecen aquí cuando lleguen sus estados por correo y se configure su formato.',
+  'accounts.panel.byCut': 'Estados por fecha de corte',
+  'accounts.panel.allBalanced': 'Todos los estados cuadran con el banco',
+  'accounts.panel.viewTransactions': 'Ver transacciones',
+  'accounts.panel.noStatements': 'Esta cuenta todavía no tiene estados.',
+  'accounts.panel.cutOf': 'corte del {day}',
+  'accounts.stat.lastBalance': 'Saldo al último corte',
+  'accounts.stat.payBefore': 'Pagar antes de',
+  'accounts.stat.minimum': 'Pago mínimo',
+  'accounts.table.label': 'Estados',
+  'accounts.table.cut': 'Corte',
+  'accounts.table.period': 'Período',
+  'accounts.table.balance': 'Saldo',
+} as const satisfies Catalog
