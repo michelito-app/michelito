@@ -3,7 +3,7 @@
 # keyring. Ver docs/despliegue.md. Las imágenes base van fijadas por digest (Dependabot las sube).
 
 # 1. La interfaz: compila frontend/ a src/finanzas/web/static/ (como `npm run build`).
-FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS interfaz
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS interfaz
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -12,7 +12,7 @@ RUN npm run build
 
 # 2. La app: un entorno con uv, sin dependencias de desarrollo y sin instalar en modo editable
 #    (el paquete, con la interfaz compilada, queda dentro de .venv).
-FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS app
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS app
 COPY --from=ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -30,7 +30,7 @@ RUN uv sync --frozen --no-dev --no-editable \
     && rm -rf /app/.venv/lib/python3.13/site-packages/googleapiclient/discovery_cache/documents
 
 # 3. La imagen final: el mismo Python, el entorno y nada más (ni uv, ni Node, ni el código fuente).
-FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 LABEL org.opencontainers.image.title="Michelito (demo)" \
       org.opencontainers.image.description="Demo pública de finanzas con datos inventados" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
