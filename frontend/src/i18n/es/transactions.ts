@@ -12,6 +12,10 @@ export const transactions = {
   'transactions.kind.income': 'Ingresos',
   'transactions.kind.transfer': 'Transferencias',
   'transactions.dayLabel': '{weekday} {day} de {month}',
+  // Phone list day headers.
+  'transactions.day.today': 'Hoy',
+  'transactions.day.yesterday': 'Ayer',
+  'transactions.day.short': '{weekday} {day} {month}',
   'transactions.history': {
     one: '{count} compra en {year}',
     other: '{count} compras en {year}',
@@ -35,6 +39,14 @@ export const transactions = {
   'transactions.origin.converted': '{amount} convertidos a la tasa del mes',
   // Filters.tsx
   'transactions.filters.kind': 'Tipo',
+  // Phone: the button that opens the filter sheet (with how many are set) and the sheet.
+  'transactions.filters.open': {
+    zero: 'Filtros',
+    one: 'Filtros ({count})',
+    other: 'Filtros ({count})',
+  },
+  'transactions.filters.title': 'Filtros',
+  'transactions.filters.done': 'Ver resultados',
   'transactions.filters.allKinds': 'Todos',
   'transactions.filters.category': 'Categoría',
   'transactions.filters.allCategories': 'Todas',
@@ -150,4 +162,26 @@ export const transactions = {
   'transactions.clearFilters': 'Quitar filtros',
   'transactions.noStatements': 'Todavía no hay estados. Corre {command}.',
   'transactions.loading': 'Cargando las transacciones',
+
+  // Phone: full-screen detail, its quick actions and the sheets they open.
+  'transactions.detail.back': 'Atrás',
+  'transactions.detail.changeCategory': 'Cambiar categoría: {category}',
+  'transactions.actions.label': 'Acciones rápidas',
+  'transactions.actions.category': 'Categoría',
+  'transactions.actions.note': 'Nota',
+  'transactions.actions.share': 'Compartir',
+  'transactions.actions.more': 'Más acciones',
+  'transactions.actions.oneOff': 'Gasto único',
+  'transactions.actions.reimbursement': 'Reembolso de un compartido',
+  'transactions.actions.investment': 'Inversión',
+  'transactions.actions.cashBox': 'Caja fuerte',
+  'transactions.actions.reserve': 'Reserva',
+  'transactions.actions.recurring': 'Recurrente',
+  'transactions.actions.exchange': 'Cambio de divisas',
+  'transactions.actions.merchant': 'Ver todo el comercio',
+  'transactions.actions.history': 'Historial',
+  'transactions.links.label': 'Vínculos',
+  'transactions.links.open': 'Abrir',
+  'transactions.links.openLabel': 'Abrir {what}',
+  'transactions.links.cashBox': 'Movimiento de la caja fuerte',
 } as const satisfies Catalog

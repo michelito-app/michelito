@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
 import type { Tx } from './api'
 import {
+  activeFilterCount,
+  compactDayLabel,
+  isoToday,
   amountLines,
   amountTone,
   apiPath,
@@ -675,5 +678,47 @@ describe('outOfView', () => {
     expect(outOfView({ top: 780, bottom: 824 }, 800)).toBe(true)
     expect(outOfView({ top: 1500, bottom: 1544 }, 800)).toBe(true)
     expect(outOfView({ top: 20, bottom: 64 }, 800)).toBe(true) // under the sticky header
+  })
+})
+
+describe('compactDayLabel', () => {
+  it('says today and yesterday, also across a month boundary', () => {
+    expect(compactDayLabel('2026-03-01', '2026-03-01')).toBe(t('transactions.day.today'))
+    expect(compactDayLabel('2026-02-28', '2026-03-01')).toBe(t('transactions.day.yesterday'))
+  })
+
+  it('otherwise a short weekday, the day and a short month', () => {
+    // 2024-11-12 was a Tuesday.
+    const label = compactDayLabel('2024-11-12', '2026-03-01')
+    expect(label).toBe(
+      t('transactions.day.short', { weekday: 'mar', day: 12, month: 'nov' }),
+    )
+  })
+
+  it('isoToday uses the local date', () => {
+    expect(isoToday(new Date(2026, 0, 5, 23, 30))).toBe('2026-01-05')
+  })
+})
+
+describe('activeFilterCount', () => {
+  const base = parseFilters(new URLSearchParams())
+
+  it('is zero with the defaults', () => {
+    expect(activeFilterCount(base)).toBe(0)
+  })
+
+  it('counts kind, category, shared, grouping and sort', () => {
+    expect(
+      activeFilterCount({
+        ...base,
+        kind: 'income',
+        category: 'Comida',
+        shared: 'pending',
+        group: 'merchant',
+        sort: 'amount',
+      }),
+    ).toBe(5)
+    // The search, the month and the accounts live outside the sheet.
+    expect(activeFilterCount({ ...base, q: 'x', month: '2026-01', accounts: ['a'] })).toBe(0)
   })
 })

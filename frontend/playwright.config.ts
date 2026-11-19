@@ -10,6 +10,9 @@ const HOUSEHOLD_SPECS = /(household|crypto)\.spec\.ts$/
 // The public demo (`michelito demo`, tests/e2e_demo_server.py): its own server on PORT + 2.
 const DEMO_PORT = PORT + 2
 const DEMO_SPECS = /demo\.spec\.ts$/
+// The phone layout and the installable app: the main server, with a phone viewport and touch.
+const MOBILE_SPECS = /(mobile|pwa)\.spec\.ts$/
+const PHONE = { ...devices['Desktop Chrome'], isMobile: true, hasTouch: true }
 // 8501 is the real board's port (`michelito board`): the tests never use it, not even for the
 // second server.
 const RESERVED_PORT = 8501
@@ -30,12 +33,14 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',
+    // The app's service worker (only in pwa.spec.ts) would stand between the page and page.route.
+    serviceWorkers: 'block',
   },
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [HOUSEHOLD_SPECS, DEMO_SPECS],
+      testIgnore: [HOUSEHOLD_SPECS, DEMO_SPECS, MOBILE_SPECS],
     },
     {
       name: 'household',
@@ -46,6 +51,16 @@ export default defineConfig({
       name: 'demo',
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${DEMO_PORT}` },
       testMatch: DEMO_SPECS,
+    },
+    {
+      name: 'mobile',
+      use: { ...PHONE, viewport: { width: 390, height: 844 } },
+      testMatch: MOBILE_SPECS,
+    },
+    {
+      name: 'mobile-360',
+      use: { ...PHONE, viewport: { width: 360, height: 740 } },
+      testMatch: /mobile\.spec\.ts$/,
     },
   ],
   webServer: [

@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSummarySections } from './phone'
 import { escapeRegExp, literal, t } from './text'
+
+// On a phone the Summary's sections start closed: the 390 px checks look at them open.
+test.beforeEach(async ({ page }) => openSummarySections(page))
 
 // "Copy for Claude" over the made-up data of tests/e2e_server.py. What is saved here is deleted
 // at the end: reports.spec.ts and summary-layout.spec.ts expect December and January without an

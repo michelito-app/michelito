@@ -1,5 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { openSummarySections } from './phone'
 import { t } from './text'
+
+// On a phone the Summary's sections start closed: the 390 px checks look at them open.
+test.beforeEach(async ({ page }) => openSummarySections(page))
 
 // Made-up data from tests/e2e_server.py: the cash box starts with an initial balance of US$ 200
 // (December, at 63.10 ≈ RD$ 12,620). In January 2026, on the checking account, a «RETIRO CAJERO
@@ -47,6 +51,18 @@ function card(page: Page) {
 /** The «Cash box» section of a transaction's detail. */
 function section(detail: Locator) {
   return detail.getByRole('region', { name: t('links.cashBox.title') })
+}
+
+/** On a phone the detail is full screen and its «Cash box» opens in a sheet: that sheet. */
+async function phoneCashBox(page: Page, detail: Locator): Promise<Locator> {
+  const mobile = page.locator('[data-mobile-detail]')
+  if ((await mobile.count()) === 0) return detail
+  const open = mobile.getByRole('button', {
+    name: t('transactions.links.openLabel', { what: t('transactions.actions.cashBox') }),
+  })
+  if ((await open.count()) > 0) await open.click()
+  else await mobile.getByRole('button', { name: t('transactions.actions.cashBox'), exact: true }).click()
+  return page.getByRole('dialog', { name: t('transactions.actions.cashBox') })
 }
 
 const kpiRegion = (page: Page) =>
@@ -187,7 +203,7 @@ test('at 390 px the «Cash box» section of the detail fits and its targets are 
 }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   for (const name of [/^RETIRO CAJERO.*RD\$ 5,000$/, /^DEPOSITO CLIENTE.*RD\$ 12,000$/]) {
-    const detail = await openTransaction(page, name)
+    const detail = await phoneCashBox(page, await openTransaction(page, name))
     const box = section(detail)
     await box.scrollIntoViewIfNeeded()
     await expect(box.getByTestId('cash-box-text')).toBeVisible()

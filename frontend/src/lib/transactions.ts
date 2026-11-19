@@ -189,6 +189,45 @@ export function dayLabel(iso: string): string {
   return t('transactions.dayLabel', { weekday, day, month: monthName(iso.slice(0, 7)) })
 }
 
+const SHORT_WEEKDAY = new Intl.DateTimeFormat(LOCALE, { weekday: 'short', timeZone: 'UTC' })
+
+/** The local date as "YYYY-MM-DD". */
+export function isoToday(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+/** The day before an ISO date. */
+function previousDay(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+}
+
+/** Short day header for the phone list: "Hoy", "Ayer" or "mar 12 nov" (`today`: ISO date). */
+export function compactDayLabel(iso: string, today: string): string {
+  if (iso === today) return t('transactions.day.today')
+  if (iso === previousDay(today)) return t('transactions.day.yesterday')
+  const [year, month, day] = iso.split('-').map(Number)
+  const weekday = SHORT_WEEKDAY.format(new Date(Date.UTC(year, month - 1, day))).replace('.', '')
+  return t('transactions.day.short', {
+    weekday,
+    day,
+    month: monthName(iso.slice(0, 7)).slice(0, 3),
+  })
+}
+
+/** How many settings the phone's filter sheet holds that differ from the default (kind,
+ * category, the shared filter, grouping and sort). */
+export function activeFilterCount(filters: TxFilters): number {
+  return [
+    filters.kind !== null,
+    filters.category !== null,
+    filters.shared !== null,
+    filters.group !== 'day',
+    filters.sort !== 'date',
+  ].filter(Boolean).length
+}
+
 /** Groups consecutive rows of the same day; the API already sends them newest first. */
 export function groupByDay(items: Tx[]): DayGroup[] {
   return items.reduce<DayGroup[]>((groups, item) => {

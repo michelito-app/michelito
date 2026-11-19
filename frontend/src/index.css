@@ -23,6 +23,8 @@
   --input: #e6e6e1;
   --ring: #1f6f5c;
   --radius: 0.75rem;
+  /* Height of the phone's bottom bar (without the safe area below it). */
+  --bottom-bar: 3.75rem;
 }
 
 @theme inline {

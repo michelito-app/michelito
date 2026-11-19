@@ -48,6 +48,13 @@ async function openRow(page: Page, name: RegExp) {
 /** Opens the row's link screen from the «Shared» or «Reimbursement» line of the panel. */
 async function openScreen(page: Page, name: RegExp, section = t('links.summary.sharedTitle')) {
   await openRow(page, name)
+  // On a phone the detail manages links in sheets: the screen opens by its address.
+  if ((await page.locator('[data-mobile-detail]').count()) > 0) {
+    const fingerprint = new URL(page.url()).searchParams.get('tx')
+    await page.goto(`/transactions/${encodeURIComponent(fingerprint!)}`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(name)
+    return
+  }
   await page
     .getByRole('complementary')
     .getByRole('region', { name: section })

@@ -10,7 +10,9 @@ import {
   AMOUNT_TONE_CLASS,
   amountLines,
   amountTone,
+  compactDayLabel,
   dayGroups,
+  isoToday,
   fieldGroups,
   groupLine,
   kindBadge,
@@ -21,6 +23,7 @@ import {
   type SortBy,
 } from '@/lib/transactions'
 import { visibleRows } from '@/lib/selection'
+import { useLongPress } from '@/lib/useLongPress'
 import { shortDay } from '@/lib/months'
 import { cn } from '@/lib/utils'
 import { FOCUS, PANEL } from '@/components/summary/styles'
@@ -43,6 +46,10 @@ interface TransactionListProps {
   onSelect: (tx: Tx) => void
   /** Selection mode: each row is a checkbox (`chosen`) instead of opening the detail. */
   picking?: Picking | null
+  /** Phone: holding a row enters selection mode with it chosen. */
+  onLongPress?: ((tx: Tx) => void) | null
+  /** Phone: short day headers ("Hoy", "Ayer", "mar 12 nov"). */
+  compact?: boolean
 }
 
 export interface Picking {
@@ -63,9 +70,14 @@ export function TransactionList({
   sort,
   onSelect,
   picking = null,
+  onLongPress = null,
+  compact = false,
 }: TransactionListProps) {
-  const rowProps = { selected, ranking, onSelect, picking }
+  const rowProps = { selected, ranking, onSelect, picking, onLongPress }
+  const today = isoToday()
   const section = useRef<HTMLElement>(null)
+  // On a phone a new list (the whole merchant, say) also brings the chosen row into view.
+  const phoneItems = compact ? items : null
   // When the chosen row changes (also when arriving from the Summary, Pending or "Back") the list
   // brings it into view if it is not visible; folding or unfolding a group does not move it.
   useEffect(() => {
@@ -73,8 +85,8 @@ export function TransactionList({
     const row = section.current?.querySelector<HTMLElement>(
       `[data-fingerprint="${CSS.escape(selected)}"]`,
     )
-    if (row) bringIntoView(row)
-  }, [selected])
+    if (row) bringIntoView(row, compact)
+  }, [selected, compact, phoneItems])
   const onVisible = picking?.onVisible
   // By day everything is visible; by groups, `FieldGroups` reports it from the open ones.
   useEffect(() => {
@@ -109,7 +121,7 @@ export function TransactionList({
                 'px-4 py-2 text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase sm:px-5',
               )}
             >
-              {day.label}
+              {compact ? compactDayLabel(day.day, today) : day.label}
             </div>
             <Rows items={day.items} {...rowProps} />
           </div>
@@ -127,12 +139,14 @@ export function TransactionList({
   )
 }
 
-/** Centers the row if it is not fully visible. On a phone the detail sheet covers almost all of
- * it: what matters is that it is in view when the sheet closes. */
-function bringIntoView(row: HTMLElement) {
+/** Centers the row if it is not fully visible. On a tablet the detail sheet covers almost all of
+ * it: what matters is that it is in view when the sheet closes. On a phone (`instant`) the
+ * full-screen detail hides the list, so it jumps there at once: when the detail closes the row is
+ * already in place (no scroll still running). */
+function bringIntoView(row: HTMLElement, instant: boolean) {
   if (!outOfView(row.getBoundingClientRect(), window.innerHeight)) return
   const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  row.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
+  row.scrollIntoView({ block: 'center', behavior: reduce || instant ? 'auto' : 'smooth' })
 }
 
 interface RowsProps {
@@ -141,9 +155,10 @@ interface RowsProps {
   ranking: readonly string[]
   onSelect: (tx: Tx) => void
   picking: Picking | null
+  onLongPress: ((tx: Tx) => void) | null
 }
 
-function Rows({ items, selected, ranking, onSelect, picking }: RowsProps) {
+function Rows({ items, selected, ranking, onSelect, picking, onLongPress }: RowsProps) {
   const custom = customColors(useCategories().data ?? [])
   return items.map((tx) =>
     picking ? (
@@ -161,6 +176,7 @@ function Rows({ items, selected, ranking, onSelect, picking }: RowsProps) {
         color={colorFor(ranking, tx.category, custom)}
         selected={tx.fingerprint === selected}
         onSelect={onSelect}
+        onLongPress={onLongPress}
       />
     ),
   )
@@ -172,7 +188,15 @@ interface FieldGroupsProps extends Omit<RowsProps, 'items'> {
 }
 
 /** Groups by category or merchant, closed at first (except the chosen row's group). */
-function FieldGroups({ groups, field, selected, ranking, onSelect, picking }: FieldGroupsProps) {
+function FieldGroups({
+  groups,
+  field,
+  selected,
+  ranking,
+  onSelect,
+  picking,
+  onLongPress,
+}: FieldGroupsProps) {
   const custom = customColors(useCategories().data ?? [])
   const baseId = useId()
   const [open, setOpen] = useState<ReadonlySet<string>>(() => {
@@ -233,6 +257,7 @@ function FieldGroups({ groups, field, selected, ranking, onSelect, picking }: Fi
               ranking={ranking}
               onSelect={onSelect}
               picking={picking}
+              onLongPress={onLongPress}
             />
           )}
         </div>
@@ -246,16 +271,20 @@ interface RowProps {
   color: string
   selected: boolean
   onSelect: (tx: Tx) => void
+  onLongPress: ((tx: Tx) => void) | null
 }
 
-function Row({ tx, color, selected, onSelect }: RowProps) {
+function Row({ tx, color, selected, onSelect, onLongPress }: RowProps) {
+  const press = useLongPress(onLongPress && (() => onLongPress(tx)))
   return (
     <button
       type="button"
       aria-pressed={selected}
       data-fingerprint={tx.fingerprint}
       onClick={() => onSelect(tx)}
+      {...press}
       className={cn(
+        press && 'select-none [-webkit-touch-callout:none]',
         GRID,
         'relative min-h-11 w-full scroll-mt-16 cursor-pointer items-center border-b border-[#F2F2EE] px-4 py-1.5 text-left text-foreground transition-colors last:border-b-0 sm:px-5',
         selected ? 'bg-[#F1F7F5]' : 'bg-card hover:bg-[#FAFAF8]',
@@ -333,7 +362,10 @@ function RowBody({ tx, color }: { tx: Tx; color: string }) {
         )}
       >
         <Swatch color={color} />
-        <span className="truncate">{tx.category} ·</span>
+        <span className="truncate max-md:rounded-full max-md:bg-muted max-md:px-1.5 max-md:leading-[18px] max-md:text-ink-2">
+          {tx.category}
+          <span className="max-md:hidden"> ·</span>
+        </span>
         {/* The account gives up space before the category. */}
         <span className="flex min-w-0 shrink-4">
           <AccountLabel label={tx.account_label} />

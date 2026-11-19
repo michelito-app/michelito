@@ -26,6 +26,7 @@ import {
   SECTION_TITLE,
 } from './linkParts'
 import { SplitForm } from './SplitForm'
+import { SheetOrInline } from '@/components/ui/sheet-or-inline'
 
 interface GroupPanelProps {
   group: SharedInfo
@@ -232,20 +233,26 @@ function ExpenseRow({ group, expense, current }: ExpenseRowProps) {
         </ConfirmBox>
       )}
       {editing && (
-        <SplitForm
-          currency={expense.currency}
-          amountCents={expense.amount_cents}
-          initial={expense}
-          saving={change.isPending}
-          submitLabel={t('links.group.saveSplit')}
-          onCancel={() => setEditing(false)}
-          onSave={(split) =>
-            change.mutate(
-              { action: 'split', id: group.id, fingerprint: expense.fingerprint, split },
-              { onSuccess: () => setEditing(false) },
-            )
-          }
-        />
+        <SheetOrInline
+          title={t('links.group.changeSplit')}
+          onClose={() => setEditing(false)}
+          sheetExtra={<Failure error={change.error} />}
+        >
+          <SplitForm
+            currency={expense.currency}
+            amountCents={expense.amount_cents}
+            initial={expense}
+            saving={change.isPending}
+            submitLabel={t('links.group.saveSplit')}
+            onCancel={() => setEditing(false)}
+            onSave={(split) =>
+              change.mutate(
+                { action: 'split', id: group.id, fingerprint: expense.fingerprint, split },
+                { onSuccess: () => setEditing(false) },
+              )
+            }
+          />
+        </SheetOrInline>
       )}
       <Failure error={change.error} />
     </li>
@@ -273,58 +280,69 @@ function AddExpense({ group }: { group: SharedInfo }) {
           {open ? t('links.close') : t('links.group.addExpense')}
         </Action>
       </div>
-      {open && picked === null && (
-        <>
-          {candidates.isError ? (
-            <LoadFailure what={t('links.what.expenses')} error={candidates.error} />
-          ) : candidates.isPending ? (
-            <p className="text-[13px] text-muted-foreground">{t('links.searching')}</p>
-          ) : (candidates.data ?? []).length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">
-              {t('links.group.noCandidates')}
-            </p>
-          ) : (
-            <CandidatePicker
-              items={candidates.data ?? []}
-              label={t('links.group.candidates')}
-              action={(item) => (
-                <Action
-                  label={t('links.addMerchant', { merchant: item.merchant })}
-                  onClick={() =>
-                    setPicked({
-                      fingerprint: item.fingerprint,
-                      amount: item.amount_cents,
-                      currency: item.currency,
-                    })
-                  }
-                >
-                  {t('links.add')}
-                </Action>
+      {(open || picked) && (
+        <SheetOrInline
+          title={t('links.group.addExpense')}
+          onClose={() => {
+            setPicked(null)
+            setOpen(false)
+          }}
+          sheetExtra={<Failure error={change.error} />}
+        >
+          {open && picked === null && (
+            <>
+              {candidates.isError ? (
+                <LoadFailure what={t('links.what.expenses')} error={candidates.error} />
+              ) : candidates.isPending ? (
+                <p className="text-[13px] text-muted-foreground">{t('links.searching')}</p>
+              ) : (candidates.data ?? []).length === 0 ? (
+                <p className="text-[13px] text-muted-foreground">
+                  {t('links.group.noCandidates')}
+                </p>
+              ) : (
+                <CandidatePicker
+                  items={candidates.data ?? []}
+                  label={t('links.group.candidates')}
+                  action={(item) => (
+                    <Action
+                      label={t('links.addMerchant', { merchant: item.merchant })}
+                      onClick={() =>
+                        setPicked({
+                          fingerprint: item.fingerprint,
+                          amount: item.amount_cents,
+                          currency: item.currency,
+                        })
+                      }
+                    >
+                      {t('links.add')}
+                    </Action>
+                  )}
+                />
               )}
+            </>
+          )}
+          {picked && (
+            <SplitForm
+              currency={picked.currency}
+              amountCents={picked.amount}
+              initial={group.last_split}
+              saving={change.isPending}
+              submitLabel={t('links.group.addToGroup')}
+              onCancel={() => setPicked(null)}
+              onSave={(split) =>
+                change.mutate(
+                  { action: 'add-expense', id: group.id, fingerprint: picked.fingerprint, split },
+                  {
+                    onSuccess: () => {
+                      setPicked(null)
+                      setOpen(false)
+                    },
+                  },
+                )
+              }
             />
           )}
-        </>
-      )}
-      {picked && (
-        <SplitForm
-          currency={picked.currency}
-          amountCents={picked.amount}
-          initial={group.last_split}
-          saving={change.isPending}
-          submitLabel={t('links.group.addToGroup')}
-          onCancel={() => setPicked(null)}
-          onSave={(split) =>
-            change.mutate(
-              { action: 'add-expense', id: group.id, fingerprint: picked.fingerprint, split },
-              {
-                onSuccess: () => {
-                  setPicked(null)
-                  setOpen(false)
-                },
-              },
-            )
-          }
-        />
+        </SheetOrInline>
       )}
       <Failure error={change.error} />
     </div>
@@ -338,7 +356,11 @@ function Toggle({ label, children }: { label: string; children: ReactNode }) {
       <div>
         <Action onClick={() => setOpen((v) => !v)}>{open ? t('links.close') : label}</Action>
       </div>
-      {open && children}
+      {open && (
+        <SheetOrInline title={label} onClose={() => setOpen(false)}>
+          {children}
+        </SheetOrInline>
+      )}
     </div>
   )
 }

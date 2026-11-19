@@ -210,7 +210,8 @@ function MonthPanel({ id, month, year, options, onYear, onPick, onClose }: Month
       <div
         aria-hidden="true"
         onClick={() => onClose(true)}
-        className="fixed inset-0 z-40 bg-[#1B1D21]/30 animate-in fade-in-0 sm:hidden"
+        // Above the phone's bottom bar (z-40), like the sheet itself (z-50).
+        className="fixed inset-0 z-[45] bg-[#1B1D21]/30 animate-in fade-in-0 sm:hidden"
       />
       <div
         ref={panel}

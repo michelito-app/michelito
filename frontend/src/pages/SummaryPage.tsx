@@ -8,6 +8,7 @@ import { CoverageChips } from '@/components/summary/CoverageChips'
 import { InterestCard } from '@/components/summary/InterestCard'
 import { Kpis } from '@/components/summary/Kpis'
 import { MonthHeader } from '@/components/MonthHeader'
+import { MobileSummary } from '@/components/summary/MobileSummary'
 import { MonthReading } from '@/components/summary/MonthReading'
 import { PendingCard } from '@/components/summary/PendingCard'
 import { ReviewCard } from '@/components/summary/ReviewCard'
@@ -30,6 +31,7 @@ import { usePublishNavMonth } from '@/lib/navMonth'
 import { useMonths, useReview, useSummary } from '@/lib/queries'
 import { partialNote } from '@/lib/summary'
 import { useAccountSelection } from '@/lib/useAccountSelection'
+import { useIsMobile } from '@/lib/useMobile'
 import { cn } from '@/lib/utils'
 
 /** Summary screen: the month (`?month=YYYY-MM`) and the chosen accounts (`accounts=k1,k2`, also
@@ -124,6 +126,23 @@ function MonthBody({
   const nothingToReview = review.isSuccess && review.data.length === 0
   // Interest belongs to cards: with none chosen, the widget does not show.
   const cards = selection === null || includesCard(selection, accounts)
+  const mobile = useIsMobile()
+  if (mobile) {
+    return (
+      <div
+        aria-busy={stale}
+        className={cn('flex flex-col gap-5 transition-opacity', stale && 'opacity-60')}
+      >
+        <MobileSummary
+          summary={summary}
+          onSelectMonth={onSelectMonth}
+          selection={selection}
+          accounts={accounts}
+          note={note}
+        />
+      </div>
+    )
+  }
   return (
     <div
       aria-busy={stale}

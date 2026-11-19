@@ -1,11 +1,19 @@
-import { Search, X } from 'lucide-react'
+import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { t } from '@/i18n'
 import type { Category } from '@/lib/api'
 import { categoryGroups, NEW_CATEGORY, NEW_CATEGORY_ACTION } from '@/lib/categories'
-import { GROUP_OPTIONS, KIND_OPTIONS, SORT_OPTIONS, type TxFilters } from '@/lib/transactions'
+import {
+  activeFilterCount,
+  GROUP_OPTIONS,
+  KIND_OPTIONS,
+  SORT_OPTIONS,
+  type TxFilters,
+} from '@/lib/transactions'
 import { cn } from '@/lib/utils'
 import { FOCUS } from '@/components/summary/styles'
+import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { Button } from '@/components/ui/button'
 
 /** Wait after the last key press before searching. */
 const SEARCH_DEBOUNCE_MS = 250
@@ -24,13 +32,78 @@ interface FiltersProps {
   onSearch: (q: string) => void
   /** At the end of the row (the select button). */
   children?: ReactNode
+  /** Phone: the search stays visible; the rest goes into a sheet behind "Filters (N)". */
+  mobile?: boolean
 }
 
 /** Search, filters, grouping and sort of the list; all of it lives in the URL. */
-export function Filters({ filters, categories, onChange, onSearch, children }: FiltersProps) {
+export function Filters({
+  filters,
+  categories,
+  onChange,
+  onSearch,
+  children,
+  mobile = false,
+}: FiltersProps) {
+  if (mobile) {
+    return (
+      <MobileFilters filters={filters} categories={categories} onChange={onChange} onSearch={onSearch}>
+        {children}
+      </MobileFilters>
+    )
+  }
   return (
     <div role="search" className="flex flex-wrap items-center gap-2.5">
       <SearchField q={filters.q} onSearch={onSearch} />
+      <FilterFields filters={filters} categories={categories} onChange={onChange} />
+      {children}
+    </div>
+  )
+}
+
+/** The phone's row: search, the button that opens the filter sheet and the select button. */
+function MobileFilters({ filters, categories, onChange, onSearch, children }: FiltersProps) {
+  const [open, setOpen] = useState(false)
+  const count = activeFilterCount(filters)
+  return (
+    <div role="search" className="flex items-center gap-2">
+      <SearchField q={filters.q} onSearch={onSearch} />
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className={cn(
+          'flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold',
+          count > 0
+            ? 'border-primary/40 bg-secondary text-secondary-foreground'
+            : 'border-border bg-card text-foreground',
+          FOCUS,
+        )}
+      >
+        <SlidersHorizontal size={16} aria-hidden="true" />
+        {t('transactions.filters.open', { count })}
+      </button>
+      {children}
+      {open && (
+        <BottomSheet title={t('transactions.filters.title')} onClose={() => setOpen(false)}>
+          <div className="flex flex-col gap-2.5 [&>label]:w-full">
+            <FilterFields filters={filters} categories={categories} onChange={onChange} />
+          </div>
+          <Button className="h-11 rounded-xl text-sm font-semibold" onClick={() => setOpen(false)}>
+            {t('transactions.filters.done')}
+          </Button>
+        </BottomSheet>
+      )}
+    </div>
+  )
+}
+
+type FilterFieldsProps = Pick<FiltersProps, 'filters' | 'categories' | 'onChange'>
+
+/** Kind, category, grouping, sort and the shared filter (when set). */
+function FilterFields({ filters, categories, onChange }: FilterFieldsProps) {
+  return (
+    <>
       <SelectField
         label={t('transactions.filters.kind')}
         value={filters.kind ?? ALL}
@@ -93,8 +166,7 @@ export function Filters({ filters, categories, onChange, onSearch, children }: F
           <X size={14} aria-hidden="true" />
         </button>
       )}
-      {children}
-    </div>
+    </>
   )
 }
 

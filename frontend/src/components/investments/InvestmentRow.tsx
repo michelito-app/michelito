@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useRef } from 'react'
 import { Link } from 'react-router'
 import { FOCUS, ROW_DIVIDER } from '@/components/summary/styles'
+import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { t } from '@/i18n'
 import type { Investment, InvestmentStatus } from '@/lib/api'
 import {
@@ -14,6 +15,7 @@ import {
 } from '@/lib/investments'
 import { formatMoney, linkPagePath } from '@/lib/links'
 import { shortDay } from '@/lib/months'
+import { useIsMobile } from '@/lib/useMobile'
 import { cn } from '@/lib/utils'
 
 const STATUS_CLASS: Record<InvestmentStatus, string> = {
@@ -51,13 +53,17 @@ export function InvestmentRow({
   const row = useRef<HTMLLIElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const stats = investmentStats(investment)
+  // On a phone the detail opens in a bottom sheet instead of under the row.
+  const mobile = useIsMobile()
 
   useEffect(() => {
     if (!reveal) return
     button.current?.focus({ preventScroll: true })
     row.current?.scrollIntoView({ block: 'center' })
     onRevealed()
-  }, [reveal, onRevealed])
+    // On a phone, coming back shows the row (focused) without opening its sheet again.
+    if (mobile && expanded) onToggle()
+  }, [reveal, onRevealed, mobile, expanded, onToggle])
 
   return (
     <li ref={row} className={ROW_DIVIDER}>
@@ -111,22 +117,46 @@ export function InvestmentRow({
           )}
         />
       </button>
-      {expanded && (
+      {expanded && !mobile && (
         <div id={`${ids}-detail`} className="flex flex-col gap-3 pt-1 pb-4">
           <Details investment={investment} />
-          <div>
-            <Link
-              to={linkPagePath(investment.first_fingerprint)}
-              state={{ from }}
-              aria-label={t('investments.row.manageLabel', { title: investment.title })}
-              className={cn(MANAGE, FOCUS)}
-            >
-              {t('investments.row.manage')}
-            </Link>
-          </div>
+          <Manage investment={investment} from={from} />
         </div>
       )}
+      {expanded && mobile && !reveal && (
+        <BottomSheet title={investment.title} onClose={onToggle}>
+          <div id={`${ids}-detail`} className="flex flex-col gap-3">
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {stats.map((stat) => (
+                <div key={stat.key} className="flex min-w-0 flex-col">
+                  <dt className="text-[11.5px] text-muted-foreground">{stat.label}</dt>
+                  <dd className="text-[15px] font-semibold break-words tabular-nums">
+                    {stat.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <Details investment={investment} />
+            <Manage investment={investment} from={from} />
+          </div>
+        </BottomSheet>
+      )}
     </li>
+  )
+}
+
+function Manage({ investment, from }: { investment: Investment; from: string }) {
+  return (
+    <div>
+      <Link
+        to={linkPagePath(investment.first_fingerprint)}
+        state={{ from }}
+        aria-label={t('investments.row.manageLabel', { title: investment.title })}
+        className={cn(MANAGE, FOCUS)}
+      >
+        {t('investments.row.manage')}
+      </Link>
+    </div>
   )
 }
 

@@ -237,4 +237,21 @@ export const summary = {
     '{label} está en curso. Se compara cuando todas las cuentas cierran el mes.',
   'summary.page.empty': 'Todavía no hay estados. Corre {command}.',
   'summary.page.loading': 'Cargando el resumen',
+
+  // Phone layout: the main card, the indicator strip and the collapsible sections.
+  'summary.mobile.kept': 'Lo que te quedó',
+  'summary.mobile.in': 'Entró',
+  'summary.mobile.out': 'Salió',
+  'summary.mobile.indicators': 'Indicadores del mes',
+  'summary.mobile.spending': 'Gastos',
+  'summary.mobile.savings': 'Ahorrado',
+  'summary.mobile.budget': 'Presupuesto',
+  'summary.mobile.owed': 'Te deben',
+  'summary.mobile.owedNote': 'en compartidos y pendientes',
+  'summary.mobile.oneOffs': 'Gastos únicos',
+  'summary.mobile.section.reading': 'Lectura del mes',
+  'summary.mobile.section.trend': 'Últimos meses',
+  'summary.mobile.section.categories': 'Categorías',
+  'summary.mobile.section.upcoming': 'Presupuesto y próximos gastos grandes',
+  'summary.mobile.section.details': 'Detalle del mes',
 } as const satisfies Catalog

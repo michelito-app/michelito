@@ -89,7 +89,7 @@ export function SelectionBar({
         tabIndex={-1}
         {...{ [BAR_ATTR]: '' }}
         style={{ left }}
-        className="fixed right-0 bottom-0 z-30 border-t border-border bg-card px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(27,29,33,0.12)] outline-none sm:px-10"
+        className="fixed right-0 bottom-0 z-30 border-t border-border bg-card px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(27,29,33,0.12)] outline-none max-md:bottom-[calc(var(--bottom-bar)+env(safe-area-inset-bottom))] max-md:pb-3 sm:px-10"
       >
         <div className="mx-auto flex max-w-[1400px] flex-col gap-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

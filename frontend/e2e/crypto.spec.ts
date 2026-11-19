@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { chooseFilter } from './phone'
 import { literal, t } from './text'
 
 // The `--household` server of tests/e2e_server.py (made-up data): the P2P account with
@@ -38,12 +39,8 @@ const JAN_27 = '27 ene' // spanish-ui: short day built with Intl
 async function filterCrypto(page: Page) {
   await page.goto(`/transactions?month=${MONTH}`)
   const search = page.getByRole('search')
-  await search
-    .getByRole('combobox', { name: t('transactions.filters.kind'), exact: true })
-    .selectOption(t('transactions.kind.income'))
-  await search
-    .getByRole('combobox', { name: t('transactions.filters.category'), exact: true })
-    .selectOption(OTHER_INCOME)
+  await chooseFilter(page, t('transactions.filters.kind'), t('transactions.kind.income'))
+  await chooseFilter(page, t('transactions.filters.category'), OTHER_INCOME)
   await search.getByRole('searchbox').fill('P2P')
   await expect(page).toHaveURL(/q=P2P/)
   const list = page.getByRole('region', { name: LIST })
@@ -129,8 +126,10 @@ test('at 390 px the bar stays at the bottom without covering the list or overflo
     client: document.documentElement.clientWidth,
   }))
   expect(widths.scroll).toBeLessThanOrEqual(widths.client)
+  // At the bottom: on a phone, right on top of the bottom navigation bar.
   const box = await bar.boundingBox()
-  expect(box && box.y + box.height).toBeCloseTo(844, 0)
+  const navigation = await page.locator('nav[data-bottom-bar]').boundingBox()
+  expect(box && box.y + box.height).toBeCloseTo(navigation ? navigation.y : 844, 0)
   // At the end of the page the last row stays above the bar.
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   const last = list.getByRole('checkbox').last()

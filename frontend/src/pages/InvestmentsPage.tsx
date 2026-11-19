@@ -177,11 +177,11 @@ function Figures({ data }: { data: InvestmentList }) {
   return (
     <section aria-label={t('investments.totalsLabel')} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {investmentFigures(data).map((figure) => (
-        <div key={figure.key} className={cn(PANEL, 'flex flex-col gap-1 px-5 py-4')}>
+        <div key={figure.key} className={cn(PANEL, 'flex flex-col gap-1 px-5 py-4 max-md:px-4 max-md:py-3')}>
           <span className="text-[13px] font-medium text-ink-2">{figure.label}</span>
           <strong
             data-testid={`investments-${figure.key}`}
-            className="text-[24px] leading-tight font-bold tracking-[-0.01em] whitespace-nowrap tabular-nums"
+            className="text-[24px] leading-tight font-bold tracking-[-0.01em] whitespace-nowrap tabular-nums max-md:text-[20px]"
           >
             {figure.value}
           </strong>

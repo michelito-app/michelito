@@ -1,6 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { LOCALE } from '../src/i18n'
+import { openSummarySections } from './phone'
 import { escapeRegExp, literal, t } from './text'
+
+// On a phone the Summary's sections start closed: the 390 px checks look at them open.
+test.beforeEach(async ({ page }) => openSummarySections(page))
 
 // The Summary's layout with the made-up data of tests/e2e_server.py. February 2026 brings four
 // warnings in «To review»; January 2026, none. What is missing to test (more categories, more

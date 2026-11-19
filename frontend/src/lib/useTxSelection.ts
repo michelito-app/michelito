@@ -20,6 +20,8 @@ export interface TxSelection {
   visible: readonly string[] // the visible rows (with groups, those of the open ones)
   note: BatchNote | null
   start: () => void
+  /** Enters the mode with this row already chosen (the phone's long-press); focus goes to it. */
+  startWith: (tx: Tx) => void
   cancel: () => void
   toggle: (tx: Tx) => void
   selectVisible: () => void
@@ -34,7 +36,8 @@ export function useTxSelection(items: readonly Tx[] | undefined): TxSelection {
   const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null)
   const [visible, setVisible] = useState<readonly string[]>([])
   const [note, setNote] = useState<BatchNote | null>(null)
-  const focusList = useRef(false)
+  // Where focus goes on entering: the first checkbox (true), a row's (its fingerprint) or nowhere.
+  const focusList = useRef<boolean | string>(false)
   const picking = chosen !== null
 
   // When another list arrives (filters), those that left are dropped (during render, no effect).
@@ -63,7 +66,15 @@ export function useTxSelection(items: readonly Tx[] | undefined): TxSelection {
   // On entering, focus goes to the first checkbox (or, without any, to the bar).
   useEffect(() => {
     if (!picking || !focusList.current) return
+    const target = focusList.current
     focusList.current = false
+    if (typeof target === 'string') {
+      const row = document.querySelector<HTMLElement>(
+        `[data-fingerprint="${CSS.escape(target)}"] input[type="checkbox"]`,
+      )
+      row?.focus({ preventScroll: true })
+      return
+    }
     const first = document.querySelector<HTMLElement>(LIST_CHECKBOX)
     const bar = document.querySelector<HTMLElement>(`[${BAR_ATTR}]`)
     ;(first ?? bar)?.focus()
@@ -73,6 +84,11 @@ export function useTxSelection(items: readonly Tx[] | undefined): TxSelection {
     focusList.current = true
     setNote(null)
     setChosen(new Set())
+  }, [])
+  const startWith = useCallback((tx: Tx) => {
+    focusList.current = tx.fingerprint
+    setNote(null)
+    setChosen(new Set([tx.fingerprint]))
   }, [])
   const cancel = useCallback(() => setChosen(null), [])
   const toggle = useCallback(
@@ -93,6 +109,7 @@ export function useTxSelection(items: readonly Tx[] | undefined): TxSelection {
     visible,
     note,
     start,
+    startWith,
     cancel,
     toggle,
     selectVisible,

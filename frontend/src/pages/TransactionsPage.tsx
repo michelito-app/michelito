@@ -1,10 +1,13 @@
-import { type ReactNode, useCallback, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { ListChecks } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { LoadError } from '@/components/LoadError'
 import { MonthHeader } from '@/components/MonthHeader'
 import { PANEL } from '@/components/summary/styles'
 import { Filters } from '@/components/transactions/Filters'
+import { MobileDetail } from '@/components/transactions/MobileDetail'
 import { BatchNotice, SelectionBar } from '@/components/transactions/SelectionBar'
 import { DETAIL_TITLE_ID, TransactionDetail } from '@/components/transactions/TransactionDetail'
 import { TransactionList } from '@/components/transactions/TransactionList'
@@ -41,6 +44,8 @@ import {
 } from '@/lib/transactions'
 import { visibleChosen } from '@/lib/selection'
 import { useTxSelection } from '@/lib/useTxSelection'
+import { useIsMobile } from '@/lib/useMobile'
+import { lockScroll } from '@/lib/scrollLock'
 import { usePersistUrlSelection } from '@/lib/useAccountSelection'
 import { cn } from '@/lib/utils'
 
@@ -71,13 +76,21 @@ export function TransactionsPage() {
   // Selection mode: the checked fingerprints, the visible rows and the batch result.
   const picker = useTxSelection(list.data?.items)
   const { chosen } = picker
+  const mobile = useIsMobile()
   const picking = chosen !== null
   const home = months.data && month ? returnTarget(months.data, month) : null
   usePublishNavMonth(home ? month : null)
 
+  const location = useLocation()
+  const routerNavigate = useNavigate()
+  // Phone: opening a row pushed a history entry (so the system's back closes the detail).
+  const pushedDetail = (location.state as { detail?: unknown } | null)?.detail === true
+  // Phone: the last row opened, which stays chosen in the list after its detail closes.
+  const [revealed, setRevealed] = useState<string | null>(null)
+
   const navigate = useCallback(
-    (update: (current: TxFilters) => TxFilters, replace = false) =>
-      setParams((current) => toParams(update(parseFilters(current))), { replace }),
+    (update: (current: TxFilters) => TxFilters, replace = false, state?: unknown) =>
+      setParams((current) => toParams(update(parseFilters(current))), { replace, state }),
     [setParams],
   )
   const onSearch = useCallback(
@@ -104,15 +117,51 @@ export function TransactionsPage() {
       (pinned?.fingerprint === filters.tx ? pinned : null))
     : null
   const ranking = summary.data?.categories.map((c) => c.category) ?? NO_RANKING
+  if (mobile && selected && revealed !== selected.fingerprint) setRevealed(selected.fingerprint)
 
   function select(tx: Tx | null) {
     setPinned(tx)
     navigate((current) => ({ ...current, month, tx: tx?.fingerprint ?? null }), true)
   }
 
+  // Tapping a row. On a phone the detail is a screen of its own: it gets a history entry, so
+  // the system's back gesture (or button) closes it instead of leaving Transactions.
+  function open(tx: Tx) {
+    if (!mobile) {
+      select(tx)
+      return
+    }
+    setPinned(tx)
+    navigate((current) => ({ ...current, month, tx: tx.fingerprint }), false, { detail: true })
+  }
+
+  // «Back» (or Escape): undoes the entry the phone pushed; a link that arrived with `?tx=` (or a
+  // wider screen) just drops the row from the URL, so it never leaves the app.
+  function closeDetail() {
+    if (mobile && pushedDetail && selected) routerNavigate(-1)
+    else select(null)
+  }
+
+  // "See the whole merchant": on a phone the detail closes to show the list (the row stays
+  // chosen, in view if it is in the result).
+  function showMerchant(merchant: string) {
+    const patch = { category: null, q: merchant }
+    if (!mobile) {
+      navigate((current) => ({ ...current, month, ...patch }))
+      return
+    }
+    navigate((current) => ({ ...current, month, ...patch, tx: null }), pushedDetail)
+  }
+
   function startPicking() {
     select(null)
     picker.start()
+  }
+
+  // Phone: holding a row enters "Select" with that row chosen.
+  function pickFrom(tx: Tx) {
+    select(null)
+    picker.startWith(tx)
   }
 
   function clearAll() {
@@ -163,14 +212,19 @@ export function TransactionsPage() {
         categories={categories.data ?? []}
         onChange={changeFilters}
         onSearch={onSearch}
+        mobile={mobile}
       >
         {!picking && items.length > 0 && (
           <button
             type="button"
             onClick={startPicking}
-            className="flex h-11 items-center rounded-xl border border-border bg-card px-3.5 text-sm font-semibold text-foreground hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+            aria-label={mobile ? t('transactions.select') : undefined}
+            className={cn(
+              'flex h-11 shrink-0 items-center rounded-xl border border-border bg-card text-sm font-semibold text-foreground hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none',
+              mobile ? 'w-11 justify-center' : 'px-3.5',
+            )}
           >
-            {t('transactions.select')}
+            {mobile ? <ListChecks size={18} aria-hidden="true" /> : t('transactions.select')}
           </button>
         )}
       </Filters>
@@ -193,19 +247,36 @@ export function TransactionsPage() {
         ) : (
           <TransactionList
             items={items}
-            selected={selected?.fingerprint ?? null}
+            selected={selected?.fingerprint ?? (mobile ? revealed : null)}
             ranking={ranking}
             stale={list.isPlaceholderData}
             group={filters.group}
             sort={filters.sort}
-            onSelect={select}
+            onSelect={open}
             picking={
               chosen && { chosen, onToggle: picker.toggle, onVisible: picker.onVisible }
             }
+            onLongPress={mobile && !picking ? pickFrom : null}
+            compact={mobile}
           />
         )}
-        <DetailPanel open={selected !== null} onClose={() => select(null)}>
-          {selected ? (
+        <DetailPanel
+          open={selected !== null}
+          mobile={mobile}
+          chosen={selected?.fingerprint ?? null}
+          onClose={() => select(null)}
+        >
+          {selected && mobile ? (
+            <MobileDetail
+              key={selected.fingerprint}
+              tx={selected}
+              categories={categories.data ?? []}
+              inList={items.some((t) => t.fingerprint === selected.fingerprint)}
+              onSaved={setPinned}
+              onClose={closeDetail}
+              onShowMerchant={showMerchant}
+            />
+          ) : selected ? (
             <TransactionDetail
               key={selected.fingerprint}
               tx={selected}
@@ -213,9 +284,7 @@ export function TransactionsPage() {
               inList={items.some((t) => t.fingerprint === selected.fingerprint)}
               onSaved={setPinned}
               onClose={() => select(null)}
-              onShowMerchant={(merchant) =>
-                navigate((current) => ({ ...current, month, category: null, q: merchant }))
-              }
+              onShowMerchant={showMerchant}
             />
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -277,12 +346,53 @@ function Totals({ data }: { data: Transactions }) {
 
 interface DetailPanelProps {
   open: boolean
+  /** Phone: a full-screen page over the list (which keeps its scroll). */
+  mobile: boolean
+  /** The open row's fingerprint: on a phone, focus returns to it when the detail closes. */
+  chosen: string | null
   onClose: () => void
   children: ReactNode
 }
 
-/** Side panel from `xl`; narrower, a bottom sheet that only appears with a selection. */
-function DetailPanel({ open, onClose, children }: DetailPanelProps) {
+/** Side panel from `xl`; narrower, a bottom sheet that only appears with a selection; on a
+ * phone, full screen. */
+function DetailPanel({ open, mobile, chosen, onClose, children }: DetailPanelProps) {
+  const covering = open && mobile
+  const last = useRef(chosen)
+  useEffect(() => {
+    if (chosen) last.current = chosen
+  }, [chosen])
+  // While the detail covers the page, the page behind neither scrolls (its position is kept) nor
+  // takes focus or reaches a screen reader; when it closes, focus goes back to the row.
+  useEffect(() => {
+    if (!covering) return
+    const app = document.getElementById('root')
+    const unlock = lockScroll()
+    app?.setAttribute('inert', '')
+    return () => {
+      unlock()
+      app?.removeAttribute('inert')
+      const fingerprint = last.current
+      if (!fingerprint) return
+      document
+        .querySelector<HTMLElement>(`[data-fingerprint="${CSS.escape(fingerprint)}"]`)
+        ?.focus({ preventScroll: true })
+    }
+  }, [covering])
+  if (mobile) {
+    if (!open) return null
+    // Outside the app's root, which is inert meanwhile.
+    return createPortal(
+      <aside
+        aria-labelledby={DETAIL_TITLE_ID}
+        data-mobile-detail=""
+        className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-background px-4 pb-[max(24px,env(safe-area-inset-bottom))]"
+      >
+        {children}
+      </aside>,
+      document.body,
+    )
+  }
   return (
     <>
       {open && (

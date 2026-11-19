@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { message } from '../src/i18n'
+import { rowFingerprint } from './phone'
 import { escapeRegExp, literal, t } from './text'
 
 // Made-up data from tests/e2e_server.py. January 2026 is a month with purchases on three cards.
@@ -883,17 +884,19 @@ test.describe('phone', () => {
     '/categories',
     INTEREST_CARD_PAGE,
   ]) {
-    test(`${route}: the bar goes on top and the page does not scroll sideways`, async ({
+    test(`${route}: the bar goes to the bottom and the page does not scroll sideways`, async ({
       page,
     }) => {
       await page.goto(route)
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 
+      // The menu is a bar fixed at the bottom of the screen; the content starts at the top.
       const nav = await page.getByRole('navigation', { name: t('shell.nav.label') }).boundingBox()
       const main = await page.getByRole('main').boundingBox()
       expect(nav).not.toBeNull()
       expect(main).not.toBeNull()
-      expect(nav!.y + nav!.height).toBeLessThanOrEqual(main!.y + 1)
+      expect(nav!.y + nav!.height).toBeCloseTo(844, 0)
+      expect(main!.y).toBeLessThan(nav!.y)
 
       const width = await page.evaluate(() => document.documentElement.scrollWidth)
       expect(width).toBeLessThanOrEqual(390)
@@ -1262,8 +1265,9 @@ test.describe('shared expenses, reimbursements and notes', () => {
   test('at 390 px the shared screen fits without sideways scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/transactions?month=${FEBRUARY}`)
-    await page.getByRole('button', { name: new RegExp(DINNER) }).click()
-    await page.getByRole('complementary').getByRole('button', { name: t('links.action.manage') }).click()
+    // On a phone the detail manages links in sheets: the shared screen opens by its address.
+    const fingerprint = await rowFingerprint(page, new RegExp(DINNER))
+    await page.goto(`/transactions/${encodeURIComponent(fingerprint)}`)
     await expect(page.getByTestId('shared-line')).toBeVisible()
     await page.getByRole('button', { name: t('links.group.addRefund') }).click()
     await page.getByRole('button', { name: t('links.refund.paidElsewhere') }).click()
@@ -1419,8 +1423,9 @@ test('transactions: on the phone, closing the detail leaves the chosen row in vi
   await expect(last).not.toBeInViewport()
 
   await page.goto(`/transactions?month=2026-02&tx=${fingerprint}`)
-  await page.getByRole('button', { name: t('transactions.detail.close') }).click()
-  await expect(page.getByRole('button', { name: t('transactions.detail.close') })).toBeHidden()
+  // The phone's detail covers the screen; «Back» closes it.
+  await page.getByRole('button', { name: t('transactions.detail.back') }).click()
+  await expect(page.getByRole('button', { name: t('transactions.detail.back') })).toBeHidden()
   const row = list.locator(`[data-fingerprint="${fingerprint}"]`)
   await expect(row).toBeInViewport({ ratio: 1 })
 })

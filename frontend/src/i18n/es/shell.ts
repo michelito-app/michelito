@@ -20,6 +20,11 @@ export const shell = {
   'shell.nav.categories': 'Categorías',
   'shell.nav.log': 'Bitácora',
   'shell.nav.import': 'Importar',
+  // Phone: the bottom bar's last button and the sheet it opens.
+  'shell.nav.more': 'Más',
+  'shell.nav.moreTitle': 'Más secciones',
+  // Shorter label in the bottom bar (five buttons in 360 px).
+  'shell.nav.barTransactions': 'Movimientos',
 
   // Account picker.
   'shell.accounts.pick': 'Elegir cuentas ({label})',
