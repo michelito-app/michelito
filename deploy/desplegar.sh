@@ -88,7 +88,7 @@ if [[ ! -t 0 ]]; then
 	IFS= read -r -t 10 token || true
 fi
 token=${token%$'\r'}
-if [[ -n $token && ! $token =~ ^[A-Za-z0-9_]{20,255}$ ]]; then
+if [[ -n $token && ! $token =~ ^[A-Za-z0-9._~+/=-]{20,4096}$ ]]; then
 	die "el token de stdin no tiene forma de token de GitHub" 2
 fi
 if [[ $accion == desplegar && -z $token ]]; then

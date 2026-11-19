@@ -194,6 +194,14 @@ def test_sin_token_no_despliega(server: Path) -> None:
     assert calls(server) == ""
 
 
+@pytest.mark.parametrize(
+    "token", ["ghs_" + "A1b2" * 10, "ghs_" + "x" * 40 + ".y-z_w", "eyJ" + "a" * 50 + ".b" * 3]
+)
+def test_tokens_actuales_de_github_se_aceptan(server: Path, token: str) -> None:
+    # GitHub cambió el formato de los tokens de Actions (más largos, con puntos y guiones).
+    assert run(server, A, token=token).returncode == 0
+
+
 @pytest.mark.parametrize("token", ["corto", "ghs_" + "x" * 30 + " --x", "ghs_$(id)" + "x" * 20])
 def test_token_con_forma_rara_se_rechaza(server: Path, token: str) -> None:
     result = run(server, A, token=token)
