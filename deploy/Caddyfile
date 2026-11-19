@@ -1,0 +1,36 @@
+# Caddy delante de la demo (ver docs/despliegue.md). HTTPS automático para {$MICHELITO_HOST}.
+{
+	# Solo HTTP/1.1 y HTTP/2: el firewall abre 443/tcp, no UDP (HTTP/3).
+	servers {
+		protocols h1 h2
+	}
+	# El contenedor es de solo lectura y no tiene a quién instalarle una CA local.
+	skip_install_trust
+}
+
+{$MICHELITO_HOST} {
+	encode zstd gzip
+
+	header {
+		# defer: se aplica al final, después de lo que agrega reverse_proxy (así se quita Via).
+		defer
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# La interfaz es un build de Vite: scripts, estilos y fuentes propios, la API en el mismo
+		# origen; nada en línea ni de terceros.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		X-Frame-Options "DENY"
+		-Server
+		-Via
+	}
+
+	reverse_proxy app:8600 {
+		# X-Forwarded-For: Caddy lo reemplaza por la IP de quien se conectó (un solo salto) y
+		# descarta el que mande el cliente, porque no hay `trusted_proxies`. La app toma el último.
+		header_up -X-Real-IP
+		header_up -Forwarded
+	}
+}

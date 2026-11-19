@@ -1,0 +1,42 @@
+# Remitentes de estados de cuenta que `finanzas sync` busca en Gmail.
+#
+# Copia este archivo a la carpeta de datos (`~/finanzas-data/fuentes.toml`, o la de
+# FINANZAS_DATA_DIR) y edítalo. Si ese archivo no existe se usan exactamente estas mismas
+# fuentes, que son las de omisión (`config.DEFAULT_SOURCES`). Si existe, se usan solo las que
+# liste: quitar una aquí deja de bajar sus correos.
+#
+# Cada [[fuente]]:
+#   nombre       minúsculas, dígitos, "-" o "_"; es la carpeta en raw/ y el valor de --source.
+#                No lo cambies en una fuente que ya bajó correos: la base guarda este nombre.
+#   consulta     búsqueda de Gmail (la misma sintaxis del buscador).
+#   extensiones  adjuntos que se guardan, en minúsculas.
+#   interpretar  opcional (true). false: el adjunto se archiva sin intentar interpretarlo,
+#                como las AFP, que todavía no tienen parser.
+
+[[fuente]]
+nombre = "popular"
+consulta = "from:estados@popularenlinea.com"
+extensiones = [".pdf"]
+
+[[fuente]]
+nombre = "bhd"
+consulta = "from:servicios@bhd.com.do subject:(estado OR estados) subject:cuenta"
+extensiones = [".pdf"]
+
+[[fuente]]
+nombre = "afp_reservas"
+consulta = "from:estadoscta@afpreservas.com.do"
+extensiones = [".pdf", ".jpg", ".jpeg"]
+interpretar = false
+
+[[fuente]]
+nombre = "afp_siembra"
+consulta = "from:estadodecuenta@afpsiembra.com"
+extensiones = [".pdf"]
+interpretar = false
+
+[[fuente]]
+nombre = "afp_crecer"
+consulta = "from:info@afpcrecer.com.do subject:cuenta"
+extensiones = [".pdf"]
+interpretar = false

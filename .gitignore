@@ -1,0 +1,35 @@
+# Entorno
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Datos personales: nunca van al repositorio
+*.db
+*.db-*
+*.pdf
+*.jpg
+*.jpeg
+*.png
+data/
+raw/
+client_secret*.json
+token*.json
+credentials*.json
+*.sqlite*
+*.csv
+.env*
+message.json
+
+# Board web
+src/finanzas/web/static/
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+
+# Notas de trabajo locales (fuera del repositorio)
+.superpowers/

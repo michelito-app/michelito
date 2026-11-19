@@ -1,0 +1,93 @@
+# La demo pública en el servidor (ver docs/despliegue.md). Vive en /opt/michelito junto a
+# Caddyfile, desplegar.sh y .env; las variables salen de .env:
+#   MICHELITO_HOST   host público (demo.michelito.app)
+#   MICHELITO_IMAGE  imagen sin etiqueta (ghcr.io/michelito-app/michelito)
+#   MICHELITO_TAG    sha de la versión en uso   } los escribe desplegar.sh:
+#   MICHELITO_DIGEST digest de su imagen        } no se editan a mano
+#   GHCR_USER        usuario con que desplegar.sh entra a GHCR (no lo usa compose)
+#   MICHELITO_RED    opcional: subred de la red interna (172.30.53.0/24)
+#   MICHELITO_RED6   opcional: subred IPv6 (ULA) de la red pública (fd4d:6963:6865:6c00::/64)
+#   MICHELITO_REPO   opcional: enlace «Código abierto» del aviso de la demo
+# Pensado para un VPS de 1 GB: la app hasta 512 MB y Caddy hasta 128 MB.
+name: michelito
+
+services:
+  app:
+    # Por digest: corre exactamente la imagen que construyó el workflow.
+    image: ${MICHELITO_IMAGE:?falta MICHELITO_IMAGE en .env}@${MICHELITO_DIGEST:?falta MICHELITO_DIGEST (lo escribe desplegar.sh)}
+    restart: unless-stopped
+    environment:
+      FINANZAS_DEMO_HOST: ${MICHELITO_HOST:-demo.michelito.app}
+      # Solo de Caddy (la red interna) se cree X-Forwarded-For. Si se pone el proxy de
+      # Cloudflare delante, ver docs/despliegue.md antes de cambiar nada aquí.
+      FINANZAS_DEMO_PROXIES: ${MICHELITO_RED:-172.30.53.0/24}
+      FINANZAS_DEMO_REPO: ${MICHELITO_REPO:-https://github.com/michelito-app/michelito}
+    volumes:
+      - datos:/datos
+    networks:
+      - interna
+    # Sin puertos publicados: solo Caddy llega a la app.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging: &registro
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  caddy:
+    image: caddy:2.11-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      MICHELITO_HOST: ${MICHELITO_HOST:-demo.michelito.app}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_datos:/data
+      - caddy_config:/config
+    networks:
+      - interna
+      - publica
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
+    memswap_limit: 128m
+    logging: *registro
+
+networks:
+  # Sin salida a internet: la app no necesita llamar a nadie.
+  interna:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${MICHELITO_RED:-172.30.53.0/24}
+  # La de Caddy hacia afuera (puertos 80/443 y Let's Encrypt). Con IPv6 propio: si no, Docker
+  # pasa las conexiones IPv6 por docker-proxy y Caddy ve la puerta de enlace del bridge en vez de
+  # la IP del visitante (y todos compartirían un cupo). Ver docs/despliegue.md.
+  publica:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: ${MICHELITO_RED6:-fd4d:6963:6865:6c00::/64}
+
+volumes:
+  datos: {}
+  caddy_datos: {}
+  caddy_config: {}

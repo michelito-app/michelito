@@ -1,0 +1,189 @@
+name: Despliegue de la demo
+
+# Después de un CI exitoso de un push a main: imagen a GHCR (etiquetas sha y latest) y
+# despliegue en el VPS por SSH. La llave de despliegue solo puede correr desplegar.sh (forced
+# command): manda «<sha> <digest>» como comando (el servidor corre `imagen@digest`, exactamente lo
+# que se construyó) y el GITHUB_TOKEN del job por stdin para bajar la imagen. Si mientras corría
+# el CI llegó otro commit a main, no se despliega: lo hará el CI de ese commit.
+# A mano (Actions → «Despliegue de la demo» → Run workflow) solo se puede volver atrás.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: Qué hacer
+        type: choice
+        options: [rollback]
+        default: rollback
+
+permissions:
+  contents: read
+
+concurrency:
+  group: despliegue-demo
+  cancel-in-progress: false
+
+env:
+  MICHELITO_HOST: ${{ vars.MICHELITO_HOST || 'demo.michelito.app' }}
+
+jobs:
+  imagen:
+    name: Imagen en GHCR
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      vigente: ${{ steps.vigente.outputs.vigente }}
+      sha: ${{ steps.datos.outputs.sha }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Datos de la imagen
+        id: datos
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "sha no válido"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "imagen=ghcr.io/${REPO,,}" >> "$GITHUB_OUTPUT"
+      - name: ¿Sigue siendo la punta de main?
+        id: vigente
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.datos.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          punta=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [[ $punta == "$SHA" ]]; then
+            echo "vigente=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "vigente=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Despliegue omitido"
+              echo "\`$SHA\` ya no es la punta de \`main\` (ahora \`$punta\`): lo despliega el CI del commit nuevo."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::$SHA ya no es la punta de main; no se despliega."
+          fi
+      - if: steps.vigente.outputs.vigente == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.datos.outputs.sha }}
+          persist-credentials: false
+      - if: steps.vigente.outputs.vigente == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.vigente.outputs.vigente == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: steps.vigente.outputs.vigente == 'true'
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.datos.outputs.imagen }}:${{ steps.datos.outputs.sha }}
+            ${{ steps.datos.outputs.imagen }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.datos.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  desplegar:
+    name: Desplegar en el VPS
+    needs: imagen
+    if: needs.imagen.outputs.vigente == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: demo
+      url: https://${{ vars.MICHELITO_HOST || 'demo.michelito.app' }}
+    permissions:
+      contents: read
+      packages: read # el token que se manda al servidor solo puede bajar la imagen
+    steps:
+      - name: Llave y known_hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/despliegue
+          chmod 600 ~/.ssh/despliegue
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: desplegar.sh en el servidor
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          SHA: ${{ needs.imagen.outputs.sha }}
+          DIGEST: ${{ needs.imagen.outputs.digest }}
+        run: |
+          [[ $SHA =~ ^[0-9a-f]{40}$ && $DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] \
+            || { echo "sha o digest no válidos"; exit 1; }
+          printf '%s\n' "$GITHUB_TOKEN" | ssh -i ~/.ssh/despliegue -o IdentitiesOnly=yes \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=20 \
+            "$VPS_USER@$VPS_HOST" "$SHA $DIGEST"
+      # Solo avisa: si falla, el servidor ya respondió por dentro y no se revierte solo (ver
+      # docs/despliegue.md, «Revertir»).
+      - name: Comprobación desde afuera
+        run: |
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors --max-time 10 \
+            "https://$MICHELITO_HOST/api/health"
+      - name: Borrar la llave
+        if: always()
+        run: rm -f ~/.ssh/despliegue
+
+  rollback:
+    name: Volver a la imagen anterior
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: demo
+      url: https://${{ vars.MICHELITO_HOST || 'demo.michelito.app' }}
+    permissions:
+      contents: read
+      packages: read # por si la imagen anterior ya no está en el servidor
+    steps:
+      - name: Llave y known_hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/despliegue
+          chmod 600 ~/.ssh/despliegue
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: desplegar.sh rollback
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          printf '%s\n' "$GITHUB_TOKEN" | ssh -i ~/.ssh/despliegue -o IdentitiesOnly=yes \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=20 \
+            "$VPS_USER@$VPS_HOST" rollback
+      - name: Comprobación desde afuera
+        run: |
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors --max-time 10 \
+            "https://$MICHELITO_HOST/api/health"
+      - name: Borrar la llave
+        if: always()
+        run: rm -f ~/.ssh/despliegue

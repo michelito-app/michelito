@@ -1,0 +1,44 @@
+# Actualizaciones semanales, un PR por ecosistema (agrupadas). Cada PR pasa por el CI.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      interfaz:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      acciones:
+        patterns: ["*"]
+
+  # Las imágenes base del Dockerfile (node, python, uv), fijadas por digest.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      imagenes:
+        patterns: ["*"]
+
+  # Caddy en deploy/docker-compose.yml.
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+    groups:
+      compose:
+        patterns: ["*"]

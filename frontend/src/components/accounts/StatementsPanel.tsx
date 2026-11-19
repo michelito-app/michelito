@@ -1,0 +1,215 @@
+import type { ReactNode, Ref } from 'react'
+import { Link } from 'react-router'
+import { FOCUS, PANEL } from '@/components/summary/styles'
+import type { Account, DuePayment, StatementLine } from '@/lib/api'
+import {
+  amountText,
+  cutText,
+  dueNote,
+  footnote,
+  isCreditCard,
+  movementLabels,
+  periodText,
+} from '@/lib/accounts'
+import { isOverdue, minimumText, payText, verdictText } from '@/lib/interest'
+import { shortDay } from '@/lib/months'
+import { cn } from '@/lib/utils'
+
+interface StatementsPanelProps {
+  account: Account
+  today: string
+  ref?: Ref<HTMLElement>
+}
+
+const TITLE_ID = 'stm-title'
+const HEAD = 'border-b border-[#EFEFEA] px-2 py-2.5 font-semibold'
+const CELL = 'border-b border-[#F2F2EE] px-2 py-3'
+
+/** Detalle de la cuenta elegida: saldo, fecha límite, pago mínimo y estados por corte. */
+export function StatementsPanel({ account, today, ref }: StatementsPanelProps) {
+  const transactions = `/transacciones?${new URLSearchParams({ cuenta: account.key })}`
+  return (
+    <section
+      ref={ref}
+      aria-labelledby={TITLE_ID}
+      className={cn(PANEL, 'flex min-w-0 flex-[3_1_560px] scroll-mt-6 flex-col gap-5 p-5 sm:p-6')}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h2 id={TITLE_ID} className="text-xl font-bold">
+            {account.label}
+          </h2>
+          <span className="text-[13px] text-muted-foreground">Estados por fecha de corte</span>
+          {account.statements.length > 0 && (
+            <span className="mt-1 inline-flex w-fit items-center rounded-full bg-secondary px-2.5 py-[3px] text-xs font-semibold text-secondary-foreground">
+              Todos los estados cuadran con el banco
+            </span>
+          )}
+        </div>
+        <Link
+          to={transactions}
+          className={cn(
+            'inline-flex h-11 items-center rounded-[10px] border border-[#D6D6D0] px-3.5 text-sm font-semibold text-primary no-underline hover:bg-muted hover:text-secondary-foreground',
+            FOCUS,
+          )}
+        >
+          Ver transacciones
+        </Link>
+      </div>
+      {isCreditCard(account) && account.to_pay !== null && (
+        <PayStrip payment={account.to_pay} today={today} />
+      )}
+      <Stats account={account} today={today} />
+      {account.statements.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Esta cuenta todavía no tiene estados.</p>
+      ) : (
+        <>
+          <StatementsTable account={account} />
+          <p className="text-[13px] text-muted-foreground">{footnote(account)}</p>
+        </>
+      )}
+    </section>
+  )
+}
+
+/** Cuánto pagar y antes de cuándo para no generar intereses, con el mínimo al lado. */
+function PayStrip({ payment, today }: { payment: DuePayment; today: string }) {
+  const overdue = isOverdue(payment.due_date, today)
+  const minimum = minimumText(payment)
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl px-4 py-3',
+        overdue ? 'bg-muted text-ink-2' : 'bg-down-soft text-down',
+      )}
+    >
+      <span className="text-sm font-semibold tabular-nums">{payText(payment, today)}</span>
+      {minimum && <span className="text-[13px] text-ink-2 tabular-nums">{minimum}</span>}
+    </div>
+  )
+}
+
+interface StatProps {
+  label: string
+  values: string[]
+  note?: string
+}
+
+function Stat({ label, values, note }: StatProps) {
+  const [main, ...rest] = values.length ? values : ['—']
+  return (
+    <div className="flex min-w-0 flex-col gap-1 rounded-xl border border-[#EFEFEA] bg-[#FAFAF8] px-4 py-3.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xl font-bold tabular-nums">{main}</span>
+      {rest.map((value) => (
+        <span key={value} className="text-xs text-muted-foreground tabular-nums">
+          {value}
+        </span>
+      ))}
+      {note && <span className="text-xs text-muted-foreground">{note}</span>}
+    </div>
+  )
+}
+
+function Stats({ account, today }: Omit<StatementsPanelProps, 'ref'>) {
+  const latest = account.latest
+  const cut = latest[0]?.period_end
+  const due = latest.find((line) => line.due_date !== null)?.due_date ?? null
+  const cutNote = cut ? `corte del ${shortDay(cut)}` : undefined
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+      <Stat
+        label="Saldo al último corte"
+        values={latest.map((line) => amountText(line.balance_cents, line.currency))}
+        note={cutNote}
+      />
+      {/* Ahorro y débito no tienen fecha límite ni pago mínimo. */}
+      {isCreditCard(account) && (
+        <>
+          <Stat
+            label="Pagar antes de"
+            values={due ? [shortDay(due)] : []}
+            note={due ? dueNote(due, today, cut) || undefined : undefined}
+          />
+          <Stat
+            label="Pago mínimo"
+            values={latest.map((line) => amountText(line.minimum_payment_cents, line.currency))}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function StatementsTable({ account }: { account: Account }) {
+  const labels = movementLabels(account)
+  return (
+    // El desplazamiento horizontal queda dentro de la caja, no en la página.
+    <div className="-mx-1 overflow-x-auto px-1" tabIndex={0} role="region" aria-label="Estados">
+      <table className="w-full min-w-[480px] border-collapse text-sm tabular-nums">
+        <thead>
+          <tr className="text-left text-xs tracking-[0.04em] text-muted-foreground uppercase">
+            <Th>Corte</Th>
+            <Th>Período</Th>
+            <Th right>{labels.charges}</Th>
+            <Th right>{labels.payments}</Th>
+            <Th right>Saldo</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {account.statements.map((line, index) => (
+            <tr key={`${line.period_end}-${line.currency}-${index}`}>
+              <td className={cn(CELL, 'font-semibold whitespace-nowrap')}>
+                {cutText(line)}
+              </td>
+              <td className={cn(CELL, 'whitespace-nowrap text-muted-foreground')}>
+                {periodText(line)}
+              </td>
+              <td className={cn(CELL, 'text-right whitespace-nowrap')}>
+                {amountText(line.charges_cents, line.currency)}
+              </td>
+              <td className={cn(CELL, 'text-right whitespace-nowrap text-down')}>
+                {amountText(line.payments_cents, line.currency)}
+              </td>
+              <td className={cn(CELL, 'text-right whitespace-nowrap')}>
+                <span className="font-semibold">
+                  {amountText(line.balance_cents, line.currency)}
+                </span>
+                {isCreditCard(account) && <VerdictLines line={line} />}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Bajo el saldo: si se pagó completo con el estado siguiente, o cuánto quedó y qué costó. */
+function VerdictLines({ line }: { line: StatementLine }) {
+  const verdict = verdictText(line)
+  if (verdict === null) return null
+  return (
+    <>
+      {verdict.text && (
+        <span
+          className={cn(
+            'block text-xs',
+            verdict.tone === 'paid' ? 'text-secondary-foreground' : 'text-up',
+          )}
+        >
+          {verdict.text}
+        </span>
+      )}
+      {verdict.interest && <span className="block text-xs text-up">{verdict.interest}</span>}
+    </>
+  )
+}
+
+function Th({ children, right = false }: { children: ReactNode; right?: boolean }) {
+  return (
+    <th scope="col" className={cn(HEAD, right && 'text-right')}>
+      {children}
+    </th>
+  )
+}

@@ -1,0 +1,15 @@
+# Solo entra a la imagen lo que se lista aquí (todo lo demás se ignora).
+*
+!pyproject.toml
+!uv.lock
+!src/
+!frontend/
+# Dentro de lo permitido, fuera lo generado y lo local.
+src/finanzas/web/static/
+**/__pycache__/
+**/*.pyc
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/e2e/
