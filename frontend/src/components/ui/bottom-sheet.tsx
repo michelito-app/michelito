@@ -11,13 +11,15 @@ interface BottomSheetProps {
   children: ReactNode
   /** Extra classes for the content area. */
   className?: string
+  /** On a phone it takes the whole screen (a long form). */
+  full?: boolean
 }
 
 /** Modal sheet that rises from the bottom (native `<dialog>`, like `Modal`): focus is trapped
  * and returned to the opener, Escape and a tap outside close it, the background is inert. It
  * opens when mounted; the caller unmounts it to close it. The page behind does not scroll while it
  * is open. No drag gestures. */
-export function BottomSheet({ title, onClose, children, className }: BottomSheetProps) {
+export function BottomSheet({ title, onClose, children, className, full }: BottomSheetProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
 
@@ -49,7 +51,10 @@ export function BottomSheet({ title, onClose, children, className }: BottomSheet
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
-      className="mx-0 mt-auto mb-0 flex max-h-[90dvh] w-full max-w-none flex-col overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card p-0 text-foreground shadow-[0_-8px_32px_rgba(27,29,33,0.16)] backdrop:bg-black/30 not-open:hidden md:mx-auto md:max-w-[560px]"
+      className={cn(
+        'mx-0 mt-auto mb-0 flex max-h-[90dvh] w-full max-w-none flex-col overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card p-0 text-foreground shadow-[0_-8px_32px_rgba(27,29,33,0.16)] backdrop:bg-black/30 not-open:hidden md:mx-auto md:max-w-[560px]',
+        full && 'max-md:h-dvh max-md:max-h-dvh max-md:rounded-none max-md:border-0',
+      )}
     >
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-1.5">
         <h2 id={titleId} className="min-w-0 text-[16px] font-[650] tracking-tight">

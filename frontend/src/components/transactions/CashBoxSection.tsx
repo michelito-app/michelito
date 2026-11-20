@@ -233,7 +233,7 @@ function ManualSection({ tx, onClose }: { tx: Tx; onClose: () => void }) {
           }
           onCancel={() => setConfirming(false)}
         >
-          {deleteWarning(tx.shared?.title ?? null)}
+          {deleteWarning(tx.ledger?.group_name ?? null)}
         </ConfirmBox>
       )}
       <Failure error={remove.error} />

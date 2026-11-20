@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from importlib import metadata
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import anyio
 from fastapi import FastAPI
@@ -84,6 +85,9 @@ class Settings:
     public_host: str = DEFAULT_HOST
     secure_cookie: bool = True  # False only to test over http on the machine
     repo: str = ""
+    # The hosted app's address: when set, the interface shows the "sample data, back to
+    # uploading my statements" band (the demo exit of the hosted gate). Empty: the usual demo.
+    return_url: str = ""
     limits: Limits = field(default_factory=Limits)
     max_body: int = 64 * 1024
     opinions_per_copy: int = 10
@@ -367,6 +371,7 @@ def create_demo_app(
         today=today,
         proxies=network.networks(settings.proxies),
     )
+    check_return_url(settings.return_url)
     mode = Mode(
         name="demo",
         provider=provider,
@@ -374,7 +379,13 @@ def create_demo_app(
         authors=("user",),
         blocked=BLOCKED,
         max_body=settings.max_body,
-        info={"name": PRODUCT, "version": version(), "repo": settings.repo, "notice": NOTICE},
+        info={
+            "name": PRODUCT,
+            "version": version(),
+            "repo": settings.repo,
+            "notice": NOTICE,
+            **({"return_url": settings.return_url} if settings.return_url else {}),
+        },
         register=lambda app, connection, load_flow: routes.register(app, connection, hooks),
         on_connect=size,
     )
@@ -393,3 +404,15 @@ def create_demo_app(
     app.state.maintenance = maintenance
     app.state.store = store
     return app
+
+
+def check_return_url(url: str) -> None:
+    """The band's way back to the hosted app: empty (no band), https, or http on loopback."""
+    if not url:
+        return
+    parsed = urlsplit(url)
+    if parsed.scheme == "https" and parsed.hostname:
+        return
+    if parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost", "::1"):
+        return
+    raise ValueError("the return URL must be https (http only on loopback)")

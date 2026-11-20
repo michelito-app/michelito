@@ -55,9 +55,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     link: '',
     gross_cents: null,
     pending_cents: 0,
-    shared: null,
-    reimbursement_of: null,
-    suggested_group: null,
+    ledger: null,
     exchange: null,
     suggested_exchange_with: null,
     can_invest: false,
@@ -72,6 +70,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     cash_box_currency: null,
     cash_box_amount_cents: null,
     cash_entry_id: null,
+    provisional: false,
     link_id: null,
     can_share: false,
     can_reimburse: false,
@@ -95,6 +94,7 @@ describe('parseFilters', () => {
       group: 'day',
       sort: 'date',
       shared: null,
+      provisional: false,
     })
   })
 
@@ -116,6 +116,7 @@ describe('parseFilters', () => {
       group: 'day',
       sort: 'date',
       shared: null,
+      provisional: false,
     })
   })
 })
@@ -144,6 +145,7 @@ describe('toParams', () => {
       group: 'day',
       sort: 'date',
       shared: null,
+      provisional: false,
     })
     expect(params.toString()).toBe('month=2026-09&category=Salud&tx=f') // spanish-data
   })
@@ -159,9 +161,11 @@ describe('toParams', () => {
       group: 'merchant' as const,
       sort: 'amount' as const,
       shared: 'pending' as const,
+      provisional: true,
     }
     expect(parseFilters(toParams(filters))).toEqual(filters)
     expect(toParams(filters).get('shared')).toBe('pending')
+    expect(toParams(filters).get('provisional')).toBe('1')
   })
 })
 
@@ -177,6 +181,7 @@ describe('clearFilters / hasNarrowing', () => {
       group: 'category' as const,
       sort: 'amount' as const,
       shared: null,
+      provisional: false,
     }
     expect(clearFilters(filters)).toEqual({
       month: '2026-09',
@@ -188,12 +193,16 @@ describe('clearFilters / hasNarrowing', () => {
       group: 'category',
       sort: 'amount',
       shared: null,
+      provisional: false,
     })
     expect(hasNarrowing(filters)).toBe(true)
     expect(hasNarrowing(clearFilters(filters))).toBe(false)
     const onlyShared = { ...clearFilters(filters), shared: 'pending' as const }
     expect(hasNarrowing(onlyShared)).toBe(true)
     expect(clearFilters(onlyShared).shared).toBeNull()
+    const onlyProvisional = { ...clearFilters(filters), provisional: true }
+    expect(hasNarrowing(onlyProvisional)).toBe(true)
+    expect(clearFilters(onlyProvisional).provisional).toBe(false)
   })
 })
 
@@ -206,14 +215,18 @@ describe('apiPath', () => {
         q: '',
         kind: null,
         shared: null,
+        provisional: false,
       }),
     ).toBe('/api/transactions?month=2026-09&category=Veh%C3%ADculo+y+combustible')
     expect(
-      apiPath('2026-09', { accounts: ['visa', 'bhd'], category: null, q: 'café', kind: null, shared: null }), // spanish-data
+      apiPath('2026-09', { accounts: ['visa', 'bhd'], category: null, q: 'café', kind: null, shared: null, provisional: false }), // spanish-data
     ).toBe('/api/transactions?month=2026-09&accounts=visa%2Cbhd&q=caf%C3%A9')
     expect(
-      apiPath('2026-09', { accounts: null, category: null, q: '', kind: null, shared: 'pending' }),
+      apiPath('2026-09', { accounts: null, category: null, q: '', kind: null, shared: 'pending', provisional: false }),
     ).toBe('/api/transactions?month=2026-09&shared=pending')
+    expect(
+      apiPath('2026-09', { accounts: null, category: null, q: '', kind: null, shared: null, provisional: true }),
+    ).toBe('/api/transactions?month=2026-09&provisional=true')
   })
 })
 
@@ -720,5 +733,13 @@ describe('activeFilterCount', () => {
     ).toBe(5)
     // The search, the month and the accounts live outside the sheet.
     expect(activeFilterCount({ ...base, q: 'x', month: '2026-01', accounts: ['a'] })).toBe(0)
+  })
+
+  it('counts the provisional filter and reads it from the URL', () => {
+    expect(base.provisional).toBe(false)
+    const on = parseFilters(new URLSearchParams('provisional=1'))
+    expect(on.provisional).toBe(true)
+    expect(activeFilterCount(on)).toBe(1)
+    expect(parseFilters(new URLSearchParams('provisional=yes')).provisional).toBe(false)
   })
 })

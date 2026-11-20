@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
@@ -6,21 +5,13 @@ import { t } from '@/i18n'
 import { LoadError } from '@/components/LoadError'
 import { FOCUS, PANEL } from '@/components/summary/styles'
 import { ExchangeSection } from '@/components/transactions/ExchangeSection'
-import { GroupPanel } from '@/components/transactions/GroupPanel'
 import { InvestmentSection } from '@/components/transactions/InvestmentSection'
-import { ReimbursementSection } from '@/components/transactions/ReimbursementSection'
-import { SharedSection } from '@/components/transactions/SharedSection'
+import { SharedTxPanel } from '@/components/shared/TxShared'
+import { SECTION, SECTION_TITLE } from '@/components/transactions/linkParts'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ApiError, type Tx } from '@/lib/api'
-import {
-  backPath,
-  listPath,
-  showExchange,
-  showInvestment,
-  showReimbursement,
-  showShared,
-} from '@/lib/links'
-import { transactionKey, useTransaction } from '@/lib/queries'
+import { ApiError } from '@/lib/api'
+import { backPath, listPath, showExchange, showInvestment } from '@/lib/links'
+import { useTransaction } from '@/lib/queries'
 import {
   AMOUNT_TONE_CLASS,
   amountLines,
@@ -40,7 +31,6 @@ export function LinkPage() {
   const { fingerprint = '' } = useParams()
   const location = useLocation()
   const from: unknown = (location.state as { from?: unknown } | null)?.from
-  const client = useQueryClient()
   const query = useTransaction(fingerprint)
 
   if (query.isPending) return <PageSkeleton />
@@ -69,10 +59,8 @@ export function LinkPage() {
   }
 
   const tx = query.data
-  const onSaved = (saved: Tx) => client.setQueryData(transactionKey(saved.fingerprint), saved)
   const amount = amountLines(tx)
-  const anything =
-    showShared(tx) || showReimbursement(tx) || showExchange(tx) || showInvestment(tx)
+  const anything = tx.ledger !== null || showExchange(tx) || showInvestment(tx)
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -104,10 +92,11 @@ export function LinkPage() {
       </header>
 
       <div className="flex min-w-0 flex-col gap-5 [&>section]:bg-card [&>section]:p-4 sm:[&>section]:p-5">
-        {showShared(tx) && <SharedSection tx={tx} onSaved={onSaved} />}
-        {showReimbursement(tx) && <ReimbursementSection tx={tx} />}
-        {tx.link === 'reimbursement' && tx.shared && (
-          <GroupPanel group={tx.shared} current={tx.fingerprint} />
+        {tx.ledger !== null && (
+          <section aria-label={t('shared.tx.title')} className={SECTION}>
+            <h2 className={SECTION_TITLE}>{t('shared.tx.title')}</h2>
+            <SharedTxPanel tx={tx} />
+          </section>
         )}
         {showExchange(tx) && <ExchangeSection tx={tx} />}
         {showInvestment(tx) && <InvestmentSection tx={tx} />}

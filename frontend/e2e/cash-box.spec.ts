@@ -186,8 +186,14 @@ test('at 390 px the box and the two Summary lines fit and read well', async ({ p
   const stored = kpis.getByTestId('cash-box-note')
   await expect(invested).toHaveText(t('investments.investedNote', { amount: 'RD$ 350,000' }))
   await expect(stored).toHaveText(t('cashBox.note', { amount: 'RD$ 5,000' }))
-  const top = await invested.boundingBox()
-  const bottom = await stored.boundingBox()
+  // Both boxes in one go: measured apart, a card still loading above them could move the page
+  // between the two readings.
+  const [top, bottom] = await page.evaluate(() =>
+    ['invested-note', 'cash-box-note'].map((id) => {
+      const rect = document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }),
+  )
   expect(top && bottom).toBeTruthy()
   expect(bottom!.y).toBeGreaterThanOrEqual(top!.y + top!.height)
   for (const line of [top!, bottom!]) {

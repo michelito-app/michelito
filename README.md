@@ -141,6 +141,298 @@ docker run --rm -p 127.0.0.1:8600:8600 -e MICHELITO_DEMO_INSECURE_COOKIE=1 miche
 # open http://127.0.0.1:8600
 ```
 
+## Hosted mode (in development)
+
+A third way to run the same board, for several people on one server: each account signs in with
+a 6-digit code sent by email and gets its **own encrypted** database, filled by uploading
+statement PDFs. Its deployment next to the demo is described below ("Hosted deployment");
+until the alpha, use it only with made-up data.
+
+### Running it on your machine
+
+```bash
+uv sync
+cd frontend && npm ci && npm run build && cd ..
+# a throwaway master key, outside the data folder (only for this machine)
+openssl rand -hex 32 > /tmp/michelito-master.key && chmod 0400 /tmp/michelito-master.key
+export MICHELITO_MASTER_KEY_FILE=/tmp/michelito-master.key
+uv run michelito hosted --port 8620 --data /tmp/michelito-hosted --insecure-cookie --mailer outbox
+# in another terminal: invite yourself (the email lands in /tmp/michelito-hosted/outbox/)
+uv run michelito invite you@example.com --data /tmp/michelito-hosted --mailer outbox
+# open http://127.0.0.1:8620, "Enter", your email, and the code from the newest outbox file
+```
+
+- `--mailer outbox` writes each email as a JSON file in `<data>/outbox/` (only for the user)
+  instead of sending it; it is refused when listening beyond `127.0.0.1`. `--mailer resend`
+  (the default) sends through Resend's HTTP API with `RESEND_API_KEY` or
+  `RESEND_API_KEY_FILE`; the key is never logged. Emails are plain text (no tracking pixel, no
+  rewritten links); turn off open and click tracking on the sending domain in Resend too.
+  `--mail-from` (`MICHELITO_MAIL_FROM`) is the sender.
+- `--insecure-cookie` only for `http` on this machine (refused unless listening on loopback):
+  by default the session cookie is `__Host-session` (`Secure`, `HttpOnly`, `SameSite=Lax`,
+  `Path=/`, no `Domain`), which a browser does not keep over `http`; with the option it is
+  called `session`.
+- `--data DIR` (`MICHELITO_HOSTED_DIR`; by default `~/michelito-hosted`): `accounts.db`,
+  `secret.key` (the key of the code hashes; `MICHELITO_HOSTED_SECRET_FILE` names another file)
+  and `users/<folder>/michelito.db`, one per account, encrypted. It can neither be nor contain
+  the local data folder. Also: `--public-host`, `--public-url` (the address in the emails), `--demo-url`,
+  `--listen`, `--trusted-proxy`, as in the demo. With `MICHELITO_MODE=demo` neither command runs.
+
+### How signing in works
+
+- **Invitation only**: `michelito invite EMAIL` (on the server) creates a single-use invitation
+  for that email, valid 7 days, and emails its code. Without an invitation no account is ever
+  created; the sign-in screen says plainly that it is invitation-only. People inviting people
+  exists as a switch (`Policy.user_invitations`), off, with no interface.
+- **Codes**: 6 digits, 10 minutes, single use; only a keyed hash is stored. Only the newest
+  sign-in code of an email works (asking again invalidates the older one, never an invitation
+  nor a step-up code), and it allows 5 attempts in total, counted before comparing. A step-up
+  code belongs to the session that asked for it: signing in can never use it. The email may also carry a link for the computer (its token
+  goes in the URL fragment, never sent to the server's logs); opening it asks "Enter as
+  a•••@example.com?" before using it, and it keeps working when the code was locked by someone
+  else's wrong tries.
+- **No enumeration**: asking for a code answers the same, in at least the same time, whether or
+  not the email has an account; the email goes out in the background.
+- **Limits** (in memory, a single process, except the day's mail count): per network (an IPv4,
+  or an IPv6 /64 with its /56 and /48) on asking, sending and checking; 3 code requests per email
+  per 15 minutes; at most 15 emails a day per email for anonymous requests and 30 for everyone;
+  an email's checks are blocked for an hour after 20 from at least 5 networks. Resend's free plan
+  caps 100 emails a day: the count lives in `accounts.db` (shared with `michelito invite`), and
+  when it is reached everyone is told to try later. Emails still queued when the server stops
+  are dropped (the person asks again). A browser that signed in before keeps a
+  **known-device** cookie (`__Host-device`, random, only its hash stored, 90 days, gone with
+  "sign out everywhere" or a suspended account) that skips the per-email limits on asking and
+  the hourly check block, never the 5 attempts per code nor the 30 emails a day.
+- **Sessions**: an opaque token whose hash is stored; 30 days without use or 90 in total end
+  it. Settings → Devices lists the browser and system of each session and the date of its last
+  activity (never the IP); "sign out on this device" and "sign out everywhere" (the latter, like
+  deleting the account, asks for a fresh code if the last one is older than 10 minutes).
+- Every request opens only the database of its session's account; without a session `/api/*`
+  answers 401, except health, mode and the sign-in routes.
+
+### Encryption at rest
+
+Each account's database is a SQLCipher 4 file (the `sqlcipher3` binding, whose wheel carries
+SQLCipher and OpenSSL: no compiler in the image): every page, and every page of its journal, is
+encrypted with AES-256 and authenticated with HMAC-SHA512; temporary tables stay in memory. The
+local board and the demo keep plain SQLite.
+
+- **Envelope keys**: at account creation (the first sign-in) a random 256-bit **data key** is
+  made and the account's database is encrypted with it. The data key is stored only **wrapped**
+  (AES-256-GCM under the master key, with the account's id and folder as associated data, so a
+  wrapped key moved to another account does not open) in `accounts.db`. It is unwrapped for each
+  request that carries a session of that account, handed to SQLCipher as a raw key (no
+  passphrase, no key derivation) and dropped when the request ends: no key cache.
+- **The master key** is a file of exactly 64 hexadecimal characters (`openssl rand -hex 32`;
+  raw bytes are refused, and so is a key equal to the code-hash secret), named by
+  `--master-key` or `MICHELITO_MASTER_KEY_FILE`. In production
+  it is a Docker secret, mode `0400`, owned by the container's user. It must never be in the
+  data folder (refused), in a database or in a backup of the data volume, and it is never
+  logged. Missing, unreadable, malformed or readable by others: `michelito hosted` does not start
+  and says why. It also refuses to start when some data key is wrapped by another master key.
+  `michelito invite` does not need it (it opens no user database).
+- **The server can read the data** (it holds the master key): email forwarding writes while
+  the person is offline, and losing a device must not lose the data. There is no "not even we
+  can read it" mode.
+- **Deleting an account** (`DELETE /api/account`, after a fresh code like "sign out
+  everywhere") first destroys the wrapped data key, in the same transaction as the account, its
+  sessions, devices, codes and invitations; only then are its files removed. `accounts.db` runs
+  with `secure_delete` (deleted rows are zeroed) and its WAL is checkpointed and truncated right
+  after, so neither the wrapped key nor the email stay in its free pages or WAL.
+  - **What this guarantees**: on the live server the deleted account's data is unreadable
+    immediately. A backup of its database file stays unreadable as long as no backup of
+    `accounts.db` from before the deletion remains: with the planned 30-day retention, that is
+    30 days after the deletion. It is unreadable immediately, backups included, if the master
+    key that wrapped its data key is destroyed (after a rotation, for instance).
+  - If removing the files fails, the account is gone anyway: the transaction left a
+    **tombstone** for its folder, and the next start removes it. Only tombstoned folders are
+    ever removed: an unknown folder is never touched, and if `accounts.db` is missing while
+    `users/` holds folders, the server (and `michelito invite`) refuse to start instead of
+    making a new, empty accounts database.
+  - A crash between creating an account and creating its folder heals itself: the first request
+    makes the folder and an empty encrypted database.
+- **Rotating the master key**: stop the server, create the new key file and run
+
+  ```bash
+  michelito rotate-master-key --new /run/secrets/new-master.key [--data DIR] [--master-key OLD]
+  ```
+
+  It first checks everything without writing: it refuses if any key is under neither master
+  key, or if any key does not open with the old one. Then every data key is re-wrapped under
+  the new master key (the database files are not touched), one atomic update per account: if it
+  stops half way, run it again and it continues. At the end `accounts.db` is compacted
+  (`VACUUM`), so no old wrapping is left in it. It takes the folder's lock
+  (`<data>/server.lock`, an `flock` that `michelito hosted` holds while it serves), so it is
+  refused while the server runs. Then point `MICHELITO_MASTER_KEY_FILE` at the new file and
+  start the server. Old backups of `accounts.db` still need the old master key: destroy it once
+  those backups expire.
+- Batch 1's plain placeholder databases (development only) are encrypted at the first start.
+
+### The gate: uploading statements
+
+- **Until one statement squares, there is nothing else**: a new account sees only a full-screen
+  welcome with the upload (no menu, no bottom bar; any address shows it). It opens as soon as
+  one statement squares, on the Summary of the newest month with data. The server enforces it
+  too: until then every `/api` route except sign-in, mode, health, uploads, onboarding, bank
+  requests and the account answers 403 with `X-Michelito-Error: gate_closed`.
+- **Upload**: several PDFs at once (drag and drop on a computer, the file picker on the phone),
+  up to 12 per upload and 8 MB each (`UploadCaps`), 10 uploads an hour per account. They go as
+  base64 in a JSON `POST` with `X-Michelito: 1` (not a multipart form: Starlette spools big
+  files to a temporary file, and an uploaded PDF must never touch the disk). Each file is
+  opened **in memory** by a short-lived worker process (`hosted/pdf_worker.py`): memory, CPU
+  and wall-clock limits, no files written, no new processes, few file descriptors, an empty
+  private working folder, at most 50 pages (checked before reading any text) and capped words
+  and output, so a decompression bomb only fails that file. At most two workers run at once
+  across uploads, password retries and shares. (They still run as the server's user: a separate
+  user comes with the deployment.) The original PDF and its decrypted text are never written anywhere;
+  only the transactions of statements that square are stored (`importer.register_upload` keeps
+  no file).
+- **Live processing**: one row per file (reading → bank · account · month · N transactions ·
+  "squared to the cent", or why it was not kept: does not square, unsupported bank, unreadable,
+  too large to read safely, locked). The screen polls `GET /api/uploads/<id>` (every 0.6 s);
+  jobs live in memory for 30 minutes, three per account, swept every minute and dropped (with
+  their bytes) when the account signs out. "See my summary" appears with the first
+  statement that squares.
+- **PDF passwords**: asked once per bank and tried on every locked file of the upload, in the
+  `POST` body of that one request (to the worker through a pipe, never its command line or
+  environment); never logged, stored or echoed, not even in a validation error. A wrong one asks
+  again for that bank only, and the screen says how many files it opened; 10 tries per 15
+  minutes per account. Names and passwords must be valid UTF-8; names lose control characters
+  and are cut to 120 characters. An unexpected error ends that file as unreadable and logs only
+  the error's class, never its message.
+- **Failures** log a data-free fingerprint (stage, bank, parser, pages, failing checks such as
+  `part1:section1:balance`): enough to rebuild the case in `tests/samples.py`, nothing from the
+  statement. "Notify me when it is supported" counts the bank (from a fixed list) in
+  `accounts.db`, with nothing about who asked.
+- **After the gate**: the first Summary shows "adjust your main merchants" (the top 10
+  merchants by spending: "correct" marks their transactions reviewed, "change" makes a
+  merchant rule, "later" hides it) and a setup checklist (more months, another account, the
+  months missing per account as `michelito report` finds them, automation "coming soon").
+  Every view without data shows a designed empty state with one action, or a suggestion from
+  the person's own data; "Import" (in "More" on the phone) reuses the upload screen.
+- **Sample data**: "see sample data" goes to the public demo, a separate deployment with
+  its own process, folder and cookie (it never reads or writes a user database). Started with
+  `--return-url` (`MICHELITO_DEMO_RETURN_URL`), the demo shows a fixed "sample data, back to
+  uploading my statements" band on every screen, driven only by its `/api/mode`. A deployment
+  pairs them: the hosted app's `--demo-url` is that demo, and the demo's `--return-url` is the
+  hosted app. Both must be https (http only on loopback) or the server does not start.
+- **Sharing from the phone** (Android, installed app): the manifest's share target posts the
+  PDFs to `/share-target`, which the service worker leaves to the network. It accepts only an
+  OS share (`Sec-Fetch-Site: none`) or a same-origin post (a request with neither fetch
+  metadata nor our own `Origin` is refused), keeps the files in memory for 10 minutes (16 MB
+  per network, 64 MB in all) under a single-use token bound to that browser (`__Host-share`
+  cookie; several pending shares of one browser all stay claimable) and opens the import
+  screen, which shows their names and sizes and waits for "Import" or "Discard".
+- "Correct", "later" and "hide" in the first review and the checklist go through the change
+  log (Log) and can be undone; "change" is the usual merchant rule.
+
+The e2e suite runs it with `tests/e2e_hosted_server.py` (port 8636, `E2E_HOSTED_PORT`), with a
+throwaway master key next to its temporary folder, and a demo that links back to it on the
+next port; the synthetic statement PDFs come from `tests/synthetic_pdf.py`.
+
+### Hosted deployment
+
+`michelito.app` serves the hosted app and `demo.michelito.app` stays the demo, on the same VPS
+and from the same image, as **separate containers with separate volumes** (`deploy/`): the demo
+never mounts the hosted volume and is not even on the hosted app's network. Caddy routes each
+host to its container with the same strict headers; the hosted app trusts `X-Forwarded-For`
+only from Caddy's fixed address, sets `__Host-session` (HTTPS through Caddy) and gets its
+secrets as Docker secrets: the master key, the code-hash secret and the Resend key. Backups
+run in a separate `backup` service (started only by `docker compose run`), the only one with the
+R2 credentials: the web process never holds them. Uploaded PDFs are opened by a third container,
+`pdfworker` (`michelito pdf-worker`), reached over a Unix socket (`MICHELITO_PDF_WORKER_SOCKET`):
+no secrets, no data volume, no network, read-only, with the same per-file memory, CPU, time
+and page limits; inside it the socket server and the per-file worker processes run as different
+uids (a worker can neither replace the socket nor touch the server), and the hosted app checks
+the socket's holder with `SO_PEERCRED` before sending anything; locally (without the socket) the limited worker process runs
+next to the app as before. Every `/api` answer of michelito.app is
+`Cache-Control: no-store` (set by the app and by Caddy). It is turned on with `COMPOSE_PROFILES=hosted` in the server's `.env`; until then
+everything deploys as before. `deploy.sh` backs up and health-checks both before and after
+every deploy. Setup, secrets, the nightly jobs, monitoring and the restore test are in
+[docs/deployment.md](docs/deployment.md#10-the-hosted-app-michelitoapp).
+
+Operations commands (in the hosted container they are the only ones that run, with
+`MICHELITO_MODE=hosted`):
+
+- `michelito backup`: every account's database **as it is (encrypted)**, a snapshot taken with
+  SQLite's backup API, plus the accounts database sealed under a key derived from the master
+  key, to Cloudflare R2 (`MICHELITO_R2_ENDPOINT`, `MICHELITO_R2_BUCKET`,
+  `MICHELITO_R2_ACCESS_KEY_ID[_FILE]`, `MICHELITO_R2_SECRET_ACCESS_KEY[_FILE]`); every object is
+  read back and its SHA-256 compared, the manifest goes last and is authenticated with an HMAC
+  under another key derived from the master key (it covers the label and every object's SHA-256;
+  every seal also carries `<label>/<name>`), backups older than 30 days are removed. The master key and the code-hash secret are never uploaded. `--to DIR --keep N` writes
+  the same backup to a local folder instead (what `deploy.sh` does before a deploy). The S3
+  signing (SigV4) is a small standard-library implementation checked against AWS's published
+  examples: no boto3.
+- `michelito restore --from-r2 --date YYYY-MM-DD|latest --data EMPTY_DIR --master-key FILE`
+  (or `--from-dir DIR`): onto an empty folder only; checks the manifest's HMAC before
+  downloading anything else, then every checksum, unwraps every data key, opens every database
+  and runs SQLCipher's and SQLite's integrity checks, all in a temporary folder next to the target
+  that only takes its place once everything checked out. It warns when a newer backup exists.
+- `michelito ops-check`: emails the owner (`MICHELITO_OPS_EMAIL`, through the mailer) **only when
+  something failed**: the last backup failed or is older than 26 hours, sign-in emails could
+  not be sent, or statements failed to parse in the last day (counts and short fingerprints;
+  never an address, a file name or an amount).
+
+### Moving your data in (the owner's import)
+
+Your local install keeps being the source of truth until the import; from the import day on the
+server is, and the local copy becomes a read-only backup. The data never goes through a web form
+and never leaves your machine and the server.
+
+1. **Before**: the restore test on a clean machine passed and a throwaway account went through
+   the gate with real PDFs and was deleted. Deploy the version you run
+   locally (the server refuses an export with a newer schema).
+2. **Export, on your machine** (stop `michelito board` first):
+   ```bash
+   uv run michelito export-account --out ~/michelito-export.db
+   ```
+   A consistent snapshot (SQLite's backup API, never a copy of a file in use), mode `0600`, with
+   the schema version and every table's row count and digest. The PDF password and the Gmail
+   token live in the keyring and are not in it (it checks that no keyring secret and no
+   secret-looking column ended up inside).
+3. **Copy it to the server's import folder** and delete it here:
+   ```bash
+   scp ~/michelito-export.db admin@server:/tmp/ && rm ~/michelito-export.db
+   # on the server
+   sudo install -d -o 10001 -g 10001 -m 700 /opt/michelito/import
+   sudo install -o 10001 -g 10001 -m 600 /tmp/michelito-export.db /opt/michelito/import/
+   sudo shred -u /tmp/michelito-export.db
+   ```
+4. **Import** (creates the account, a new data key, writes the database encrypted, runs the
+   forward migrations, checks `integrity_check`, SQLCipher's page check and every table's rows
+   and content against the export, then overwrites and removes the plaintext file):
+   ```bash
+   cd /opt/michelito
+   sudo -u deploy docker compose run --rm -v /opt/michelito/import:/import hosted \
+     import-account --email you@example.com --from /import/michelito-export.db
+   ```
+   Your holders file goes with it, **into the encrypted database** (the hosted app reads the
+   holders from there; there is no `holders.txt` on the server). An existing account is refused;
+   `--replace --confirm-replace you@example.com` replaces it: the old account and its data key
+   are deleted and the new one created in one transaction. A symbolic link as `--from` is
+   refused. If anything fails, nothing is created and the file stays:
+   fix the cause and run it again, or remove it with `shred -u`. Overwriting is best effort: on
+   SSDs and journaling or copy-on-write file systems old blocks may survive, so keep the import
+   folder on the encrypted disk and the file there for as short as possible. If the import
+   succeeds but the file could not be removed, the command says so and exits with an error:
+   remove it by hand (`shred -u …`).
+5. **What the coordinator checks**: the same three months, on both machines, same day:
+   ```bash
+   uv run michelito verify-import --months 2025-03,2025-09,2026-10         # your machine
+   sudo -u deploy docker compose exec hosted michelito verify-import \
+     --email you@example.com --months 2025-03,2025-09,2026-10               # the server
+   ```
+   Each line is a hash of the Summary of a month, of the Shared balances and of the investments,
+   exactly as the board's API returns them, and `all` covers everything: **every line must be
+   equal**. Only the hashes are compared (read them from both terminals); `--exact` prints the
+   numbers, on the terminal only, to find a difference. The command never writes them to a file
+   or a log and refuses to print into a regular file. Never pipe or redirect `--exact` (not into
+   `less`, `tee` or a file, not over a logged session), and never run it through
+   `docker compose run` (use `exec`, as above): its output must only ever reach your screen.
+6. **After**: sign in at michelito.app, switch off `michelito sync` locally (Gmail is not moved to
+   the server), and keep the local folder as a read-only backup. `rmdir /opt/michelito/import`.
+
 ## Running it with your data
 
 Requirements: Python 3.12 or newer with [uv](https://docs.astral.sh/uv/), Node 20.19 or 22.12+
@@ -353,6 +645,46 @@ Banreservas transfers are grouped by counterpart: "TRANSFERENCIA A …", "TRANSF
 bank, so the merchant key of such a text changes (before, "TRANSFERENCIA A JUAN PEREZ" was <!-- spanish-data -->
 "TRANSFERENCIA JUAN PEREZ"). A category rule or a recurring mark saved with the old key keeps
 applying until you save one with the new key.
+
+### Live sync (purchases before the statement)
+
+The statement arrives once a month; the bank's purchase alerts arrive within minutes. `sync` also
+reads Popular's credit card purchase alerts (the `popular_alerts` source) and shows each approved
+purchase right away as a **provisional** transaction, marked «Pendiente» in Transactions. It <!-- spanish-data -->
+counts in Transactions, the Summary (which says how much of the month is still without a
+statement), the Budget and what you kept, and it can be categorized, noted, shared or linked like
+any other. It never takes part in a statement's validation.
+
+- **Only the fields are kept.** The alert is read in memory; nothing goes to `raw/`. What is
+  stored: the card's last four digits, amount, currency, date, merchant, the bank's status word
+  and the Gmail message id (so a second `sync` does nothing).
+- **Only authenticated alerts.** An alert is read only if Gmail's own `Authentication-Results`
+  header (the topmost one) shows both DKIM and DMARC passing for the bank's domain; anything else
+  is stored as a failure, never as a purchase.
+- **The card decides the account.** The last four digits are looked up among the cards already
+  seen in statements; an unknown card is held (not guessed) until a statement brings it. An
+  unknown status word is held too, never taken as approved. The same alert sent again within
+  ten minutes is recorded as a duplicate, not as a second purchase.
+- **Reversals.** A reversal alert never creates a transaction and cancels the provisional it
+  matches (it shows in the log and can be undone). If that provisional is in a shared group or
+  another link it is not cancelled: it shows in «Para revisar» instead. If the statement has the <!-- spanish-data -->
+  charge anyway, the cancellation is undone and it shows in «Para revisar» too. A decline alert <!-- spanish-data -->
+  is a failed attempt: it creates nothing and cancels nothing.
+- **The statement confirms it.** When a statement that balances arrives, each provisional is
+  looked for in it: same account and currency, the exact amount, dated from one day before to
+  five days after the alert (ties by the most similar merchant). The provisional *becomes* that
+  row: the amount, date and description come from the statement; your category, note, links,
+  marks and history stay. (A statement row stored before, for example when an alert arrives
+  late, keeps its own identity and its own edits.)
+- **Missing from its statement.** If the statement that covers its date does not have it, it
+  shows in «Para revisar»: «No apareció en tu estado de …» with «Descartar» (it stops counting; <!-- spanish-data -->
+  undo from the log) or «Mantener». It is never deleted on its own. One in a shared group or another
+  link cannot be discarded until it is taken out of it.
+
+A failed alert keeps only a data-free description (which field failed and the layout), shown by
+`michelito report`. One that was not authenticated, is not an alert or is too large is never
+downloaded again; any other only after the parser changes (a few per `sync`). To check a real alert's format without saving anything:
+`uv run michelito alert-check < alert.eml` prints only which fields were found, never a value.
 
 ### Holders (transfers between your accounts)
 
@@ -672,11 +1004,10 @@ uv run michelito board [--port N] [--no-browser]
   stored apart by fingerprint (it survives `parse --retry`), the row has an icon ("Has a note") and
   the Transactions search also looks at notes.
 - **Link screen** (the transaction's own page): the detail panel only summarizes the link in one
-  line ("Part of Ana and Luis · they owe you RD$ 2,000 · 1 reimbursement", "Exchange: pending
-  US$ 1,000.00", "Is it a currency exchange?", "It is a reimbursement of …") with "Manage…" (or
-  "Share…" to mark a shared expense), which opens a full-width screen: at the top the transaction
+  line ("Exchange: pending US$ 1,000.00", "Is it a currency exchange?", "Contribution to …") with
+  "Manage…", which opens a full-width screen: at the top the transaction
   and the link's state with its actions, and each with its picker. The suggestions ("Reimbursement
-  of…? Yes, link", "Exchange with…? Yes, link") stay in the panel as a shortcut. "Back" returns to
+  "Exchange with…? Yes, link") stay in the panel as a shortcut. "Back" returns to
   the Transactions list it came from, with the chosen row; if it was opened directly, to the
   transaction's month. Each picker shows the first 5 options the server puts in front and the rest
   behind "See more (N)"; the search filters the whole list by text (merchant, description, account)
@@ -686,55 +1017,21 @@ uv run michelito board [--port N] [--no-browser]
   margin, first the one that completes it and then by closeness of date; the larger ones (the
   bank's spread), behind "See more" (with nothing pending, both sides, everything behind "See
   more"); when starting an exchange, those with an implied rate within 10 % of the month's, from
-  the closest to the farthest (without the month's rate, everything behind "See more"); in
-  reimbursements, the credits that fit what is pending (5 % margin), by date; from a credit, the
-  groups whose pending amount covers it.
-- **Shared expenses** (groups): a group gathers one or more expenses paid for the same people (the
-  agency and the flights of a trip) and their reimbursements, even if they pay you back in a single
-  transfer or in several without saying which expense it is for. From "Share…" on an expense: "New
-  group" (the split and, optionally, "With whom") or "Add it to a group" (those with something
-  pending, the most recent first: "Carola and Rafael · they owe you US$ 912.37"). Each expense has
-  its split: "We were N" (equal parts), "My part: RD$ X" or "I paid it for someone else" (your part
-  is 0); when adding one, the split of the last one added is proposed. Each expense counts only for
-  your part everywhere (total, categories, the usual, trend, recurring and one-off suggestions);
-  the rest stays as "they owe you". The group has "With whom" (formerly "for whom") and an optional
-  name ("Trip to a made-up island"); in lists it is called by its name, otherwise by "With whom",
-  otherwise by the merchant of its first expense. The screen of any expense or reimbursement of the
-  group shows it whole: at the top "Your part · Paid back · They owe you" per currency ("RD$ 3,000
-  + US$ 120.00"), the name and "With whom" editable; the expenses (each with its split, "Change
-  split", its state ("Settled" or "Pending X") and "Remove from group"); the reimbursements with
-  "Remove"; and "Add another expense" (unlinked debits within ±4 months of the group's; first those
-  of the same merchant or whose note or description shares a word with "With whom", then by
-  closeness of date) and "Add reimbursement". The open transaction is highlighted in its list.
-  Reimbursements (credits by their date and the manual ones by their day, together; on a tie, by
-  fingerprint) settle **from the oldest expense to the newest**: first what the oldest one owes
-  you, the remainder to the next. One in a currency other than that of the expense it is settling
-  is converted at the rate of the reimbursement's month (the same one the board converts with) and
-  the remainder passes to the next expense converted to its currency; without that rate, that
-  reimbursement (or what is left of it) does not count and the screen warns. What is paid back in
-  excess after settling all the expenses does not count or lower your part, and the screen warns
-  ("They paid you back RD$ X more than they owed you": usually a manual reimbursement and the same
-  one imported; remove one). The conversion is redone with the stored rates: if you change a
-  month's rate, what was reimbursed changes with it. "Add reimbursement" lists credits from any
-  account and currency, from the oldest expense up to 4 months (120 days) after the newest one,
-  that do not exceed what was spent in the group (one equal to a single expense in its currency is
-  usually its refund) and without salary, card payments, transfers between your accounts, interest
-  or something already linked: once linked they are "Reimbursement" and stop counting as income.
-  "They paid me in cash or into another account" records one by hand (amount and its currency,
-  date, from whom and where; it is never income; the date cannot be before the first expense).
-  "They are not going to pay me" is for the whole group: what is pending of each expense goes back
-  to that expense (in its month); because of the allocation order, they are usually the most recent
-  ones. "Remove from group" takes an expense out (the reimbursements stay and everything is
-  recalculated); removing the last one, with confirmation, deletes the group: its credits go back to
-  their category and the manual ones are deleted. A credit carries "Reimbursement?" (and its detail
-  asks "Reimbursement of <group>? Yes, link"; it is never linked on its own) if it fits what is
-  pending in a group in its same currency and arrives at most 14 days after one of its expenses, or
-  if its description has a word of 4 letters or more (ignoring accents and case) from the "With
-  whom" of a group with something pending, in any currency with a rate and up to 4 months after its
-  oldest pending expense (with several groups, the one with the oldest pending expense). What they
-  owe you shows up in Pending (below); Transactions filters the month's shared expenses with
-  something pending. Earlier links (of a single expense) became one-expense groups, with the same
-  figures.
+  the closest to the farthest (without the month's rate, everything behind "See more").
+- **Shared expenses** (Shared, a ledger of its own: `analysis/ledger.py`): groups of people (the
+  user, "You", is always in), global **contacts** reused across groups with **aliases** (how the
+  bank prints their name), **expenses** (who paid, amount, currency, date, description, category)
+  split per person **equally** (in cents; the leftover cent goes to whoever paid) or by **exact
+  amounts**, and **payments** between people. Balances are per person and in both directions
+  (no "simplify debts" between third parties). Your bank transactions are only *linked*: an
+  expense you paid ("I paid it") links its debit and counts only your share as spending; the
+  share of an expense someone else paid is a **group movement** in Transactions (no bank, its
+  category from the group) that counts in Summary, Reports and Budget; a payment links the
+  credit (or debit) that reconciles it. What settles is what was **received**; if what was sent
+  differs, "Sent X · Received Y · difference Z" shows and "Accept difference" closes it. A
+  payment without a person stays "unassigned" (it lowers the group's total, not anyone's
+  balance) until it is assigned with one tap. "They won't pay me" forgives one person's balance
+  in a group (or everyone left). Every change goes to the log with undo.
 - **Currency exchanges**: a deposit in RD$ and a transfer in dollars (or the other way around) to a
   third party, from any of your bank accounts (never from a card: currency is not exchanged with a
   card), are linked from their screen ("It is a currency exchange with…"): no leg counts as
@@ -757,7 +1054,7 @@ uv run michelito board [--port N] [--no-browser]
   current month's or the closest earlier one) and, without any, stays apart ("+ US$ X without a
   rate"). "They owe you": one row per shared group with something pending (its name or "With
   whom", "N expenses", what is pending per currency with ≈ RD$ and the age of the oldest pending
-  expense; it opens the group's screen from its first expense) and the currency exchanges with
+  expense; it opens the group's page) and the currency exchanges with
   something pending where you gave first (its oldest leg left your accounts); "You owe": the
   exchanges where they gave first and the other currency is still to be returned. What is marked
   "They are not going to pay me" and complete exchanges do not show up. Each row (date, merchant or
@@ -766,28 +1063,27 @@ uv run michelito board [--port N] [--no-browser]
   expenses is from them and an exchange if any leg is (its row is the first of those legs). The
   Summary's "Pending" widget shows the same three figures (across all months, not only the chosen
   one) and leads here with the chosen accounts.
-- **Shared**: all the shared groups, across all months, the one with the most recent activity
-  (last expense or reimbursement) first. At the top, "They owe you ≈ RD$ X" (the same calculation
-  as Pending), "Paid back this year ≈ RD$ Y" (the reimbursements dated in the current year, each at
-  its month's rate) and how many groups are still open; the US$ without a rate go apart. One row
-  per group: name (or "With whom", or the merchant of the first expense), "With whom", how many
-  expenses and their dates, what was paid, what was paid back and its state ("They owe you …",
-  "Settled" or "Written off"; if they paid you back in excess, it says so). Chips **All · With
-  pending · Settled · Written off** and a search (name, "With whom", an expense's merchant or
-  amount, as in the pickers). Tapping a row expands it with its expenses (split and whether they
-  are settled) and reimbursements (linked or "Manual"); "Manage…" opens the group's screen and
-  "Back" returns with the same chip, search and expanded group (all in the URL; that group stays in
-  view even if it no longer matches the chip, until you change the chip or the search). The list
-  changes nothing: that is done on the group's screen. "New group…" lists the unshared expenses of
-  the last 120 days (without withdrawals, loans, card payments, transfers between your accounts or
-  currency exchanges). At the top go the *suggested* ones: Restaurants, Delivery, Supermarket,
-  Entertainment, Travel, Clothes and shops, Online shopping, Home and electronics or Other (even if
-  you rename them) of RD$ 2,000 or more (amounts in US$, at their month's rate or the closest
-  earlier one; without any, not suggested), the most recent first; the rest (taxes, tickets,
-  commissions, small amounts) stays behind "See more" and the search looks through everything. The
-  rule is fixed (`web/shared_list.py`: `SHAREABLE_CATEGORIES`, `SUGGEST_MIN_DOP`). Picking one
-  opens its screen with "Share" ready. It uses the Summary's chosen accounts, like Pending (without
-  groups in them, it says so).
+- **Shared** (mobile-first): the net balance on top ("They owe you RD$ X · You owe RD$ Y", a line
+  per extra currency) and **People | Groups** (`?view=`, so Back restores it). People: initials,
+  name, balance in color and "in N groups", the settled ones folded under "Settled (N)"; a person
+  shows the per-group breakdown, "Record payment" and "⋯" (rename, merge, aliases). Groups: each
+  with its balance and "New group" (a name, then people as chips with autocomplete: contacts by
+  name or alias, names seen in your incoming transfers — "seen in your bank", which becomes the
+  alias — and "Create …"). A group's page (`/shared/<id>`): one sentence with its balance and
+  "Record payment", a card per person (sideways; tap: a payment prefilled with them), the
+  unassigned payments' band and the timeline by month (expenses with your effect, "you owe" or
+  "you lent"; payments with an arrow and "in your account" or "Not linked · Link"); a row opens
+  its detail with only the actions that apply (delete with undo). One "+ Add expense" (floating
+  above the phone's bottom bar, a header button on wider screens) has two paths: "I paid it"
+  (recent bank expenses not in a group, likely ones first) and "Someone else paid it" (amount,
+  currency, description, "Paid by", date, category and the split, with the live "RD$ 200
+  missing" for exact amounts). "Record payment" infers the direction from the balance and
+  proposes the whole amount, then "Is it in your bank yet?" with up to three transactions (same
+  currency, 5 % margin, ±7 days, the person's name first) or "Not yet". "To review" proposes a
+  credit that names someone who owes you ("Did Ana pay you?"; one tap records and links it, never
+  on its own). A transaction's detail shows only a summary of its group ("Part of group X · your
+  share") with "Open group" and remove; "Share" goes straight to "I paid it" with it. Without
+  groups: up to three expenses that look shared with "Split", or a designed empty state.
 - **Investments**: the money you send to another person to invest
   (`analysis/investments.py`). A bank debit is marked from its detail with "It is an investment…"
   (new, with "With whom" and an optional name, or added to an existing one) and a bank credit with

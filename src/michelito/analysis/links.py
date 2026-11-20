@@ -1,13 +1,10 @@
-"""Links between transactions: shared groups, currency exchanges, investments, cash boxes.
+"""Links between transactions: currency exchanges, investments, cash boxes and reserves.
 
-A single stored model for all of them (tables `links`, `link_members` and `link_manual`):
-- A **shared group** (`kind = 'shared'`) has one or more expenses (`role = 'expense'`), each
-  with its split (equal `people`, `my_share_cents` or `for_other`: "I paid it for someone
-  else", in `link_members`), the credits that reimburse them (`role = 'reimbursement'`) and the
-  reimbursements noted by hand (`link_manual`: cash or another account that is not imported).
-  The group has a "with whom" (`with_whom`), an optional name (`name`) and "they won't pay me
-  back" (`written_off`). A group without expenses does not exist: removing the last one deletes
-  it.
+A single stored model for all of them (tables `links` and `link_members`):
+- Shared expenses no longer live here (schema 19): they are in the ledger (`ledger`,
+  `ledger_store`), which links transactions through `ledger_links`; `Links.ledger` carries those
+  fingerprints so that a fingerprint is still in at most one link of any kind. Old `'shared'`
+  rows (and `link_manual`) are moved by `migrations_v19`.
 - A **currency exchange** (`kind = 'exchange'`) groups legs (`role = 'leg'`) in two
   currencies, with an optional agreed rate and whether it was marked complete.
 - An **investment** (`kind = 'investment'`, schema 13) has contributions
@@ -25,12 +22,12 @@ A single stored model for all of them (tables `links`, `link_members` and `link_
   `cash_box`.
 
 Everything goes by fingerprint (`corrections.fingerprint`), so it survives `parse --retry`.
-Each fingerprint is in at most one link (unique index): a credit reimburses a single group, an
-expense is in a single group, a leg in a single exchange, and nothing is two things at once. A
-fingerprint that no longer exists (a statement that changed) is ignored in the math.
+Each fingerprint is in at most one link (unique index, and `link_of` also looks at
+`ledger_links`): a leg is in a single exchange, and nothing is two things at once. A fingerprint
+that no longer exists (a statement that changed) is ignored in the math.
 
-This module only reads and writes; the math of each link is in `shared`, `exchanges` and
-`investments`.
+This module only reads and writes; the math of each link is in `exchanges`, `investments`,
+`cash_box` and `reserves`.
 """
 
 from __future__ import annotations
@@ -38,7 +35,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, get_args
@@ -49,8 +46,6 @@ if TYPE_CHECKING:
     from michelito.analysis.spending import Movement
 
 PERSON_MAX = 80
-# The place the UI suggests for a cash reimbursement: stored as no place.
-CASH_PLACE = "efectivo"  # spanish-data
 RATE_MAX = Decimal(1_000_000)
 
 InvestmentRole = Literal["contribution", "return", "capital", "mixed"]
@@ -65,71 +60,6 @@ class LinkError(ValueError):
 
 class AlreadyLinked(LinkError):
     """The fingerprint is already in another link (409)."""
-
-
-@dataclass(frozen=True)
-class ManualEntry:
-    """Reimbursement noted by hand: in cash or in an account that is not imported."""
-
-    id: int
-    amount: Decimal
-    day: date
-    currency: str  # the money's (for schema 11 rows, their expense's: see `db`)
-    person: str = ""
-    place: str = ""  # "" = cash
-
-
-@dataclass(frozen=True)
-class SharedExpense:
-    """An expense of the group and its split (exactly one form)."""
-
-    fingerprint: str
-    people: int | None = None  # "we were N"
-    my_share: Decimal | None = None  # "my share: RD$ X"
-    for_other: bool = False  # "I paid it for someone else": my share is 0
-
-
-@dataclass(frozen=True)
-class Shared:
-    """A shared group: its expenses (in the order they were added), its reimbursements and
-    with whom."""
-
-    id: int
-    expenses: tuple[SharedExpense, ...]
-    with_whom: str = ""  # "with whom"
-    name: str = ""  # optional, e.g. a trip name
-    written_off: bool = False  # "they won't pay me back"
-    reimbursements: tuple[str, ...] = ()  # fingerprints of the credits
-    manual: tuple[ManualEntry, ...] = ()
-
-    @classmethod
-    def one(
-        cls,
-        id: int,  # noqa: A002
-        expense: str,
-        *,
-        people: int | None = None,
-        my_share: Decimal | None = None,
-        for_other: bool = False,
-        with_whom: str = "",
-        name: str = "",
-        written_off: bool = False,
-        reimbursements: tuple[str, ...] = (),
-        manual: tuple[ManualEntry, ...] = (),
-    ) -> Shared:
-        """A group with a single expense (as all were before schema 12)."""
-        return cls(
-            id,
-            (SharedExpense(expense, people, my_share, for_other),),
-            with_whom,
-            name,
-            written_off,
-            reimbursements,
-            manual,
-        )
-
-    def split(self, fingerprint: str) -> SharedExpense | None:
-        return next((e for e in self.expenses if e.fingerprint == fingerprint), None)
 
 
 @dataclass(frozen=True)
@@ -204,36 +134,23 @@ class Candidate:
 
 @dataclass(frozen=True)
 class Links:
-    shared: tuple[Shared, ...] = ()
     exchanges: tuple[Exchange, ...] = field(default_factory=tuple)
     investments: tuple[Investment, ...] = ()
     cash_boxes: tuple[CashBox, ...] = ()
     # Expenses linked to a reserve (schema 17): fingerprint -> reserve id. The link does not
     # change their category (see `reserve_store`).
     reserved: Mapping[str, int] = field(default_factory=dict)
-
-    @cached_property
-    def _by_expense(self) -> dict[str, Shared]:
-        return {e.fingerprint: s for s in self.shared for e in s.expenses}
-
-    @cached_property
-    def _by_credit(self) -> dict[str, Shared]:
-        return {credit: s for s in self.shared for credit in s.reimbursements}
+    # Transactions linked to the shared ledger (schema 19): fingerprint -> (group id, "entry" or
+    # "payment").
+    ledger: Mapping[str, tuple[int, str]] = field(default_factory=dict)
 
     @cached_property
     def _by_leg(self) -> dict[str, Exchange]:
         return {leg: e for e in self.exchanges for leg in e.legs}
 
-    def shared_for(self, fingerprint: str) -> Shared | None:
-        """The shared group holding this expense."""
-        return self._by_expense.get(fingerprint)
-
-    def reimbursed(self, fingerprint: str) -> Shared | None:
-        """The shared group this credit reimburses."""
-        return self._by_credit.get(fingerprint)
-
-    def group(self, link_id: int) -> Shared | None:
-        return next((s for s in self.shared if s.id == link_id), None)
+    def ledger_for(self, fingerprint: str) -> tuple[int, str] | None:
+        """The ledger group and role ("entry" or "payment") of this transaction."""
+        return self.ledger.get(fingerprint)
 
     @cached_property
     def _by_investment(self) -> dict[str, Investment]:
@@ -262,8 +179,7 @@ class Links:
 
     def is_linked(self, fingerprint: str) -> bool:
         return (
-            fingerprint in self._by_expense
-            or fingerprint in self._by_credit
+            fingerprint in self.ledger
             or fingerprint in self._by_leg
             or fingerprint in self._by_investment
             or fingerprint in self._by_cash_box
@@ -275,8 +191,7 @@ class Links:
         """All fingerprints that are in some link."""
         return frozenset(
             (
-                *self._by_expense,
-                *self._by_credit,
+                *self.ledger,
                 *self._by_leg,
                 *self._by_investment,
                 *self._by_cash_box,
@@ -296,19 +211,6 @@ def load(conn: sqlite3.Connection) -> Links:
     members: dict[int, list[sqlite3.Row]] = {}
     for row in conn.execute("SELECT * FROM link_members ORDER BY added_at, rowid"):
         members.setdefault(row["link_id"], []).append(row)
-    manual: dict[int, list[ManualEntry]] = {}
-    for row in conn.execute("SELECT * FROM link_manual ORDER BY day, id"):
-        manual.setdefault(row["link_id"], []).append(
-            ManualEntry(
-                id=row["id"],
-                amount=Decimal(row["amount_cents"]) / 100,
-                day=date.fromisoformat(row["day"]),
-                person=row["person"] or "",
-                place=row["place"] or "",
-                currency=row["currency"],
-            )
-        )
-    shared: list[Shared] = []
     exchanges: list[Exchange] = []
     investments: list[Investment] = []
     boxes: list[CashBox] = []
@@ -317,35 +219,31 @@ def load(conn: sqlite3.Connection) -> Links:
         rows = members.get(row["id"], [])
         if row["kind"] == "reserve":
             reserved.update((m["fingerprint"], int(row["id"])) for m in rows)
-            continue
-        if row["kind"] == "cash_box":
+        elif row["kind"] == "cash_box":
             boxes.append(_cash_box(row, rows))
-            continue
-        if row["kind"] == "exchange":
+        elif row["kind"] == "exchange":
             exchanges.append(_exchange(row, rows))
-            continue
-        if row["kind"] == "investment":
+        elif row["kind"] == "investment":
             found = _investment(row, rows)
             if found.contributions:
                 investments.append(found)
-            continue
-        expenses = tuple(_split(m) for m in rows if m["role"] == "expense")
-        if not expenses:
-            continue
-        shared.append(
-            Shared(
-                id=row["id"],
-                expenses=expenses,
-                with_whom=row["with_whom"] or "",
-                name=row["name"] or "",
-                written_off=bool(row["written_off"]),
-                reimbursements=tuple(
-                    m["fingerprint"] for m in rows if m["role"] == "reimbursement"
-                ),
-                manual=tuple(manual.get(row["id"], ())),
-            )
-        )
-    return Links(tuple(shared), tuple(exchanges), tuple(investments), tuple(boxes), reserved)
+    return Links(tuple(exchanges), tuple(investments), tuple(boxes), reserved, _ledger_links(conn))
+
+
+def _ledger_links(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
+    if not _has_table(conn, "ledger_links"):
+        return {}
+    return {
+        row["fingerprint"]: (int(row["group_id"]), "entry" if row["entry_id"] else "payment")
+        for row in conn.execute("SELECT * FROM ledger_links")
+    }
+
+
+def _has_table(conn: sqlite3.Connection, name: str) -> bool:
+    found = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone()
+    return found is not None
 
 
 def _cash_box(row: sqlite3.Row, members: Iterable[sqlite3.Row]) -> CashBox:
@@ -382,16 +280,6 @@ def _investment(row: sqlite3.Row, members: Iterable[sqlite3.Row]) -> Investment:
     )
 
 
-def _split(row: sqlite3.Row) -> SharedExpense:
-    cents = row["my_share_cents"]
-    return SharedExpense(
-        fingerprint=row["fingerprint"],
-        people=row["people"],
-        my_share=None if cents is None else Decimal(cents) / 100,
-        for_other=bool(row["for_other"]),
-    )
-
-
 def _exchange(row: sqlite3.Row, members: Iterable[sqlite3.Row]) -> Exchange:
     return Exchange(
         id=row["id"],
@@ -399,226 +287,6 @@ def _exchange(row: sqlite3.Row, members: Iterable[sqlite3.Row]) -> Exchange:
         agreed_rate=None if row["agreed_rate"] is None else Decimal(row["agreed_rate"]),
         closed=bool(row["closed"]),
     )
-
-
-# --- Shared groups -------------------------------------------------------------------------
-
-
-def set_shared(
-    conn: sqlite3.Connection,
-    expense: str,
-    amount: Decimal,
-    *,
-    people: int | None = None,
-    my_share: Decimal | None = None,
-    for_other: bool = False,
-    with_whom: str | None = None,
-) -> int:
-    """Marks (or changes) the split of an expense; exactly one of the three forms.
-
-    If the expense is already in a group, its split changes (the group and its reimbursements
-    stay); otherwise a new group is created with it (`with_whom`: optional "with whom").
-    `amount`: the expense amount (positive), to validate my share (0 < X <= amount). Returns
-    the group id.
-    """
-    _check_split(amount, people, my_share, for_other)
-    current = _shared_id(conn, expense)
-    if current is not None:
-        conn.execute(
-            "UPDATE link_members SET people = ?, my_share_cents = ?, for_other = ? "
-            "WHERE link_id = ? AND fingerprint = ? AND role = 'expense'",
-            (people, _share_cents(my_share), int(for_other), current, expense),
-        )
-        _touch(conn, current)
-        return current
-    if _link_of(conn, expense) is not None:
-        raise AlreadyLinked(t("analysis.links.already_linked"))
-    now = _now()
-    cursor = conn.execute(
-        "INSERT INTO links (kind, with_whom, created_at, updated_at) VALUES ('shared', ?, ?, ?)",
-        (_text(with_whom, t("analysis.links.field_with_whom")), now, now),
-    )
-    found = int(cursor.lastrowid or 0)
-    _insert_expense(conn, found, expense, people, my_share, for_other)
-    return found
-
-
-def add_expense(
-    conn: sqlite3.Connection,
-    link_id: int,
-    expense: str,
-    amount: Decimal,
-    *,
-    people: int | None = None,
-    my_share: Decimal | None = None,
-    for_other: bool = False,
-) -> None:
-    """Adds an expense (with its split) to an existing group."""
-    _require_group(conn, link_id)
-    _check_split(amount, people, my_share, for_other)
-    if _link_of(conn, expense) is not None:
-        raise AlreadyLinked(t("analysis.links.already_linked"))
-    _insert_expense(conn, link_id, expense, people, my_share, for_other)
-    _touch(conn, link_id)
-
-
-def _insert_expense(
-    conn: sqlite3.Connection,
-    link_id: int,
-    expense: str,
-    people: int | None,
-    my_share: Decimal | None,
-    for_other: bool,
-) -> None:
-    conn.execute(
-        "INSERT INTO link_members (link_id, fingerprint, role, added_at, people, "
-        "my_share_cents, for_other) VALUES (?, ?, 'expense', ?, ?, ?, ?)",
-        (link_id, expense, _now(), people, _share_cents(my_share), int(for_other)),
-    )
-
-
-def _share_cents(my_share: Decimal | None) -> int | None:
-    return None if my_share is None else _to_cents(my_share)
-
-
-def _check_split(
-    amount: Decimal, people: int | None, my_share: Decimal | None, for_other: bool
-) -> None:
-    if amount <= 0:
-        raise LinkError(t("analysis.links.only_expense_shared"))
-    given = sum((people is not None, my_share is not None, for_other))
-    if given != 1:
-        raise LinkError(t("analysis.links.choose_split"))
-    if people is not None and not 2 <= people <= 100:
-        raise LinkError(t("analysis.links.people_range"))
-    if my_share is not None and not 0 < my_share <= amount:
-        raise LinkError(t("analysis.links.share_range"))
-
-
-def unshare(conn: sqlite3.Connection, expense: str) -> bool:
-    """Removes the expense from its group; the reimbursements stay in the group. If it was the
-    last expense, deletes the group: its credits go back to their category and the ones noted
-    by hand are deleted. Returns whether the group was deleted."""
-    found = _shared_id(conn, expense)
-    if found is None:
-        return False
-    conn.execute(
-        "DELETE FROM link_members WHERE link_id = ? AND fingerprint = ? AND role = 'expense'",
-        (found, expense),
-    )
-    left = conn.execute(
-        "SELECT COUNT(*) FROM link_members WHERE link_id = ? AND role = 'expense'", (found,)
-    ).fetchone()[0]
-    if left == 0:
-        conn.execute("DELETE FROM links WHERE id = ?", (found,))
-        return True
-    _touch(conn, found)
-    return False
-
-
-def set_group(
-    conn: sqlite3.Connection,
-    link_id: int,
-    *,
-    name: str | None | object = ...,
-    with_whom: str | None | object = ...,
-) -> None:
-    """Name and "with whom" of the group: absent (`...`) leaves it; empty or None clears it."""
-    _require_group(conn, link_id)
-    if name is not ...:
-        text = _text(name if isinstance(name, str) else None, t("analysis.links.field_name"))
-        conn.execute("UPDATE links SET name = ? WHERE id = ?", (text, link_id))
-    if with_whom is not ...:
-        text = _text(
-            with_whom if isinstance(with_whom, str) else None, t("analysis.links.field_with_whom")
-        )
-        conn.execute("UPDATE links SET with_whom = ? WHERE id = ?", (text, link_id))
-    _touch(conn, link_id)
-
-
-def set_written_off(conn: sqlite3.Connection, link_id: int, written_off: bool) -> None:
-    _require_group(conn, link_id)
-    conn.execute(
-        "UPDATE links SET written_off = ?, updated_at = ? WHERE id = ?",
-        (int(written_off), _now(), link_id),
-    )
-
-
-def add_reimbursement(conn: sqlite3.Connection, link_id: int, credit: str) -> None:
-    _require_group(conn, link_id)
-    if _link_of(conn, credit) is not None:
-        raise AlreadyLinked(t("analysis.links.credit_already_linked"))
-    conn.execute(
-        "INSERT INTO link_members (link_id, fingerprint, role, added_at) "
-        "VALUES (?, ?, 'reimbursement', ?)",
-        (link_id, credit, _now()),
-    )
-
-
-def remove_reimbursement(conn: sqlite3.Connection, link_id: int, credit: str) -> None:
-    _require_group(conn, link_id)
-    cursor = conn.execute(
-        "DELETE FROM link_members WHERE link_id = ? AND fingerprint = ? AND role = 'reimbursement'",
-        (link_id, credit),
-    )
-    if cursor.rowcount == 0:
-        raise LookupError(t("analysis.links.not_group_reimbursement"))
-
-
-def add_manual(
-    conn: sqlite3.Connection,
-    link_id: int,
-    amount: Decimal,
-    day: date,
-    currency: str,
-    person: str | None = None,
-    place: str | None = None,
-) -> int:
-    """Reimbursement in cash (empty `place`) or in another account (`place`: where), in
-    `currency` (always stored: if an expense in another currency is added later, it does not
-    change)."""
-    _require_group(conn, link_id)
-    if amount <= 0:
-        raise LinkError(t("analysis.links.amount_positive"))
-    if currency not in ("DOP", "USD"):
-        raise LinkError(t("analysis.links.currency_choice"))
-    cursor = conn.execute(
-        "INSERT INTO link_manual (link_id, amount_cents, day, person, place, currency, "
-        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            link_id,
-            _to_cents(amount),
-            day.isoformat(),
-            _text(person, t("analysis.links.field_from_whom")),
-            _place(place),
-            currency,
-            _now(),
-        ),
-    )
-    return int(cursor.lastrowid or 0)
-
-
-def remove_manual(conn: sqlite3.Connection, link_id: int, entry_id: int) -> None:
-    _require_group(conn, link_id)
-    cursor = conn.execute(
-        "DELETE FROM link_manual WHERE id = ? AND link_id = ?", (entry_id, link_id)
-    )
-    if cursor.rowcount == 0:
-        raise LookupError(t("analysis.links.manual_not_in_group"))
-
-
-def places(conn: sqlite3.Connection) -> list[str]:
-    """Where reimbursements were noted before (cash excluded), the most recent first."""
-    rows = conn.execute(
-        "SELECT place, MAX(created_at) AS last FROM link_manual WHERE place IS NOT NULL "
-        "GROUP BY place ORDER BY last DESC, place"
-    )
-    return [row["place"] for row in rows]
-
-
-def _place(place: str | None) -> str | None:
-    text = _text(place, t("analysis.links.field_place"))
-    return None if text is None or text.casefold() == CASH_PLACE else text
 
 
 # --- Currency exchanges ---------------------------------------------------------------------
@@ -632,7 +300,7 @@ def create_exchange(
     if len(chosen) < 2:
         raise LinkError(t("analysis.links.exchange_needs_legs"))
     for leg in chosen:
-        if _link_of(conn, leg) is not None:
+        if link_of(conn, leg) is not None:
             raise AlreadyLinked(t("analysis.links.leg_already_linked"))
     now = _now()
     cursor = conn.execute(
@@ -649,7 +317,7 @@ def add_legs(conn: sqlite3.Connection, exchange_id: int, legs: Iterable[str]) ->
     _require_exchange(conn, exchange_id)
     chosen = list(dict.fromkeys(legs))
     for leg in chosen:
-        if _link_of(conn, leg) is not None:
+        if link_of(conn, leg) is not None:
             raise AlreadyLinked(t("analysis.links.leg_already_linked"))
     _insert_legs(conn, exchange_id, chosen, _now())
 
@@ -710,7 +378,7 @@ def create_investment(
     name: str | None = None,
 ) -> int:
     """New investment with this contribution (the caller validates it is a debit)."""
-    if _link_of(conn, contribution) is not None:
+    if link_of(conn, contribution) is not None:
         raise AlreadyLinked(t("analysis.links.already_linked"))
     with_text, name_text = (
         _text(with_whom, t("analysis.links.field_with_whom")),
@@ -739,7 +407,7 @@ def add_investment_member(
     (positive), to validate the capital part of a mixed one (0 < capital < amount)."""
     _require_investment(conn, investment_id)
     _check_role(role, amount, capital)
-    if _link_of(conn, fingerprint) is not None:
+    if link_of(conn, fingerprint) is not None:
         raise AlreadyLinked(t("analysis.links.already_linked"))
     _insert_member(conn, investment_id, fingerprint, role, capital)
     _touch(conn, investment_id)
@@ -859,34 +527,16 @@ def _require_investment(conn: sqlite3.Connection, investment_id: int) -> None:
 # --- Helpers --------------------------------------------------------------------------------
 
 
-def _link_of(conn: sqlite3.Connection, fingerprint: str) -> int | None:
+def link_of(conn: sqlite3.Connection, fingerprint: str) -> int | None:
+    """The link (or ledger group) holding this fingerprint, if any."""
     row = conn.execute(
         "SELECT link_id FROM link_members WHERE fingerprint = ?", (fingerprint,)
     ).fetchone()
+    if row is None and _has_table(conn, "ledger_links"):
+        row = conn.execute(
+            "SELECT group_id FROM ledger_links WHERE fingerprint = ?", (fingerprint,)
+        ).fetchone()
     return None if row is None else int(row[0])
-
-
-def _shared_id(conn: sqlite3.Connection, expense: str) -> int | None:
-    row = conn.execute(
-        "SELECT link_id FROM link_members WHERE fingerprint = ? AND role = 'expense'", (expense,)
-    ).fetchone()
-    return None if row is None else int(row[0])
-
-
-def group_of(conn: sqlite3.Connection, expense: str) -> int:
-    """The group of this expense; LinkError if it is not shared."""
-    found = _shared_id(conn, expense)
-    if found is None:
-        raise LinkError(t("analysis.links.not_shared"))
-    return found
-
-
-def _require_group(conn: sqlite3.Connection, link_id: int) -> None:
-    row = conn.execute(
-        "SELECT 1 FROM links WHERE id = ? AND kind = 'shared'", (link_id,)
-    ).fetchone()
-    if row is None:
-        raise LookupError(t("analysis.links.unknown_group", id=link_id))
 
 
 def _touch(conn: sqlite3.Connection, link_id: int) -> None:

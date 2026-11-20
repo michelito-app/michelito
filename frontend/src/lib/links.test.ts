@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
-import type { ExchangeInfo, GroupExpense, GroupRef, LinkedTx, SharedInfo, Tx } from './api'
+import type { ExchangeInfo, LinkedTx, Tx } from './api'
 import {
   backPath,
   categoryLocked,
   exchangeLine,
-  expenseStatus,
-  groupLabel,
+  groupPath,
   linkBadges,
   linkedAmount,
   linkedLabel,
@@ -14,65 +13,23 @@ import {
   linkSummaries,
   listPath,
   moneyList,
-  overWarning,
   parseCents,
-  sharedBody,
-  sharedStats,
   showExchange,
   showReimbursement,
   showShared,
-  splitDraftOf,
-  splitText,
-  unconvertedWarning,
 } from './links'
+import type { LedgerRef } from './sharedApi'
 
-function expense(overrides: Partial<GroupExpense> = {}): GroupExpense {
-  return {
-    fingerprint: 'e',
-    day: '2026-02-02',
-    merchant: 'RESTAURANTE',
-    account_label: 'Visa',
-    amount_cents: 185_000,
-    currency: 'DOP',
-    people: 3,
-    my_share_cents: null,
-    for_other: false,
-    share_cents: 61_667,
-    counted_cents: 61_667,
-    reimbursed_cents: 61_667,
-    pending_cents: 61_666,
-    written_off_cents: 0,
-    ...overrides,
-  }
-}
-
-function shared(overrides: Partial<SharedInfo> = {}): SharedInfo {
-  return {
-    id: 1,
-    title: 'Ana y Luis', // spanish-data
-    name: '',
-    with_whom: 'Ana y Luis', // spanish-data
-    first_fingerprint: 'e',
-    expense_count: 1,
-    pending: [{ currency: 'DOP', cents: 61_666 }],
-    last_split: { people: 3, my_share_cents: null, for_other: false },
-    written_off: false,
-    expenses: [expense()],
-    totals: [
-      {
-        currency: 'DOP',
-        share_cents: 61_667,
-        reimbursed_cents: 61_667,
-        pending_cents: 61_666,
-        written_off_cents: 0,
-      },
-    ],
-    excess: [],
-    unconverted: [],
-    reimbursements: [],
-    manual: [],
-    ...overrides,
-  }
+const LEDGER: LedgerRef = {
+  group_id: 4,
+  group_name: 'Cena con Ana', // spanish-data
+  role: 'entry',
+  entry_id: 9,
+  payment_id: null,
+  my_share_cents: 100_000,
+  pending_cents: 200_000,
+  currency: 'DOP',
+  paid_by_name: '',
 }
 
 function tx(overrides: Partial<Tx> = {}): Tx {
@@ -100,9 +57,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     link: '',
     gross_cents: null,
     pending_cents: 0,
-    shared: null,
-    reimbursement_of: null,
-    suggested_group: null,
+    ledger: null,
     exchange: null,
     suggested_exchange_with: null,
     can_invest: false,
@@ -117,6 +72,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     cash_box_currency: null,
     cash_box_amount_cents: null,
     cash_entry_id: null,
+    provisional: false,
     link_id: null,
     can_share: false,
     can_reimburse: false,
@@ -134,122 +90,22 @@ const LINKED: LinkedTx = {
   currency: 'DOP',
 }
 
-describe('splitText / sharedStats', () => {
-  it('says how each expense was split', () => {
-    expect(splitText(expense(), 'DOP')).toBe(t('links.split.people', { people: 3 }))
-    expect(splitText(expense({ people: null, my_share_cents: 40_000 }), 'DOP')).toBe(
-      t('links.split.myShare', { amount: 'RD$ 400' }),
-    )
-    expect(splitText(expense({ people: null, for_other: true }), 'USD')).toBe(
-      t('links.split.forOther'),
-    )
-  })
-
-  it("the group's share, reimbursed and pending amounts", () => {
-    expect(sharedStats(shared())).toEqual([
-      { label: t('links.stat.yourShare'), value: 'RD$ 617' },
-      { label: t('links.stat.reimbursed'), value: 'RD$ 617' },
-      { label: t('links.stat.owed'), value: 'RD$ 617' },
-    ])
-    const lost = shared({
-      written_off: true,
-      totals: [
-        {
-          currency: 'DOP',
-          share_cents: 61_667,
-          reimbursed_cents: 61_667,
-          pending_cents: 0,
-          written_off_cents: 61_666,
-        },
-      ],
-    })
-    expect(sharedStats(lost)[2]).toEqual({ label: t('links.stat.writtenOff'), value: 'RD$ 617' })
-  })
-
-  it('by currency when the group has expenses in RD$ and US$', () => {
-    const both = shared({
-      totals: [
-        {
-          currency: 'DOP',
-          share_cents: 600_000,
-          reimbursed_cents: 300_000,
-          pending_cents: 300_000,
-          written_off_cents: 0,
-        },
-        {
-          currency: 'USD',
-          share_cents: 0,
-          reimbursed_cents: 10_000,
-          pending_cents: 12_000,
-          written_off_cents: 0,
-        },
-      ],
-    })
-    expect(sharedStats(both)).toEqual([
-      { label: t('links.stat.yourShare'), value: 'RD$ 6,000' },
-      { label: t('links.stat.reimbursed'), value: 'RD$ 3,000 + US$ 100.00' },
-      { label: t('links.stat.owed'), value: 'RD$ 3,000 + US$ 120.00' },
-    ])
-    expect(moneyList([{ currency: 'USD', cents: 0 }])).toBe('US$ 0.00')
-  })
-
-  it('the status of each expense after applying the reimbursements', () => {
-    expect(expenseStatus(expense())).toBe(t('links.expense.pending', { amount: 'RD$ 617' }))
-    expect(expenseStatus(expense({ pending_cents: 0 }))).toBe(t('links.expense.settled'))
-    expect(expenseStatus(expense({ pending_cents: 0, written_off_cents: 50_000 }))).toBe(
-      t('links.expense.writtenOff', { amount: 'RD$ 500' }),
-    )
-  })
-
-  it('warns about an over-reimbursement or a missing rate', () => {
-    expect(overWarning(shared())).toBeNull()
-    expect(overWarning(shared({ excess: [{ currency: 'DOP', cents: 10_000 }] }))).toBe(
-      t('links.warning.over', { amount: 'RD$ 100' }),
-    )
-    expect(unconvertedWarning(shared())).toBeNull()
-    expect(unconvertedWarning(shared({ unconverted: ['c'] }))).toBe(
-      t('links.warning.unconverted', { count: 1 }),
-    )
-    expect(unconvertedWarning(shared({ unconverted: ['c', 'd'] }))).toBe(
-      t('links.warning.unconverted', { count: 2 }),
-    )
-  })
-
-  it('a group in a list: title and what you are owed', () => {
-    const ref: GroupRef = {
-      ...shared(),
-      title: 'Carola y Rafael', // spanish-data
-      pending: [{ currency: 'USD', cents: 91_237 }],
-    }
-    expect(groupLabel(ref)).toBe(
-      t('links.group.label', {
-        title: ref.title,
-        status: t('links.group.owed', { amount: 'US$ 912.37' }),
-      }),
-    )
-    expect(groupLabel({ ...ref, pending: [] })).toBe(
-      t('links.group.label', { title: ref.title, status: t('links.group.settled') }),
-    )
-  })
-})
-
 describe('linkBadges', () => {
-  it('shared with what you are owed, reimbursement, exchange and suggestions', () => {
+  it('shared with what you are owed, a group movement, a group payment, exchange', () => {
     expect(linkBadges(tx())).toEqual([])
     const labels = (row: Tx) => linkBadges(row).map((b) => b.label)
-    expect(labels(tx({ link: 'shared', shared: shared(), pending_cents: 200_000 }))).toEqual([
+    expect(labels(tx({ link: 'shared', ledger: LEDGER, pending_cents: 200_000 }))).toEqual([
       t('links.badge.shared'),
       t('links.badge.owed', { amount: 'RD$ 2,000' }),
     ])
-    expect(labels(tx({ link: 'shared', shared: shared(), pending_cents: 0 }))).toEqual([
+    expect(labels(tx({ link: 'shared', ledger: LEDGER, pending_cents: 0 }))).toEqual([
       t('links.badge.shared'),
     ])
-    // A reimbursement carries its group, but it is not "shared".
-    const reimbursement = [t('links.badge.reimbursement')]
-    expect(labels(tx({ link: 'reimbursement', shared: shared() }))).toEqual(reimbursement)
-    expect(labels(tx({ link: 'reimbursement', reimbursement_of: LINKED }))).toEqual(reimbursement)
-    expect(labels(tx({ suggested_group: shared() }))).toEqual([
-      t('links.badge.suggestedReimbursement'),
+    expect(labels(tx({ link: 'group', ledger: { ...LEDGER, role: 'group' } }))).toEqual([
+      t('links.badge.group'),
+    ])
+    expect(labels(tx({ link: 'reimbursement', ledger: { ...LEDGER, role: 'payment' } }))).toEqual([
+      t('links.badge.reimbursement'),
     ])
     expect(labels(tx({ suggested_exchange_with: LINKED }))).toEqual([
       t('links.badge.suggestedExchange'),
@@ -315,7 +171,7 @@ describe('exchangeLine', () => {
   })
 })
 
-describe('parseCents / sharedBody', () => {
+describe('parseCents', () => {
   it('reads amounts with commas, a currency sign and up to two decimals', () => {
     expect(parseCents('1,850.50')).toBe(185_050)
     expect(parseCents('RD$ 400')).toBe(40_000)
@@ -324,32 +180,14 @@ describe('parseCents / sharedBody', () => {
     expect(parseCents('abc')).toBeNull()
   })
 
-  it('builds the split or says what is missing', () => {
-    const draft = splitDraftOf(null)
-    expect(sharedBody({ ...draft, people: '3' }, 300_000)).toEqual({ body: { people: 3 } })
-    expect(sharedBody({ ...draft, people: '1' }, 300_000)).toEqual({
-      error: t('links.splitError.people'),
-    })
-    expect(sharedBody({ ...draft, mode: 'share', share: '400' }, 300_000)).toEqual({
-      body: { my_share_cents: 40_000 },
-    })
-    expect(sharedBody({ ...draft, mode: 'share', share: '4000' }, 300_000)).toEqual({
-      error: t('links.splitError.shareTooBig'),
-    })
-    expect(sharedBody({ ...draft, mode: 'share', share: 'x' }, 300_000)).toEqual({
-      error: t('links.splitError.share'),
-    })
-    expect(sharedBody({ ...draft, mode: 'other' }, 300_000)).toEqual({
-      body: { for_other: true },
-    })
-  })
-
-  it('the form starts from what was saved', () => {
-    expect(splitDraftOf(expense({ people: null, my_share_cents: 40_000 }))).toEqual({
-      mode: 'share',
-      people: '2',
-      share: '400.00',
-    })
+  it('lists amounts in several currencies, zeros left out', () => {
+    expect(
+      moneyList([
+        { currency: 'DOP', cents: 300_000 },
+        { currency: 'USD', cents: 12_000 },
+      ]),
+    ).toBe('RD$ 3,000 + US$ 120.00')
+    expect(moneyList([{ currency: 'DOP', cents: 0 }])).toBe('RD$ 0')
   })
 })
 
@@ -357,9 +195,10 @@ describe('detail sections', () => {
   it('follow the server rules and also show dormant links', () => {
     expect(showShared(tx())).toBe(false)
     expect(showShared(tx({ can_share: true }))).toBe(true)
-    expect(showShared(tx({ link: 'shared' }))).toBe(true) // dormant: it can be unshared
+    expect(showShared(tx({ link: 'shared', ledger: LEDGER }))).toBe(true)
     expect(showReimbursement(tx({ can_reimburse: true }))).toBe(true)
-    expect(showReimbursement(tx({ link: 'reimbursement' }))).toBe(true)
+    // A credit already in a group is shown by its group, not offered again.
+    expect(showReimbursement(tx({ can_reimburse: true, ledger: LEDGER }))).toBe(false)
     expect(showReimbursement(tx({ amount_cents: -100, kind: 'income' }))).toBe(false)
     expect(showExchange(tx({ can_exchange: true }))).toBe(true)
     expect(showExchange(tx({ link: 'exchange' }))).toBe(true)
@@ -367,6 +206,7 @@ describe('detail sections', () => {
 
   it('the link sets the category of a linked credit or leg', () => {
     expect(categoryLocked(tx({ link: 'reimbursement' }))).toBe(true)
+    expect(categoryLocked(tx({ link: 'group' }))).toBe(true)
     expect(categoryLocked(tx({ link: 'exchange' }))).toBe(true)
     expect(categoryLocked(tx({ link: 'cash_box' }))).toBe(true)
     expect(categoryLocked(tx({ link: 'shared' }))).toBe(false)
@@ -386,49 +226,41 @@ describe('detail sections', () => {
 describe('linkSummaries', () => {
   const texts = (row: Tx) => linkSummaries(row).map((s) => `${s.text} [${s.action}]`)
   const manage = t('links.action.manage')
-  const sharedText = (status: string, refunds: number) =>
-    t('links.summary.sharedText', {
-      title: 'Ana y Luis', // spanish-data
-      status,
-      refunds: t('links.summary.refundCount', { count: refunds }),
-    })
 
   it('an expense that can be shared offers to share it', () => {
     expect(texts(tx({ can_share: true }))).toEqual([
-      `${t('links.summary.sharedOffer')} [${t('links.action.share')}]`,
+      `${t('shared.tx.offer')} [${t('shared.tx.share')}]`,
     ])
   })
 
-  it('a shared expense: its group, what you are owed and how many reimbursements', () => {
-    const row = tx({ link: 'shared', shared: shared({ reimbursements: [LINKED] }) })
-    expect(texts(row)).toEqual([
-      'Parte de Ana y Luis · te deben RD$ 617 · 1 reembolso [Gestionar…]', // spanish-ui
-    ])
-    const both = shared({
-      pending: [
-        { currency: 'DOP', cents: 300_000 },
-        { currency: 'USD', cents: 12_000 },
-      ],
-    })
-    const owed = (amount: string) => t('links.group.owed', { amount })
-    expect(texts(tx({ link: 'shared', shared: both }))).toEqual([
-      `${sharedText(owed('RD$ 3,000 + US$ 120.00'), 0)} [${manage}]`,
-    ])
-    expect(texts(tx({ link: 'shared', shared: shared({ pending: [] }) }))).toEqual([
-      `${sharedText(t('links.group.settled'), 0)} [${manage}]`,
-    ])
+  it('a row in a group: its part, what you are owed, and «Open group»', () => {
+    const [entry] = linkSummaries(tx({ link: 'shared', ledger: LEDGER }))
+    expect(entry.text).toBe(
+      t('shared.tx.entryPending', {
+        group: 'Cena con Ana', // spanish-data
+        share: 'RD$ 1,000',
+        pending: 'RD$ 2,000',
+      }),
+    )
+    expect(entry.action).toBe(t('shared.tx.openGroup'))
+    expect(entry.href).toBe(groupPath(4))
+    const settled = linkSummaries(tx({ link: 'shared', ledger: { ...LEDGER, pending_cents: 0 } }))
+    expect(settled[0].text).toBe(
+      t('shared.tx.entry', { group: 'Cena con Ana', share: 'RD$ 1,000' }), // spanish-data
+    )
+    const movement = { ...LEDGER, role: 'group' as const, paid_by_name: 'Ana' }
+    expect(linkSummaries(tx({ link: 'group', ledger: movement }))[0].text).toBe(
+      t('shared.tx.group', { payer: 'Ana', group: 'Cena con Ana' }), // spanish-data
+    )
   })
 
-  it('a credit: linked or to be linked; and whether it can be an exchange', () => {
-    const of = (what: string) => t('links.summary.reimbursementOf', { what })
-    expect(texts(tx({ link: 'reimbursement', reimbursement_of: LINKED }))).toEqual([
-      `${of(linkedLabel(LINKED))} [${manage}]`,
-    ])
-    expect(texts(tx({ link: 'reimbursement', shared: shared() }))).toEqual([
-      `${of(groupLabel(shared()))} [${manage}]`,
+  it('a credit: a payment in a group, or offered as one; and whether it can be an exchange', () => {
+    const payment = { ...LEDGER, role: 'payment' as const }
+    expect(texts(tx({ link: 'reimbursement', ledger: payment }))).toEqual([
+      `${t('shared.tx.payment', { group: 'Cena con Ana' })} [${t('shared.tx.openGroup')}]`, // spanish-data
     ])
     expect(texts(tx({ can_reimburse: true, can_exchange: true }))).toEqual([
-      `${t('links.summary.reimbursementOffer')} [${manage}]`,
+      `${t('shared.tx.creditOffer')} [${t('shared.tx.record')}]`,
       `${t('links.summary.exchangeOffer')} [${manage}]`,
     ])
   })
@@ -481,8 +313,8 @@ describe('backPath', () => {
     expect(listPath('/pending')).toBe('/pending')
   })
 
-  it('returns to Shared with the chip, the search and the expanded group', () => {
-    const from = '/shared?status=settled&q=clothes&group=2'
+  it('returns to Shared with its view', () => {
+    const from = '/shared?view=groups'
     expect(backPath(row, from)).toBe(from)
     expect(listPath('/shared')).toBe('/shared')
   })

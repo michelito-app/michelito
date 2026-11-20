@@ -1,10 +1,11 @@
 // The phone layout (projects `mobile` at 390×844 with touch and `mobile-360` at 360×740): bottom
 // bar, Transactions (day headers, filter sheet, long-press), the full-screen detail with its sheets,
 // Summary, Investments, Shared and no sideways scrolling on any main screen. Read-only but for one
-// test that shares an expense and undoes it: whatever a test opens it closes without saving (the
+// test that shares an expense and undoes it (through the log): whatever a test opens it closes without saving (the
 // same spec runs at both widths on one database).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { Tx } from '../src/lib/api'
+import { addEntry, createGroup, logMark, undoSince } from './ledger'
 import { literal, t } from './text'
 
 const MONTH = '2026-01'
@@ -253,7 +254,7 @@ test.describe('transaction detail', () => {
     const links = page.getByRole('region', { name: t('transactions.links.label') })
     const line = links.getByTestId(`mobile-link-${tx.link}`)
     await expect(line).toBeVisible()
-    const title = tx.link === 'exchange' ? t('links.summary.exchangeTitle') : t('links.summary.sharedTitle')
+    const title = tx.link === 'exchange' ? t('links.summary.exchangeTitle') : t('shared.tx.title')
     await line.getByRole('button', { name: t('transactions.links.openLabel', { what: title }) }).click()
     const kind = tx.link === 'exchange' ? 'transactions.actions.exchange' : 'transactions.actions.share'
     await expect(sheet(page, t(kind))).toBeVisible()
@@ -346,41 +347,48 @@ test.describe('detail as a screen', () => {
   })
 })
 
-test('a shared expense: «Open» the group, then the refund form opens in a sheet on top', async ({
+test('a shared expense: «Open» shows its group summary in a sheet, and «Share» on another goes to «I paid it»', async ({
   page,
 }) => {
   // The only test here that writes: it shares an expense through the API and undoes it at the end.
-  const headers = { 'X-Michelito': '1' }
-  const expense = (await monthItems(page)).find((tx) => tx.kind === 'expense' && tx.can_share)!
-  const path = `/api/transactions/${encodeURIComponent(expense.fingerprint)}`
-  const shared = await page.request.patch(path, { headers, data: { shared: { people: 2 } } })
-  expect(shared.ok()).toBe(true)
+  const mark = await logMark(page.request)
+  const [expense, other] = (await monthItems(page)).filter((tx) => tx.kind === 'expense' && tx.can_share)
+  const group = await createGroup(page.request, 'Grupo del teléfono', [{ name: 'Ana Ficticia' }]) // spanish-data
+  await addEntry(page.request, group.id, {
+    fingerprint: expense.fingerprint,
+    split: 'equal',
+    people: group.members.map((m) => m.id),
+  })
   try {
     await page.goto(`/transactions?month=${MONTH}`)
     await page.locator(`[data-fingerprint="${expense.fingerprint}"]`).click()
     await page
       .getByRole('region', { name: t('transactions.links.label') })
       .getByRole('button', {
-        name: t('transactions.links.openLabel', { what: t('links.summary.sharedTitle') }),
+        name: t('transactions.links.openLabel', { what: t('shared.tx.title') }),
       })
       .click()
-    const group = sheet(page, t('transactions.actions.share'))
-    await expect(group.getByTestId('shared-group')).toBeVisible()
-    await group.getByRole('button', { name: t('links.group.addRefund') }).click()
-    const refund = sheet(page, t('links.group.addRefund'))
-    await expect(refund).toBeVisible()
-    await refund.getByRole('button', { name: t('links.refund.paidElsewhere') }).click()
-    await expect(refund.getByLabel(t('links.refund.place'))).toBeVisible()
-    await noSidewaysScroll(page, 'refund sheet')
-    // Escape closes the top sheet only; then the group's.
+    const summary = sheet(page, t('transactions.actions.share'))
+    await expect(summary.getByTestId('tx-shared')).toBeVisible()
+    await expect(summary.getByRole('link', { name: t('shared.tx.openGroup') })).toBeVisible()
+    await noSidewaysScroll(page, 'shared sheet')
     await page.keyboard.press('Escape')
-    await expect(refund).toHaveCount(0)
-    await expect(group).toBeVisible()
+    await expect(summary).toHaveCount(0)
+
+    // Another expense: «Share» opens «I paid it» with it, ready to pick the group.
+    await page.getByRole('button', { name: t('transactions.detail.back') }).click()
+    await page.locator(`[data-fingerprint="${other.fingerprint}"]`).click()
+    await page
+      .getByRole('group', { name: t('transactions.actions.label') })
+      .getByRole('button', { name: t('transactions.actions.share') })
+      .click()
+    const add = sheet(page, t('shared.add.mine'))
+    await expect(add).toContainText(other.merchant)
+    await noSidewaysScroll(page, 'add expense sheet')
     await page.keyboard.press('Escape')
-    await expect(group).toHaveCount(0)
+    await expect(add).toHaveCount(0)
   } finally {
-    const undone = await page.request.patch(path, { headers, data: { shared: null } })
-    expect(undone.ok()).toBe(true)
+    await undoSince(page.request, mark)
   }
 })
 

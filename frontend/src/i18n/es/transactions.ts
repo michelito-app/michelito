@@ -58,14 +58,7 @@ export const transactions = {
   'transactions.filters.search': 'Buscar',
   'transactions.filters.searchPlaceholder': 'Buscar comercio o descripción',
   'transactions.filters.clearSearch': 'Borrar búsqueda',
-  // SplitForm.tsx
-  'transactions.split.people': 'Éramos',
-  'transactions.split.share': 'Mi parte',
-  'transactions.split.other': 'Lo pagué por otra persona',
-  'transactions.split.legend': 'Cómo se reparte',
-  'transactions.split.peopleCount': 'Cuántos eran',
-  'transactions.split.peopleSuffix': 'personas, contándote',
-  'transactions.split.yourShare': 'Tu parte',
+  // Forms
   'transactions.cancel': 'Cancelar',
   // CandidatePicker.tsx
   'transactions.picker.searchIn': 'Buscar en {label}',
@@ -128,6 +121,11 @@ export const transactions = {
   'transactions.list.pick': 'Seleccionar {day} {merchant} {amount}',
   'transactions.list.hasNote': 'Tiene nota',
   'transactions.badge.corrected': 'Corregida',
+  'transactions.badge.provisional': 'Pendiente',
+  'transactions.provisional.title': 'Pendiente de estado.',
+  'transactions.provisional.detail':
+    'Viene de la alerta del banco y ya cuenta en tus totales. Cuando llegue el estado se confirma y conserva lo que cambies aquí.',
+  'transactions.filters.provisional': 'Pendientes de estado',
   // TransactionDetail.tsx
   'transactions.save': 'Guardar',
   'transactions.detail.savedMerchant': 'Guardado: todo {merchant} queda en {category}',

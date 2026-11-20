@@ -16,10 +16,6 @@ import {
   type DismissResult,
   type EditBody,
   type ExchangeInfo,
-  type GroupPatch,
-  type GroupRef,
-  type ManualBody,
-  type ReimbursementCandidates,
   type Insight,
   type Interest,
   type Investment,
@@ -35,13 +31,11 @@ import {
   type Pending,
   type Recurring,
   type ReviewItem,
+  type ProvisionalDecision,
   type ReviewKind,
   type ReviewMark,
   type RoleBody,
   type SavedRate,
-  type SharedInfo,
-  type SharedList,
-  type SplitBody,
   type Summary,
   type Transactions,
   type Tx,
@@ -82,6 +76,7 @@ export const queryKeys = {
       filters.q.trim(),
       filters.kind,
       filters.shared,
+      filters.provisional,
     ] as const,
   accounts: ['accounts'] as const,
   categories: ['categories'] as const,
@@ -376,6 +371,20 @@ export function useMarkReviewed() {
   })
 }
 
+/** "Discard" or "Keep" a provisional (from a bank alert) that did not show up in its statement;
+ * null forgets the decision. Discarding removes it from every total: everything is refetched. */
+export function useDecideProvisional() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ fingerprint, decision }: { fingerprint: string; decision: ProvisionalDecision }) =>
+      request<{ fingerprint: string; decision: ProvisionalDecision }>(
+        `/api/provisional/${encodeURIComponent(fingerprint)}`,
+        { method: 'PUT', body: JSON.stringify({ decision }) },
+      ),
+    onSuccess: () => client.invalidateQueries(),
+  })
+}
+
 /** Recurring charges; with `month` it also brings that month's notices. When the month changes
  * the previous one stays visible. */
 export function useRecurring(month: string | null, selection: Selection = null, enabled = true) {
@@ -478,139 +487,6 @@ export function useTransaction(fingerprint: string) {
 /** Key of a single transaction (under `transactions`: every write refetches it). */
 export function transactionKey(fingerprint: string) {
   return [...queryKeys.transactions, 'one', fingerprint] as const
-}
-
-/** Credits that can reimburse the group of a shared expense (or groups a credit can reimburse)
- * and the "where" values already used. */
-export function useReimbursementCandidates(fingerprint: string, enabled: boolean) {
-  return useQuery({
-    queryKey: [...queryKeys.transactions, 'reimbursement-candidates', fingerprint] as const,
-    queryFn: () => request<ReimbursementCandidates>(txPath(fingerprint, '/reimbursement-candidates')),
-    enabled,
-  })
-}
-
-/** Unlinks a credit from its side, by its link (works even if the expense no longer appears). */
-export function useUnlinkCredit() {
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: (credit: string) =>
-      request<void>(`/api/reimbursements/${encodeURIComponent(credit)}`, { method: 'DELETE' }),
-    onSuccess: () => invalidateCategorized(client),
-  })
-}
-
-function groupPath(id: number, rest = ''): string {
-  return `/api/shared/${id}${rest}`
-}
-
-/** Groups with something pending, the most recent first ("Add it to a group"). */
-export function useOpenGroups(enabled: boolean) {
-  return useQuery({
-    queryKey: [...queryKeys.transactions, 'open-groups'] as const,
-    queryFn: () => request<GroupRef[]>('/api/shared/open'),
-    enabled,
-  })
-}
-
-/** Shared: every group (of the selected accounts) and its totals. Under `transactions`: every
- * change of a link or a rate refetches it. */
-export function useSharedList(selection: Selection, enabled: boolean) {
-  return useQuery({
-    queryKey: [...queryKeys.transactions, 'shared', scope(selection)] as const,
-    queryFn: () => request<SharedList>(withAccounts('/api/shared', selection)),
-    enabled,
-    placeholderData: keepPreviousData,
-  })
-}
-
-/** "New group…": unlinked expenses of the last 120 days, the most recent first. */
-export function useNewGroupCandidates(selection: Selection, enabled: boolean) {
-  return useQuery({
-    queryKey: [...queryKeys.transactions, 'new-group', scope(selection)] as const,
-    queryFn: () => request<Candidate[]>(withAccounts('/api/shared/new-candidates', selection)),
-    enabled,
-  })
-}
-
-/** "Add another expense": unlinked expenses near the group's. */
-export function useGroupExpenseCandidates(id: number, enabled: boolean) {
-  return useQuery({
-    queryKey: [...queryKeys.transactions, 'group-expenses', id] as const,
-    queryFn: () => request<Candidate[]>(groupPath(id, '/expense-candidates')),
-    enabled,
-  })
-}
-
-/** "Add reimbursement": credits that can reimburse the group and the "where" values already
- * used. */
-export function useGroupCreditCandidates(id: number, enabled: boolean) {
-  return useQuery({
-    queryKey: [...queryKeys.transactions, 'group-credits', id] as const,
-    queryFn: () => request<ReimbursementCandidates>(groupPath(id, '/credit-candidates')),
-    enabled,
-  })
-}
-
-export type GroupChange =
-  | { action: 'patch'; id: number; body: GroupPatch }
-  | { action: 'add-expense'; id: number; fingerprint: string; split: SplitBody }
-  | { action: 'split'; id: number; fingerprint: string; split: SplitBody }
-  | { action: 'remove-expense'; id: number; fingerprint: string }
-  | { action: 'add-credit'; id: number; credit: string }
-  | { action: 'add-manual'; id: number; manual: ManualBody }
-  | { action: 'remove-credit'; id: number; credit: string }
-  | { action: 'remove-manual'; id: number; manualId: number }
-
-function groupRequest(change: GroupChange): Promise<SharedInfo | undefined> {
-  const id = change.id
-  const fp = (value: string) => encodeURIComponent(value)
-  const json = (method: string, body: unknown) => ({ method, body: JSON.stringify(body) })
-  switch (change.action) {
-    case 'patch':
-      return request<SharedInfo>(groupPath(id), json('PATCH', change.body))
-    case 'add-expense':
-      return request<SharedInfo>(
-        groupPath(id, '/expenses'),
-        json('POST', { fingerprint: change.fingerprint, split: change.split }),
-      )
-    case 'split':
-      return request<SharedInfo>(
-        groupPath(id, `/expenses/${fp(change.fingerprint)}`),
-        json('PUT', change.split),
-      )
-    case 'remove-expense':
-      // With the last expense the group is deleted (204, no body).
-      return request<SharedInfo | undefined>(groupPath(id, `/expenses/${fp(change.fingerprint)}`), {
-        method: 'DELETE',
-      })
-    case 'add-credit':
-      return request<SharedInfo>(
-        groupPath(id, '/reimbursements'),
-        json('POST', { credit: change.credit }),
-      )
-    case 'add-manual':
-      return request<SharedInfo>(
-        groupPath(id, '/reimbursements'),
-        json('POST', { manual: change.manual }),
-      )
-    case 'remove-credit':
-      return request<SharedInfo>(groupPath(id, `/reimbursements/${fp(change.credit)}`), {
-        method: 'DELETE',
-      })
-    case 'remove-manual':
-      return request<SharedInfo>(groupPath(id, `/manual/${change.manualId}`), { method: 'DELETE' })
-  }
-}
-
-/** Changes a shared group (name, expenses, splits, reimbursements); everything that depends on
- * the links is refetched. */
-export function useChangeGroup() {
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: groupRequest,
-    onSuccess: () => invalidateCategorized(client),
-  })
 }
 
 /** Investments: all of them (of the selected accounts) and their totals. Under `transactions`:

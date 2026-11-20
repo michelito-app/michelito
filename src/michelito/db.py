@@ -11,13 +11,15 @@ from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from pathlib import Path
 
-from michelito import migrations_v18
+from michelito import encrypted, migrations_live, migrations_v18, migrations_v19
 from michelito.analysis import catalog
 from michelito.i18n import t
 from michelito.parsers import banreservas_account, bhd_savings, popular_web
 from michelito.parsers.common import Section, Statement, Transaction
 
-SCHEMA_VERSION = migrations_v18.VERSION  # 18: stored values in English (`migrations_v18`)
+# 20: live sync (`migrations_live`); 19: the shared ledger (`migrations_v19`); 18: stored values
+# in English (`migrations_v18`).
+SCHEMA_VERSION = migrations_live.VERSION
 DUPLICATE_PERIOD_INDEX = "statements_unique_period"
 DUPLICATE_PRINTOUT_INDEX = "statements_unique_printout"
 # Parser of Popular's printouts: the account's currency is given by hand (ingest).
@@ -202,6 +204,15 @@ CREATE TABLE IF NOT EXISTS one_off_dismissals (
 # investments (`LINK_KINDS`, `LINK_ROLES` and `INVESTMENT_COLUMNS`) and 14 the cash box
 # (`'cash_box'`, its roles `'stored'` and `'deposit'`, `CASH_BOX_COLUMNS` and `CASH_SCHEMA`).
 # Schema 17 adds reserves (`'reserve'`, its role `'reserved'` and `RESERVE_COLUMNS`).
+# Hosted mode: the account holders, in the same format as holders.txt, inside the encrypted
+# database (see `michelito.holders`). The local board keeps reading holders.txt; it stays empty.
+# Created in the migration transaction, after every numbered schema step.
+HOLDERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS holders (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    content TEXT NOT NULL
+)"""
+
 LINK_KINDS = ("shared", "exchange", "investment", "cash_box", "reserve")
 LINK_ROLES = (
     "expense",
@@ -313,6 +324,7 @@ REVIEW_MARK_KINDS = (
     "possible_contribution",
     "possible_return",
     "possible_reserve",
+    "possible_payment",
 )
 _REVIEW_KIND_LIST = ", ".join(f"'{kind}'" for kind in REVIEW_MARK_KINDS)
 REVIEW_SCHEMA = (
@@ -393,6 +405,11 @@ LOG_SCHEMA = (
     fingerprint TEXT PRIMARY KEY,
     reviewed_at TEXT NOT NULL
 )""",
+    # Hosted onboarding (`hosted.onboarding`): the first review put off, the checklist hidden.
+    """CREATE TABLE IF NOT EXISTS onboarding_flags (
+    key TEXT PRIMARY KEY CHECK (key IN ('first_review_closed', 'checklist_dismissed')),
+    set_at TEXT NOT NULL
+)""",
 )
 # Schema 16 (household recurring charges): the cadence and group chosen by hand on a mark
 # (`recurring.GROUPS`; the group is validated in `recurring_marks`) and the merchant unions
@@ -459,6 +476,107 @@ BUDGET_SCHEMA = (
 )""",
 )
 
+# Schema 19 (the shared ledger; see `analysis.ledger` and `migrations_v19`): global contacts (the
+# user is the one with `is_me`) with the names seen in transfers (`contact_aliases`), groups with
+# members ("They won't pay me" per member), entries with each person's share in cents and
+# payments between members (`from_contact` NULL: unattributed). The personal part is
+# `ledger_links` (a transaction's fingerprint -> an entry or a payment; a fingerprint is in at most
+# one link, here or in `link_members`) and `ledger_settings`; what the migration kept from the
+# old groups: `ledger_dormant` (links that counted nothing) and `ledger_migration` (old link id
+# -> new group id). Ids are `AUTOINCREMENT` (an undo
+# never gives a row back to a parent that inherited its id).
+LEDGER_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+    is_me INTEGER NOT NULL DEFAULT 0 CHECK (is_me IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS contacts_one_me ON contacts(is_me) WHERE is_me = 1",
+    """CREATE TABLE IF NOT EXISTS contact_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL CHECK (length(alias) BETWEEN 1 AND 80),
+    folded TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+    category_id INTEGER,
+    archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_members (
+    group_id INTEGER NOT NULL REFERENCES ledger_groups(id) ON DELETE CASCADE,
+    contact_id INTEGER NOT NULL REFERENCES contacts(id),
+    written_off INTEGER NOT NULL DEFAULT 0 CHECK (written_off IN (0, 1)),
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (group_id, contact_id)
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES ledger_groups(id) ON DELETE CASCADE,
+    paid_by INTEGER NOT NULL REFERENCES contacts(id),
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    currency TEXT NOT NULL CHECK (currency IN ('DOP', 'USD')),
+    day TEXT NOT NULL CHECK (length(day) = 10),
+    description TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 120),
+    category_id INTEGER,
+    split TEXT NOT NULL CHECK (split IN ('equal', 'exact')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_splits (
+    entry_id INTEGER NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
+    contact_id INTEGER NOT NULL REFERENCES contacts(id),
+    share_cents INTEGER NOT NULL CHECK (share_cents >= 0),
+    PRIMARY KEY (entry_id, contact_id)
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL REFERENCES ledger_groups(id) ON DELETE CASCADE,
+    from_contact INTEGER REFERENCES contacts(id),
+    to_contact INTEGER NOT NULL REFERENCES contacts(id),
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    currency TEXT NOT NULL CHECK (currency IN ('DOP', 'USD')),
+    sent_cents INTEGER CHECK (sent_cents IS NULL OR sent_cents > 0),
+    accepted INTEGER NOT NULL DEFAULT 0 CHECK (accepted IN (0, 1)),
+    day TEXT NOT NULL CHECK (length(day) = 10),
+    note TEXT CHECK (note IS NULL OR length(note) <= 120),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_links (
+    fingerprint TEXT PRIMARY KEY,
+    group_id INTEGER NOT NULL REFERENCES ledger_groups(id) ON DELETE CASCADE,
+    entry_id INTEGER REFERENCES ledger_entries(id) ON DELETE CASCADE,
+    payment_id INTEGER REFERENCES ledger_payments(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL,
+    CHECK ((entry_id IS NULL) != (payment_id IS NULL))
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ledger_links_entry ON ledger_links(entry_id) "
+    "WHERE entry_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ledger_links_payment ON ledger_links(payment_id) "
+    "WHERE payment_id IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS ledger_dormant (
+    fingerprint TEXT PRIMARY KEY,
+    link_id INTEGER NOT NULL,
+    group_id INTEGER REFERENCES ledger_groups(id) ON DELETE SET NULL,
+    role TEXT NOT NULL CHECK (role IN ('expense', 'payment'))
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_migration (
+    link_id INTEGER PRIMARY KEY,
+    group_id INTEGER REFERENCES ledger_groups(id) ON DELETE SET NULL
+)""",
+    """CREATE TABLE IF NOT EXISTS ledger_settings (
+    key TEXT PRIMARY KEY CHECK (length(key) BETWEEN 1 AND 40),
+    value TEXT NOT NULL CHECK (length(value) <= 200)
+)""",
+)
+
 # They go after `SCHEMA` because an old database needs the new columns first.
 # One statement per account, card, currency and closing date. Two cards of the same bank with
 # the same closing date are different statements; the savings account has no card. A printout
@@ -494,15 +612,22 @@ INSERT INTO transactions (
 """
 
 
-def connect(path: Path | str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+def connect(path: Path | str, key: bytes | None = None) -> sqlite3.Connection:
+    """The database at `path`, created or migrated to the current schema. With `key` (hosted
+    mode) it is an encrypted file (`michelito.encrypted`); the rest is the same either way."""
+    conn = encrypted.connect(path, key) if key is not None else sqlite3.connect(path)
+    upgrade(conn)
+    if str(path) != ":memory:":
+        Path(path).chmod(0o600)
+    return conn
+
+
+def upgrade(conn: sqlite3.Connection) -> None:
+    """Bring an open connection to the current schema (what `connect` does on every open)."""
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     _migrate(conn)
-    if str(path) != ":memory:":
-        Path(path).chmod(0o600)
-    return conn
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -579,7 +704,7 @@ def _migrate_categories(conn: sqlite3.Connection) -> None:
 
 
 # The child tables of `links`, which may be left orphaned if a rebuild goes wrong.
-_LINK_CHILDREN = ("link_members", "link_manual")
+_LINK_CHILDREN = ("link_members", "link_manual", "ledger_links")
 
 
 def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
@@ -611,7 +736,16 @@ def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
     _add_columns(conn, RESERVE_COLUMNS)
     for statement in BUDGET_SCHEMA:
         conn.execute(statement)
+    # Schema 20 (live sync) creates its tables before schema 19's step: that one reads the
+    # movements, and `spending.load_all` reads the provisionals.
+    migrations_live.apply(conn)
     rebuilt = _migrate_autoincrement(conn)
+    for statement in LEDGER_SCHEMA:
+        conn.execute(statement)
+    # Schema 19 last: it reads the movements with everything above in place.
+    if conn.execute("PRAGMA user_version").fetchone()[0] < migrations_v19.VERSION:
+        migrations_v19.migrate(conn)
+    conn.execute(HOLDERS_SCHEMA)
     # Only after rebuilding tables, and only the rebuilt ones (and the children of `links`): an
     # unrelated orphan (from another table, from before) must not prevent opening the database.
     if rebuild:
@@ -630,7 +764,7 @@ _WIDENED_CHECKS: dict[str, tuple[str, str, str]] = {
     "review_marks": (
         r"CHECK\s*\(\s*kind\s+IN\s*\([^)]*\)\s*\)",
         f"CHECK (kind IN ({_REVIEW_KIND_LIST}))",
-        "'possible_reserve'",
+        "'possible_payment'",
     ),
 }
 

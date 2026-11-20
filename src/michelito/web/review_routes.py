@@ -11,7 +11,15 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Query
 
 from michelito.analysis import accounts as account_data
-from michelito.analysis import catalog, changelog, links, rates, review_marks
+from michelito.analysis import (
+    catalog,
+    changelog,
+    ledger_store,
+    links,
+    live_store,
+    rates,
+    review_marks,
+)
 from michelito.analysis import one_off_dismissals as dismissals
 from michelito.analysis import recurring_marks as marks
 from michelito.analysis.review import Kind
@@ -59,6 +67,10 @@ def register(
             reserve_hints=budget_view.link_hints(
                 load_inputs(conn, flow, date.today(), with_marks=True), linked.fingerprints
             ),
+            book=ledger_store.load(conn),
+            unmatched=live_store.unmatched(conn),
+            decisions=live_store.decisions(conn),
+            reversals=live_store.reversals(conn),
         )
 
     @app.get("/api/review")
@@ -116,6 +128,9 @@ def register(
             ):
                 if kind == "one_off":
                     dismissals.set_dismissed(conn, fingerprint, body.reviewed)
+                elif kind in ("unconfirmed", "reversal"):  # "Already reviewed" is "Keep"
+                    now = changelog.now().isoformat()
+                    live_store.decide(conn, fingerprint, "keep" if body.reviewed else None, now)
                 else:
                     review_marks.set_reviewed(conn, fingerprint, kind, body.reviewed)
         return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)

@@ -44,6 +44,26 @@ def test_report_on_empty_data_dir(data_dir: Path, secrets, capsys) -> None:
     assert stat.S_IMODE((data_dir / "michelito.db").stat().st_mode) == 0o600
 
 
+def test_a_migration_mismatch_says_how_to_check_instead_of_a_traceback(
+    data_dir: Path, secrets, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from michelito import migrations_v19  # noqa: PLC0415
+
+    assert cli.main(["report"]) == 0
+    with closing(sqlite3.connect(data_dir / "michelito.db")) as raw:
+        raw.execute("PRAGMA user_version = 18")
+        raw.commit()
+
+    def refuse(*args: object) -> None:
+        raise migrations_v19.MigrationMismatch("shared group 1 would change its balances")
+
+    monkeypatch.setattr(migrations_v19, "migrate", refuse)
+    assert cli.main(["report"]) == 3
+    err = capsys.readouterr().err
+    assert "check_shared_migration.py" in err and "shared group 1" in err
+    assert "Traceback" not in err
+
+
 def test_missing_secret_exits_with_hint(data_dir: Path, secrets, capsys) -> None:
     secrets.pop(vault.PDF_PASSWORD)
     assert cli.main(["parse"]) == 2

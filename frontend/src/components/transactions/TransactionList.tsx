@@ -396,7 +396,7 @@ function RowBody({ tx, color }: { tx: Tx; color: string }) {
   )
 }
 
-/** Kind, one-off and correction as small labels next to the name. */
+/** Pending statement, kind, one-off and correction as small labels next to the name. */
 function Badges({ tx }: { tx: Tx }) {
   const links = linkBadges(tx)
   // A link (reimbursement, exchange) says more than the kind: the kind is left out.
@@ -404,6 +404,11 @@ function Badges({ tx }: { tx: Tx }) {
   const oneOff = oneOffBadge(tx)
   return (
     <>
+      {tx.provisional && (
+        <Badge className="bg-[#FFF6E5] text-[#7A4B00] dark:bg-[#3A2A0A] dark:text-[#F5C97A]">
+          {t('transactions.badge.provisional')}
+        </Badge>
+      )}
       {kind && (
         <Badge
           className={

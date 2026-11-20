@@ -34,7 +34,7 @@ from typing import Any
 
 from michelito import legacy
 from michelito.analysis import accounts as account_data
-from michelito.analysis import categories, links, rates, review_marks, transfers
+from michelito.analysis import categories, ledger_store, links, rates, review_marks, transfers
 from michelito.analysis import one_off_dismissals as dismissals
 from michelito.analysis import recurring_marks as marks
 from michelito.analysis.rates import rate_for, to_dop
@@ -95,9 +95,11 @@ def build(
         raise ValueError(t("dossier.unknown_accounts", accounts=", ".join(unknown)))
     selected = summary.selection(infos, accounts) if accounts else None
     by_month = rates.load(conn)
-    ctx = links_view.context(flow, links.load(conn), infos, by_month, suggest=False)
+    ctx = links_view.context(
+        flow, links.load(conn), infos, by_month, suggest=False, book=ledger_store.load(conn)
+    )
     built = summary.build_summary(
-        flow, infos, by_month, month, selected, ctx.expense_states, ctx.exchange_states
+        flow, infos, by_month, month, selected, ctx.groups, ctx.exchange_states
     )
     review_ctx = review_view.Context(
         flow=flow,

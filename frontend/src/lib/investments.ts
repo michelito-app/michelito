@@ -13,7 +13,7 @@ import { formatMoney, parseCents, ROLE_LABELS } from './links'
 import { formatDop } from './money'
 import { unconvertedNote } from './pending'
 import { amountQuery, centsText, fold } from './picker'
-import { dateRange } from './sharedList'
+import { dateRange } from './months'
 
 export const INVESTMENTS_PATH = '/investments'
 export const EMPTY_TEXT = t('investments.empty')

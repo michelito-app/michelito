@@ -33,7 +33,9 @@ BATCH_KIND = "category_batch"
 
 # Columns that do not count as a change (timestamps) and, per table, those edited without a
 # change-log entry (a category's name, color and "hidden").
-IGNORED_COLUMNS = frozenset({"updated_at", "added_at", "reviewed_at", "created_at", "dismissed_at"})
+IGNORED_COLUMNS = frozenset(
+    {"updated_at", "added_at", "reviewed_at", "created_at", "dismissed_at", "decided_at"}
+)
 IGNORED_BY_TABLE: Mapping[str, frozenset[str]] = {
     "categories": frozenset({"name", "color", "hidden"}),
 }
@@ -53,10 +55,19 @@ PARENT_COLUMNS: Mapping[str, tuple[str, str]] = {
     "merchant_categories": ("category_id", "categories"),
     "category_keywords": ("category_id", "categories"),
     "budget_caps": ("category_id", "categories"),
+    "contact_aliases": ("contact_id", "contacts"),
+    "ledger_members": ("group_id", "ledger_groups"),
+    "ledger_entries": ("group_id", "ledger_groups"),
+    "ledger_splits": ("entry_id", "ledger_entries"),
+    "ledger_payments": ("group_id", "ledger_groups"),
+    "ledger_links": ("group_id", "ledger_groups"),
 }
 PARENT_IDENTITY: Mapping[str, tuple[str, ...]] = {
     "links": ("kind", "created_at"),
     "categories": ("builtin_key", "created_at"),
+    "contacts": ("created_at",),
+    "ledger_groups": ("created_at",),
+    "ledger_entries": ("created_at",),
 }
 
 
@@ -265,6 +276,8 @@ def _row_text(table: str, row: Row, columns: Sequence[str], whole: bool) -> str:
     if table == "link_manual":
         money = _money(row.get("amount_cents"), row.get("currency"))
         return t("analysis.changelog_rules.manual_reimbursement", amount=money)
+    if table.startswith(("ledger_", "contact")):
+        return _ledger_text(table, row)
     if table == "cash_entries":
         kind = _ENTRY_LABELS.get(str(row.get("kind")), t("analysis.changelog_rules.entry"))
         money = _money(row.get("amount_cents"), row.get("currency"))
@@ -298,6 +311,32 @@ def _row_text(table: str, row: Row, columns: Sequence[str], whole: bool) -> str:
     if table == "transaction_notes":
         return ", ".join(_note_text(c, row.get(c)) for c in columns) or _NOTHING
     return ", ".join(f"{c}: {row.get(c)}" for c in columns) or _NOTHING
+
+
+def _ledger_text(table: str, row: Row) -> str:
+    """A row of the shared ledger, short."""
+    money = _money(row.get("amount_cents"), row.get("currency"))
+    if table == "contacts":
+        return str(row.get("name") or _NOTHING)
+    if table == "contact_aliases":
+        return f"«{row.get('alias')}»"
+    if table == "ledger_groups":
+        name = t("analysis.changelog_rules.ledger_group", name=row.get("name"))
+        return name + (t("analysis.changelog_rules.ledger_archived") if row.get("archived") else "")
+    if table == "ledger_members":
+        if row.get("written_off"):
+            return t("analysis.changelog_rules.ledger_member_written_off")
+        return t("analysis.changelog_rules.ledger_member")
+    if table == "ledger_entries":
+        return t("analysis.changelog_rules.ledger_entry", what=row.get("description"), amount=money)
+    if table == "ledger_splits":
+        share = _money(row.get("share_cents"), None)
+        return t("analysis.changelog_rules.ledger_split", amount=share)
+    if table == "ledger_payments":
+        return t("analysis.changelog_rules.ledger_payment", amount=money)
+    if table == "ledger_settings":
+        return t("analysis.changelog_rules.ledger_setting")
+    return t("analysis.changelog_rules.ledger_link")
 
 
 def cap_text(cents: Any) -> str:

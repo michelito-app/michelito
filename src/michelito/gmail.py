@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from michelito import charset
+
 SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
 _PAGE_SIZE = 500
 # Retries with exponential backoff on 429 and on 403 for quota limits (googleapiclient).
@@ -30,6 +32,9 @@ class MailMessage:
     received_at: datetime
     body_text: str
     attachments: tuple[AttachmentRef, ...]
+    body_html: str = ""  # bank alerts are HTML (`michelito.alerts`); read only in memory
+    # Every Authentication-Results header, topmost (Gmail's own) first: alerts need its DKIM.
+    auth_results: tuple[str, ...] = ()
 
 
 def decode_base64url(data: str) -> bytes:
@@ -47,23 +52,40 @@ def message_from_api(data: dict[str, Any]) -> MailMessage:
         for part in parts
         if part.get("filename") and part.get("body", {}).get("attachmentId")
     )
-    body = next(
-        (
-            decode_base64url(part["body"]["data"]).decode("utf-8", errors="replace")
-            for part in parts
-            if part.get("mimeType") == "text/plain"
-            and not part.get("filename")
-            and part.get("body", {}).get("data")
-        ),
-        "",
-    )
     return MailMessage(
         message_id=data["id"],
         sender=headers.get("from", ""),
         subject=headers.get("subject", ""),
         received_at=datetime.fromtimestamp(int(data["internalDate"]) / 1000, tz=UTC),
-        body_text=body,
+        body_text=_body(parts, "text/plain"),
         attachments=attachments,
+        body_html=_body(parts, "text/html"),
+        auth_results=tuple(
+            h["value"]
+            for h in payload.get("headers", [])
+            if h["name"].lower() == "authentication-results"
+        ),
+    )
+
+
+def _part_charset(part: dict[str, Any]) -> str | None:
+    """The charset the part's own Content-Type declares (Gmail lists the part's headers)."""
+    headers = {h["name"].lower(): h["value"] for h in part.get("headers", [])}
+    return charset.declared(headers.get("content-type"))
+
+
+def _body(parts: list[dict[str, Any]], mime_type: str) -> str:
+    """The first inline (not attached) part of that type, decoded with its declared charset
+    (falling back to UTF-8 and windows-1252; never with replacement characters)."""
+    return next(
+        (
+            charset.decode(decode_base64url(part["body"]["data"]), _part_charset(part))
+            for part in parts
+            if part.get("mimeType") == mime_type
+            and not part.get("filename")
+            and part.get("body", {}).get("data")
+        ),
+        "",
     )
 
 

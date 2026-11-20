@@ -12,6 +12,7 @@ import pytest
 from michelito import db
 from michelito.analysis import cash_box, cash_box_store, links, spending
 from michelito.analysis import categories as cat
+from tests.ledger_helpers import groups_summary
 from tests.test_spending import _add_bank_rows, seed
 
 D = Decimal
@@ -142,15 +143,23 @@ def test_v13_links_survive_and_the_cash_box_fits(tmp_path: Path) -> None:
         assert "'cash_box'" in _sql(conn, "links")
         assert "'deposit'" in _sql(conn, "link_members")
         assert "AUTOINCREMENT" in _sql(conn, "cash_entries")
-        # No row was lost or changed (the rebuilt tables have the same columns).
+        # No row was lost or changed (the rebuilt tables have the same columns), except the
+        # shared group: schema 19 moves it to the ledger.
+        before["links"] = [r for r in before["links"] if r[1] != "shared"]
+        before["link_members"] = [r for r in before["link_members"] if r[0] != 1]
+        before["link_manual"] = []
         for table, rows in before.items():
             columns = [c[1] for c in conn.execute(f"PRAGMA table_info({table})")]
             kept = [c for c in columns if c not in _NEW_COLUMNS]
             found = conn.execute(f"SELECT {', '.join(kept)} FROM {table} ORDER BY rowid")
             assert [tuple(r) for r in found] == rows, table
         found = links.load(conn)
-        [group], [exchange], [investment] = found.shared, found.exchanges, found.investments
-        assert (group.with_whom, len(group.reimbursements), len(group.manual)) == ("Ana", 1, 1)
+        [group], [exchange], [investment] = (
+            groups_summary(conn),
+            found.exchanges,
+            found.investments,
+        )
+        assert (group["name"], len(group["payments"])) == ("Ana", 2)
         assert exchange.agreed_rate == D(60)
         assert [(m.role, m.capital) for m in investment.members] == [
             ("contribution", None),

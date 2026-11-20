@@ -1,7 +1,8 @@
 name: Deploy demo
 
 # After a successful CI run for a push to main: image to GHCR (sha and latest tags) and deploy
-# to the VPS over SSH. The deploy key can only run deploy.sh (forced command): it sends
+# to the VPS over SSH. One image serves both the demo and, when the server's .env turns on the
+# "hosted" profile, the hosted app (michelito.app): deploy.sh backs up and health-checks both. The deploy key can only run deploy.sh (forced command): it sends
 # "<sha> <digest>" as the command (the server runs `image@digest`, exactly what was built) and
 # the job's GITHUB_TOKEN on stdin to pull the image. If another commit reached main while CI was
 # running, nothing is deployed: that commit's CI will do it.
@@ -28,6 +29,8 @@ concurrency:
 
 env:
   MICHELITO_HOST: ${{ vars.MICHELITO_HOST || 'demo.michelito.app' }}
+  # Set the repository variable MICHELITO_APP_HOST (michelito.app) once the hosted app runs.
+  MICHELITO_APP_HOST: ${{ vars.MICHELITO_APP_HOST || '' }}
 
 jobs:
   image:
@@ -145,6 +148,11 @@ jobs:
         run: |
           curl -fsS --retry 6 --retry-delay 5 --retry-all-errors --max-time 10 \
             "https://$MICHELITO_HOST/api/health"
+      - name: Check the hosted app from outside
+        if: env.MICHELITO_APP_HOST != ''
+        run: |
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors --max-time 10 \
+            "https://$MICHELITO_APP_HOST/api/health"
       - name: Remove the key
         if: always()
         run: rm -f ~/.ssh/deploy_key
@@ -184,6 +192,11 @@ jobs:
         run: |
           curl -fsS --retry 6 --retry-delay 5 --retry-all-errors --max-time 10 \
             "https://$MICHELITO_HOST/api/health"
+      - name: Check the hosted app from outside
+        if: env.MICHELITO_APP_HOST != ''
+        run: |
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors --max-time 10 \
+            "https://$MICHELITO_APP_HOST/api/health"
       - name: Remove the key
         if: always()
         run: rm -f ~/.ssh/deploy_key

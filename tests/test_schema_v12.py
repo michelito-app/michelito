@@ -3,15 +3,14 @@ whom" and the group name, currency of manual reimbursements); migration from 11.
 
 import sqlite3
 from contextlib import closing
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from michelito import db
-from michelito.analysis import links, rates, shared, spending
-from michelito.analysis.links import ManualEntry, SharedExpense
+from michelito.analysis import ledger, ledger_store, rates, spending
+from tests.ledger_helpers import groups_summary, share
 from tests.test_spending import _add_bank_rows, seed
 
 D = Decimal
@@ -101,6 +100,12 @@ def _v11(path: Path) -> tuple[str, str, str]:
         return cafe.fingerprint, gift.fingerprint, toke.fingerprint
 
 
+def _state(conn: sqlite3.Connection, name: str) -> ledger.GroupState:
+    book = ledger_store.load(conn)
+    group = next(g for g in book.groups if g.name == name)
+    return ledger.group_state(group, book.me, rates.load(conn))
+
+
 def test_v11_groups_keep_every_figure(tmp_path: Path) -> None:
     path = tmp_path / "v11.db"
     cafe, gift, toke = _v11(path)
@@ -109,71 +114,81 @@ def test_v11_groups_keep_every_figure(tmp_path: Path) -> None:
         assert {"name", "with_whom"} <= _columns(conn, "links")
         assert {"people", "my_share_cents", "for_other"} <= _columns(conn, "link_members")
         assert "currency" in _columns(conn, "link_manual")
-        found = links.load(conn)
-        first, second = found.shared
-        assert first.expenses == (SharedExpense(cafe, people=3),)
-        assert first.reimbursements == (toke,)
-        assert first.manual == (ManualEntry(1, D(25), date(2026, 1, 3), "DOP", "Ana", ""),)
-        assert (second.expenses, second.with_whom, second.written_off) == (
-            (SharedExpense(gift, for_other=True),),
-            "Luis",
-            True,
+        # Schema 19 moved both groups to the ledger.
+        first, second = groups_summary(conn)
+        assert first["entries"] == [cafe]
+        assert sorted(first["payments"], key=str) == sorted(
+            [(toke, D(50)), ("manual", D(25))], key=str
+        )
+        assert (second["entries"], second["people"], second["written_off"]) == (
+            [gift],
+            ["Luis"],
+            ["Luis"],
         )
         moves = spending.load_all(conn)
         by_fp = {m.fingerprint: m for m in moves}
         # Coffee RD$ 300 among 3: counts RD$ 100; 50 + 25 were paid back: 125 still owed.
         assert (by_fp[cafe].amount, by_fp[cafe].gross) == (D(100), D(300))
         assert by_fp[toke].link == "reimbursement"
-        state = shared.states(moves, found, rates.load(conn))[1]
-        assert state.pending == {"DOP": D(125)}
+        assert _state(conn, first["name"]).owed_to_me == {"DOP": D(125)}
         # The written-off gift counts in full.
         assert by_fp[gift].amount == by_fp[gift].gross
+        found = groups_summary(conn)
     with closing(db.connect(path)) as again:  # idempotent
-        assert links.load(again) == found
+        assert groups_summary(again) == found
 
 
-def test_v12_allows_several_expenses_in_a_group(tmp_path: Path) -> None:
+def test_after_migrating_a_group_takes_more_expenses(tmp_path: Path) -> None:
     path = tmp_path / "v11.db"
-    cafe, gift, _ = _v11(path)
-    with closing(db.connect(path)) as conn, conn:
-        conn.execute("DELETE FROM link_members WHERE fingerprint = ?", (gift,))
-        links.add_expense(conn, 1, gift, D(500), people=2)
-        assert [e.fingerprint for e in links.load(conn).group(1).expenses] == [cafe, gift]
+    cafe, _, _ = _v11(path)
+    with closing(db.connect(path)) as conn:
+        store = next(m for m in spending.load_all(conn) if m.description.startswith("TIENDA"))
+        group = int(
+            conn.execute(
+                "SELECT group_id FROM ledger_links WHERE fingerprint = ?", (cafe,)
+            ).fetchone()[0]
+        )
+        with conn:
+            share(conn, store.fingerprint, store.amount, people=2, group=group)
+        assert groups_summary(conn)[0]["entries"] == sorted(
+            [cafe, store.fingerprint],
+            key=lambda fp: next(m.day for m in spending.load_all(conn) if m.fingerprint == fp),
+        )
 
 
 def test_migrated_cash_keeps_its_currency_when_an_older_dollar_expense_joins(
     tmp_path: Path,
 ) -> None:
-    """The pharmacy (RD$ 500 split by 2) with RD$ 200 in cash, from schema 11. After migrating,
-    the older online store purchase (US$ 25, for someone else) joins: the cash stays in DOP
-    (at 60, US$ 3.33 for the store), not US$ 200."""
+    """The pharmacy (RD$ 500 split by 2) with RD$ 200 in cash, from schema 11 (no currency:
+    filled in as DOP). After migrating, the older online store purchase (US$ 25, for someone
+    else) joins: the cash stays in DOP (at 60, US$ 3.33 for the store), not US$ 200."""
     path = tmp_path / "v11.db"
     _, pharmacy, _ = _v11(path)
-    with closing(db.connect(path)) as conn:
-        assert (
-            conn.execute("SELECT COUNT(*) FROM link_manual WHERE currency IS NULL").fetchone()[0]
-            == 0
+    with closing(sqlite3.connect(path)) as raw:
+        raw.execute("UPDATE links SET written_off = 0, for_other = 0, people = 2 WHERE id = 2")
+        raw.execute(
+            "INSERT INTO link_manual (link_id, amount_cents, day, person, place, created_at) "
+            "VALUES (2, 20000, '2026-01-11', NULL, NULL, 'x')"
         )
-        with conn:
-            conn.execute("UPDATE link_members SET people = 2, for_other = 0 WHERE link_id = 2")
-            conn.execute("UPDATE links SET written_off = 0 WHERE id = 2")
-            conn.execute(
-                "INSERT INTO link_manual (link_id, amount_cents, day, person, place, currency, "
-                "created_at) SELECT 2, 20000, '2026-01-11', NULL, NULL, NULL, 'x'"
-            )
-    # A v12 database left with NULL is also filled in on connect.
+        raw.commit()
     with closing(db.connect(path)) as conn:
-        assert {m.currency for g in links.load(conn).shared for m in g.manual} == {"DOP"}
-        rates.store_bcrd(conn, {"2026-01": D(60)})
+        [luis] = [g for g in groups_summary(conn) if g["people"] == ["Luis"]]
+        assert luis["payments"] == [("manual", D(200))]
+        with conn:
+            rates.store_bcrd(conn, {"2026-01": D(60)})
         moves = spending.load_all(conn)
         store = next(m for m in moves if m.description.startswith("TIENDA ONLINE"))
+        group = int(
+            conn.execute(
+                "SELECT group_id FROM ledger_links WHERE fingerprint = ?", (pharmacy,)
+            ).fetchone()[0]
+        )
         with conn:
-            links.add_expense(conn, 2, store.fingerprint, store.amount, for_other=True)
-        moves = spending.load_all(conn)
-        state = shared.states(moves, links.load(conn), rates.load(conn))[2]
-        older, newer = state.expenses
+            share(conn, store.fingerprint, store.amount, for_other=True, group=group)
+        state = _state(conn, luis["name"])
+        older, newer = state.entries
         assert (older.currency, older.reimbursed, older.pending) == ("USD", D("3.33"), D("21.67"))
-        assert (newer.fingerprint, newer.reimbursed, newer.pending) == (pharmacy, 0, D(250))
+        assert (newer.entry.fingerprint, newer.reimbursed, newer.pending) == (pharmacy, 0, D(250))
         assert state.excess == {}
 
 

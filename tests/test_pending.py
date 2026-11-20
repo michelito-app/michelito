@@ -4,8 +4,9 @@ from datetime import date
 from decimal import Decimal
 
 from michelito.analysis import categories as cat
-from michelito.analysis import exchanges, shared
-from michelito.analysis.links import Exchange, Links, Shared, SharedExpense
+from michelito.analysis import exchanges, ledger
+from michelito.analysis.ledger import Contact, Entry, Group, Ledger, Member, Payment
+from michelito.analysis.links import Exchange, Links
 from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
 from michelito.web import pending
@@ -48,16 +49,73 @@ def _leg(day: str, amount: str, currency: str, fp: str, note: str = "") -> Movem
     return _move(day, amount, fp, currency, account, note, link="exchange")
 
 
+ME, ANA, LUIS = 1, 2, 3
+CONTACTS = {
+    ME: Contact(ME, "me", is_me=True),
+    ANA: Contact(ANA, "Ana"),
+    LUIS: Contact(LUIS, "Luis"),
+}
+
+
+def _entry(
+    entry_id: int,
+    fp: str | None,
+    day: str,
+    amount: str,
+    people: tuple[int, ...] = (ME, ANA, LUIS),
+    currency: str = "DOP",
+    paid_by: int = ME,
+) -> Entry:
+    total = D(amount)
+    return Entry(
+        id=entry_id,
+        group_id=0,
+        paid_by=paid_by,
+        amount=total,
+        currency=currency,
+        day=date.fromisoformat(day),
+        description=f"expense {entry_id}",
+        splits=ledger.equal_split(total, people, paid_by),
+        fingerprint=fp,
+    )
+
+
+def _group(
+    group_id: int,
+    name: str,
+    entries: tuple[Entry, ...],
+    payments: tuple[Payment, ...] = (),
+    people: tuple[int, ...] = (ANA, LUIS),
+    written_off: bool = False,
+) -> Group:
+    return Group(
+        group_id,
+        name,
+        (Member(ME), *(Member(p, written_off) for p in people)),
+        entries,
+        payments,
+    )
+
+
+def _payment(payment_id: int, fp: str | None, day: str, amount: str, currency: str = "DOP"):
+    return Payment(
+        payment_id, 0, ANA, ME, D(amount), currency, date.fromisoformat(day), fingerprint=fp
+    )
+
+
 def _build(
     moves: list[Movement],
     found: Links,
     rates: dict[str, Rate] | None = None,
     chosen: frozenset[str] | None = None,
+    groups: tuple[Group, ...] = (),
 ) -> pending.Pending:
     by_month = RATES if rates is None else rates
+    book = Ledger(ME, CONTACTS, groups)
     return pending.build_pending(
         moves,
-        shared.states(moves, found, by_month),
+        book,
+        ledger.states(book, by_month),
         exchanges.states(moves, found),
         LABELS,
         by_month,
@@ -66,48 +124,69 @@ def _build(
     )
 
 
-def _shared_dinner(written_off: bool = False) -> tuple[Movement, Shared]:
-    dinner = _move("2026-02-02", "3000", "dinner", link="shared", note="Dinner with Ana and Luis")
-    return dinner, Shared.one(1, "dinner", people=3, written_off=written_off)
+def _shared_dinner(written_off: bool = False) -> tuple[Movement, Group]:
+    dinner = _move("2026-02-02", "3000", "dinner", link="shared")
+    return dinner, _group(
+        1, "Dinner", (_entry(1, "dinner", "2026-02-02", "3000"),), (), written_off=written_off
+    )
 
 
 class TestOwedToMe:
     def test_shared_expense_with_pending(self) -> None:
-        dinner, link = _shared_dinner()
-        result = _build([dinner], Links(shared=(link,)))
+        dinner, group = _shared_dinner()
+        result = _build([dinner], Links(), groups=(group,))
 
         [item] = result.owed_to_me
         assert (item.kind, item.fingerprint, item.day) == ("shared", "dinner", date(2026, 2, 2))
-        assert (item.merchant, item.account_label) == ("COMERCIO DINNER", "VISA ···1")
+        assert (item.merchant, item.account_label, item.link_id) == ("Dinner", "VISA ···1", 1)
         assert (item.pending, item.currency, item.pending_dop) == (D(2000), "DOP", D(2000))
-        assert item.who == "Dinner with Ana and Luis"  # no "for whom": the note
+        assert item.who == "Ana, Luis"  # the group's people
         assert item.age_days == 41
         assert result.i_owe == ()
         assert (result.owed_to_me_dop, result.i_owe_dop, result.net_dop) == (D(2000), 0, D(2000))
 
-    def test_for_whom_wins_over_the_note_and_a_long_note_is_cut(self) -> None:
-        gift = _move("2026-02-10", "1000", "gift", link="shared", note="x" * 80)
-        link = Shared.one(1, "gift", for_other=True, with_whom="Luis")
-        long_note = _move("2026-02-11", "500", "other", link="shared", note="note " * 20)
-        other = Shared.one(2, "other", for_other=True)
+    def test_a_long_list_of_people_is_cut(self) -> None:
+        many = {i: Contact(i, f"Person number {i}") for i in range(10, 20)}
+        entry = _entry(1, "gift", "2026-02-10", "1000", people=tuple(many))
+        group = _group(1, "Gift", (entry,), people=tuple(many))
+        book = Ledger(ME, {**CONTACTS, **many}, (group,))
+        gift = _move("2026-02-10", "1000", "gift", link="shared")
+        result = pending.build_pending(
+            [gift], book, ledger.states(book, RATES), {}, LABELS, RATES, TODAY
+        )
+        [item] = result.owed_to_me
+        assert len(item.who) <= pending.WHO_CHARS and item.who.endswith("…")
 
-        result = _build([gift, long_note], Links(shared=(link, other)))
-
-        who = {i.fingerprint: i.who for i in result.owed_to_me}
-        assert who["gift"] == "Luis"
-        assert len(who["other"]) <= pending.WHO_CHARS
-        assert who["other"].endswith("…")
-
-    def test_written_off_and_fully_reimbursed_are_left_out(self) -> None:
-        dinner, link = _shared_dinner(written_off=True)
+    def test_written_off_and_fully_paid_back_are_left_out(self) -> None:
+        dinner, lost = _shared_dinner(written_off=True)
         paid = _move("2026-02-05", "1000", "paid", link="shared")
         back = _move("2026-02-06", "-500", "toke", link="reimbursement")
-        done = Shared.one(2, "paid", people=2, reimbursements=("toke",))
+        done = _group(
+            2,
+            "Paid",
+            (_entry(2, "paid", "2026-02-05", "1000", people=(ME, ANA)),),
+            (_payment(1, "toke", "2026-02-06", "500"),),
+            people=(ANA,),
+        )
 
-        result = _build([dinner, paid, back], Links(shared=(link, done)))
+        result = _build([dinner, paid, back], Links(), groups=(lost, done))
 
         assert result.owed_to_me == ()
         assert result.owed_to_me_dop == 0
+
+    def test_a_group_where_someone_else_paid_is_what_you_owe(self) -> None:
+        hotel = _entry(1, None, "2026-02-03", "9000", paid_by=ANA)
+        result = _build([], Links(), groups=(_group(1, "Trip", (hotel,)),))
+        assert result.owed_to_me == ()
+        [item] = result.i_owe
+        assert (item.kind, item.pending, item.fingerprint, item.link_id) == (
+            "shared",
+            D(3000),
+            "",
+            1,
+        )
+        assert item.account_label == "Compartidos"  # spanish-ui
+        assert result.net_dop == D(-3000)
 
     def test_exchange_where_you_gave_first(self) -> None:
         # You gave RD$ 120,000 at 60 (US$ 2,000) and got US$ 1,500 back: you are owed US$ 500.
@@ -192,9 +271,9 @@ class TestTotals:
         sent = _leg("2026-02-03", "400", "USD", "sent")
         found = Links(exchanges=(Exchange(1, ("deposit", "sent"), agreed_rate=D(60)),))
         hotel = _move("2026-02-04", "300", "hotel", "USD", link="shared")
-        link = Shared.one(2, "hotel", people=3)
+        group = _group(2, "Hotel", (_entry(1, "hotel", "2026-02-04", "300", currency="USD"),))
 
-        result = _build([came, sent, hotel], Links(shared=(link,), exchanges=found.exchanges), {})
+        result = _build([came, sent, hotel], found, {}, groups=(group,))
 
         [owe] = result.i_owe
         assert (owe.pending_dop, owe.rate) == (D(36000), D(60))  # the exchange's, always
@@ -204,13 +283,19 @@ class TestTotals:
         assert (result.owed_to_me_dop, result.unconverted_owed_to_me) == (0, D(200))
         assert result.rate is None
 
-    def test_shared_dollars_with_a_reimbursement_in_dop(self) -> None:
+    def test_shared_dollars_with_a_payment_in_dop(self) -> None:
         # A US$ 100 hotel split in two; you got RD$ 1,240 back in February (at 62: US$ 20).
         hotel = _move("2026-01-20", "100", "hotel", "USD", link="shared")
         back = _move("2026-02-10", "-1240", "toke", "DOP", "dop", link="reimbursement")
-        link = Shared.one(1, "hotel", people=2, reimbursements=("toke",))
+        group = _group(
+            1,
+            "Hotel",
+            (_entry(1, "hotel", "2026-01-20", "100", people=(ME, ANA), currency="USD"),),
+            (_payment(1, "toke", "2026-02-10", "1240"),),
+            people=(ANA,),
+        )
 
-        result = _build([hotel, back], Links(shared=(link,)))
+        result = _build([hotel, back], Links(), groups=(group,))
 
         [item] = result.owed_to_me
         assert (item.pending, item.currency) == (D(30), "USD")
@@ -218,27 +303,22 @@ class TestTotals:
         assert (item.pending_dop, item.rate) == (D(1860), D(62))
         assert result.rate is not None and result.rate.month_used == "2026-02"
 
-    def test_a_dormant_shared_link_is_left_out(self) -> None:
-        # The expense is gone (or is no longer an expense): the link lies dormant.
-        gone = Shared.one(1, "gone", people=2)
-        no_longer = _move("2026-02-01", "1000", "other")  # no link="shared"
-        found = Links(shared=(gone, Shared.one(2, "other", people=2)))
-
-        assert _build([no_longer], found).owed_to_me == ()
+    def test_an_archived_group_is_left_out(self) -> None:
+        dinner, group = _shared_dinner()
+        archived = Group(group.id, group.name, group.members, group.entries, archived=True)
+        assert _build([dinner], Links(), groups=(archived,)).owed_to_me == ()
 
     def test_account_filter(self) -> None:
-        dinner, link = _shared_dinner()
+        dinner, group = _shared_dinner()
         came = _leg("2026-02-01", "-60000", "DOP", "deposit")
         sent = _leg("2026-02-03", "400", "USD", "sent")
-        found = Links(
-            shared=(link,), exchanges=(Exchange(1, ("deposit", "sent"), agreed_rate=D(60)),)
-        )
+        found = Links(exchanges=(Exchange(1, ("deposit", "sent"), agreed_rate=D(60)),))
         moves = [dinner, came, sent]
 
-        only_dollars = _build(moves, found, chosen=frozenset({"usd"}))
+        only_dollars = _build(moves, found, chosen=frozenset({"usd"}), groups=(group,))
         assert only_dollars.owed_to_me == ()  # the expense is on the VISA
         assert [i.fingerprint for i in only_dollars.i_owe] == ["sent"]  # its leg in that account
-        only_card = _build(moves, found, chosen=frozenset({"visa"}))  # no leg
+        only_card = _build(moves, found, chosen=frozenset({"visa"}), groups=(group,))  # no leg
         assert [i.fingerprint for i in only_card.owed_to_me] == ["dinner"]
         assert only_card.i_owe == ()
 
@@ -262,41 +342,37 @@ class TestTotals:
         older = _move("2026-01-05", "900", "older", link="shared")
         sent = _leg("2026-01-20", "120000", "DOP", "sent")
         back = _leg("2026-01-22", "-1500", "USD", "back")
-        found = Links(
-            shared=(
-                Shared.one(1, "newer", people=3),
-                Shared.one(2, "older", people=3),
-            ),
-            exchanges=(Exchange(3, ("sent", "back"), agreed_rate=D(60)),),
+        found = Links(exchanges=(Exchange(3, ("sent", "back"), agreed_rate=D(60)),))
+        groups = (
+            _group(1, "Newer", (_entry(1, "newer", "2026-02-20", "900"),)),
+            _group(2, "Older", (_entry(2, "older", "2026-01-05", "900"),)),
         )
 
-        result = _build([newer, older, sent, back], found)
+        result = _build([newer, older, sent, back], found, groups=groups)
 
         assert [i.fingerprint for i in result.owed_to_me] == ["older", "sent", "newer"]
 
 
 class TestGroups:
-    """A group of several expenses is a single row: its title, how many expenses and what is
+    """A group of several expenses is a single row: its name, how many expenses and what is
     pending per currency (≈ RD$ at the latest rate)."""
 
-    def _trip(self) -> tuple[list[Movement], Links]:
+    def _trip(self) -> tuple[list[Movement], tuple[Group, ...]]:
         flights = _move("2026-01-10", "100", "flights", currency="USD", link="shared")
         agency = _move("2026-02-01", "12000", "agency", account="dop", link="shared")
-        link = Shared(
-            1,
-            (SharedExpense("flights", for_other=True), SharedExpense("agency", people=2)),
-            with_whom="Carola and Rafael",
-            name="Fictional Island trip",
+        entries = (
+            _entry(1, "flights", "2026-01-10", "100", people=(ANA,), currency="USD"),
+            _entry(2, "agency", "2026-02-01", "12000", people=(ME, LUIS)),
         )
-        return [flights, agency], Links(shared=(link,))
+        return [flights, agency], (_group(1, "Fictional Island trip", entries),)
 
     def test_one_row_per_group_with_both_currencies(self) -> None:
-        moves, found = self._trip()
-        [item] = _build(moves, found).owed_to_me
+        moves, groups = self._trip()
+        [item] = _build(moves, Links(), groups=groups).owed_to_me
         assert (item.fingerprint, item.merchant, item.who, item.expense_count) == (
             "flights",
             "Fictional Island trip",
-            "Carola and Rafael",
+            "Ana, Luis",
             2,
         )
         assert item.parts == (("DOP", D(6000)), ("USD", D(100)))
@@ -304,14 +380,14 @@ class TestGroups:
         assert (item.day, item.age_days) == (date(2026, 1, 10), 64)
 
     def test_without_a_rate_the_dollars_stay_aside(self) -> None:
-        moves, found = self._trip()
-        result = _build(moves, found, rates={})
+        moves, groups = self._trip()
+        result = _build(moves, Links(), rates={}, groups=groups)
         [item] = result.owed_to_me
         assert item.pending_dop == D(6000)
         assert result.unconverted_owed_to_me == D(100)
 
     def test_a_group_counts_if_any_expense_is_in_the_chosen_accounts(self) -> None:
-        moves, found = self._trip()
-        [item] = _build(moves, found, chosen=frozenset({"dop"})).owed_to_me
+        moves, groups = self._trip()
+        [item] = _build(moves, Links(), chosen=frozenset({"dop"}), groups=groups).owed_to_me
         assert item.account_label == LABELS["dop"]
-        assert _build(moves, found, chosen=frozenset({"usd"})).owed_to_me == ()
+        assert _build(moves, Links(), chosen=frozenset({"usd"}), groups=groups).owed_to_me == ()

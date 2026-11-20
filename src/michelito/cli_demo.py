@@ -28,6 +28,7 @@ LISTEN_ENV = "MICHELITO_DEMO_LISTEN"
 HOST_ENV = "MICHELITO_DEMO_HOST"
 INSECURE_COOKIE_ENV = "MICHELITO_DEMO_INSECURE_COOKIE"
 REPO_ENV = "MICHELITO_DEMO_REPO"
+RETURN_URL_ENV = "MICHELITO_DEMO_RETURN_URL"
 PROXIES_ENV = "MICHELITO_DEMO_PROXIES"
 COPIES_PER_IP_ENV = "MICHELITO_DEMO_COPIES_PER_IP"
 COPIES_MAX_ENV = "MICHELITO_DEMO_COPIES_MAX"
@@ -82,6 +83,12 @@ def add_commands(commands: Any) -> None:
     )
     demo.add_argument(
         "--repo", default=_env(REPO_ENV, ""), metavar="URL", help="link to the repository"
+    )
+    demo.add_argument(
+        "--return-url",
+        default=_env(RETURN_URL_ENV, ""),
+        metavar="URL",
+        help="the hosted app's address: shows the band back to uploading statements",
     )
     demo.add_argument(
         "--trusted-proxy",
@@ -161,6 +168,7 @@ def cmd_demo(args: argparse.Namespace, paths: config.Paths) -> int:
         public_host=args.public_host,
         secure_cookie=not args.insecure_cookie,
         repo=args.repo,
+        return_url=args.return_url,
         limits=Limits(per_ip=args.copies_per_ip, max_live=args.copies_max),
         proxies=tuple(args.trusted_proxy),
     )

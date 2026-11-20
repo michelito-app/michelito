@@ -1,14 +1,24 @@
-# The public demo on the server (see docs/deployment.md). It lives in /opt/michelito next to
-# Caddyfile, deploy.sh and .env; the variables come from .env:
-#   MICHELITO_HOST   public host (demo.michelito.app)
+# The public demo and the hosted app on the server (see docs/deployment.md). They live in
+# /opt/michelito next to Caddyfile, deploy.sh, secrets/ and .env; the variables come from .env:
+#   MICHELITO_HOST   public host of the demo (demo.michelito.app)
+#   MICHELITO_APP_HOST  public host of the hosted app (michelito.app)
+#   COMPOSE_PROFILES optional: "hosted" also runs the hosted app (needs secrets/, see below)
 #   MICHELITO_IMAGE  image without a tag (ghcr.io/michelito-app/michelito)
 #   MICHELITO_TAG    sha of the running version  } written by deploy.sh:
 #   MICHELITO_DIGEST digest of its image         } not edited by hand
 #   GHCR_USER        user deploy.sh logs in to GHCR with (compose does not use it)
-#   MICHELITO_NET    optional: subnet of the internal network (172.30.53.0/24)
+#   MICHELITO_NET    optional: subnet of the demo's internal network (172.30.53.0/24)
+#   MICHELITO_HOSTED_NET  optional: subnet of the hosted app's internal network (172.30.54.0/24)
+#   MICHELITO_CADDY_HOSTED_IP  optional: Caddy's fixed address on it (172.30.54.2), the hosted
+#                    app's only trusted proxy; outside MICHELITO_HOSTED_RANGE (the subnet's upper half)
 #   MICHELITO_NET6   optional: IPv6 (ULA) subnet of the public network (fd4d:6963:6865:6c00::/64)
 #   MICHELITO_REPO   optional: "Open source" link in the demo notice
-# Sized for a 1 GB VPS: the app up to 512 MB and Caddy up to 128 MB.
+#   MICHELITO_R2_ENDPOINT, MICHELITO_R2_BUCKET  the hosted app's backups (Cloudflare R2,
+#                    only in the `backup` service)
+#   MICHELITO_OPS_EMAIL  who gets the "something failed" email
+# The demo and the hosted app are separate containers with separate volumes: the demo never
+# mounts the hosted app's volume. Both run the same image (one build, one digest).
+# Sized for a 1 GB VPS: the demo up to 384 MB, the hosted app up to 384 MB, Caddy up to 128 MB.
 name: michelito
 
 services:
@@ -34,13 +44,163 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 384m
+    memswap_limit: 384m
     logging: &logging
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
+
+  # The hosted app (michelito.app): accounts, one encrypted database per account. Only with the
+  # "hosted" profile (COMPOSE_PROFILES=hosted in .env) once its secrets exist. Its secrets are
+  # files in ./secrets/ (owned by uid 10001, mode 0400: compose mounts them as they are).
+  hosted:
+    image: ${MICHELITO_IMAGE:?MICHELITO_IMAGE is missing in .env}@${MICHELITO_DIGEST:?MICHELITO_DIGEST is missing (deploy.sh writes it)}
+    profiles: [hosted]
+    restart: unless-stopped
+    entrypoint: ["michelito"]
+    command: ["hosted"]
+    environment:
+      MICHELITO_MODE: hosted
+      MICHELITO_HOSTED_DIR: /data
+      MICHELITO_HOSTED_LISTEN: 0.0.0.0
+      MICHELITO_HOSTED_PORT: "8620"
+      MICHELITO_HOSTED_HOST: ${MICHELITO_APP_HOST:-michelito.app}
+      MICHELITO_HOSTED_URL: https://${MICHELITO_APP_HOST:-michelito.app}
+      MICHELITO_HOSTED_DEMO_URL: https://${MICHELITO_HOST:-demo.michelito.app}
+      # X-Forwarded-For is trusted only from Caddy's fixed address on the hosted network (which
+      # the demo never joins): a single address, not a subnet.
+      MICHELITO_HOSTED_PROXIES: ${MICHELITO_CADDY_HOSTED_IP:-172.30.54.2}
+      MICHELITO_MAILER: resend
+      MICHELITO_MASTER_KEY_FILE: /run/secrets/master_key
+      MICHELITO_HOSTED_SECRET_FILE: /run/secrets/hosted_secret
+      RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      MICHELITO_OPS_EMAIL: ${MICHELITO_OPS_EMAIL:-}
+      # Uploaded PDFs are opened by the pdfworker container, never in this one.
+      MICHELITO_PDF_WORKER_SOCKET: /run/michelito-pdf/worker.sock
+      # Only a socket held by this uid (the pdfworker server) gets a PDF (SO_PEERCRED).
+      MICHELITO_PDF_WORKER_UID: "10002"
+    secrets:
+      - master_key
+      - hosted_secret
+      - resend_api_key
+    volumes:
+      - hosted_data:/data
+      - pdf_socket:/run/michelito-pdf
+    # hosted_internal: only Caddy reaches it (no published ports); the demo is not on it. egress:
+    # it sends email (Resend), so unlike the demo it has a way out. It holds no R2 credentials:
+    # backups run in the `backup` service.
+    networks:
+      - hosted_internal
+      - egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['MICHELITO_HOSTED_PORT'] + '/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 384m
+    memswap_limit: 384m
+    logging: *logging
+
+  # Reads uploaded PDFs for the hosted app (`michelito pdf-worker`, see hosted/pdf_socket.py):
+  # no secrets, no data volume, no network at all; its only shared mount is the socket's
+  # folder. It starts as root only to set up three identities and drop: the server (10002) owns
+  # the socket's folder (0750, group 10001 = the hosted app); each worker process (one per file)
+  # runs as one of 10003..10004 (one uid per worker running at once, never shared) and makes
+  # itself non-dumpable: it cannot enter that folder, trace a sibling, signal the server or
+  # write anywhere. Root survives only as the server's saved uid: SETUID/SETGID/KILL to start
+  # and stop workers (CHOWN only for the set-up).
+  pdfworker:
+    image: ${MICHELITO_IMAGE:?MICHELITO_IMAGE is missing in .env}@${MICHELITO_DIGEST:?MICHELITO_DIGEST is missing (deploy.sh writes it)}
+    profiles: [hosted]
+    restart: unless-stopped
+    entrypoint: ["michelito"]
+    command:
+      - pdf-worker
+      - --socket
+      - /run/michelito-pdf/worker.sock
+      - --server-uid
+      - "10002"
+      - --child-uid
+      - "10003"
+      - --client-gid
+      - "10001"
+      - --slots
+      - "2"
+    user: "0:0"
+    environment:
+      MICHELITO_MODE: hosted
+    volumes:
+      - pdf_socket:/run/michelito-pdf
+    network_mode: none
+    # Healthy once it listens, checked as the hosted app would see it (uid/gid 10001).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; os.setgroups([]); os.setgid(10001); os.setuid(10001); sys.exit(not os.path.exists('/run/michelito-pdf/worker.sock'))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    read_only: true
+    tmpfs:
+      # Root's: the workers' folders are made in a subfolder; nobody else can write here.
+      - /tmp:size=16m,mode=0711
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, KILL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 384m
+    memswap_limit: 384m
+    logging: *logging
+
+  # Backups of the hosted app (`michelito backup`): run on demand, never as a long-lived process,
+  # so the web process never holds the R2 credentials. Profile "ops" (never in COMPOSE_PROFILES):
+  # `docker compose run --rm backup` (the nightly R2 backup, from cron) or
+  # `docker compose run --rm backup backup --to /data/deploy-backups …` (deploy.sh).
+  backup:
+    image: ${MICHELITO_IMAGE:?MICHELITO_IMAGE is missing in .env}@${MICHELITO_DIGEST:?MICHELITO_DIGEST is missing (deploy.sh writes it)}
+    profiles: [ops]
+    restart: "no"
+    healthcheck:
+      disable: true
+    entrypoint: ["michelito"]
+    command: ["backup"]
+    environment:
+      MICHELITO_MODE: hosted
+      MICHELITO_HOSTED_DIR: /data
+      MICHELITO_MASTER_KEY_FILE: /run/secrets/master_key
+      MICHELITO_R2_ENDPOINT: ${MICHELITO_R2_ENDPOINT:-}
+      MICHELITO_R2_BUCKET: ${MICHELITO_R2_BUCKET:-}
+      MICHELITO_R2_ACCESS_KEY_ID_FILE: /run/secrets/r2_access_key_id
+      MICHELITO_R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2_secret_access_key
+    secrets:
+      - master_key
+      - r2_access_key_id
+      - r2_secret_access_key
+    volumes:
+      - hosted_data:/data
+    # Only a way out (to R2): nothing reaches it and it reaches neither app.
+    networks:
+      - egress
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    memswap_limit: 256m
+    logging: *logging
 
   caddy:
     image: caddy:2.11-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
@@ -49,6 +209,7 @@ services:
       - app
     environment:
       MICHELITO_HOST: ${MICHELITO_HOST:-demo.michelito.app}
+      MICHELITO_APP_HOST: ${MICHELITO_APP_HOST:-michelito.app}
     ports:
       - "80:80"
       - "443:443"
@@ -57,8 +218,11 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     networks:
-      - internal
-      - public
+      internal: {}
+      # A fixed address: the only one the hosted app trusts X-Forwarded-For from.
+      hosted_internal:
+        ipv4_address: ${MICHELITO_CADDY_HOSTED_IP:-172.30.54.2}
+      public: {}
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -72,12 +236,23 @@ services:
     logging: *logging
 
 networks:
-  # No way out to the internet: the app does not need to call anyone.
+  # No way out to the internet: the demo does not need to call anyone.
   internal:
     internal: true
     ipam:
       config:
         - subnet: ${MICHELITO_NET:-172.30.53.0/24}
+  # Caddy and the hosted app only (the demo never joins it), with no way out.
+  hosted_internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${MICHELITO_HOSTED_NET:-172.30.54.0/24}
+          # Automatic addresses only from the upper half, so no container (the hosted app, or a
+          # `docker compose run` of it) can take Caddy's fixed address first.
+          ip_range: ${MICHELITO_HOSTED_RANGE:-172.30.54.128/25}
+  # The way out of the hosted app (Resend) and of the backup service (R2).
+  egress: {}
   # Caddy's way out (ports 80/443 and Let's Encrypt). With its own IPv6: otherwise Docker passes
   # IPv6 connections through docker-proxy and Caddy sees the bridge gateway instead of the
   # visitor's IP (and everyone would share one quota). See docs/deployment.md.
@@ -96,3 +271,21 @@ volumes:
   caddy_data:
     name: michelito_caddy_datos # spanish-data
   caddy_config: {}
+  # The hosted app's accounts and encrypted databases. Never mounted by the demo.
+  hosted_data:
+    name: michelito_hosted_data
+  # Only the PDF worker's socket (shared by hosted and pdfworker; no data ever stored in it).
+  pdf_socket: {}
+
+# The hosted app's secrets (Docker secrets from files; never in the data volume nor in backups).
+secrets:
+  master_key:
+    file: ./secrets/master.key
+  hosted_secret:
+    file: ./secrets/hosted-secret.key
+  resend_api_key:
+    file: ./secrets/resend-api.key
+  r2_access_key_id:
+    file: ./secrets/r2-access-key-id
+  r2_secret_access_key:
+    file: ./secrets/r2-secret-access-key

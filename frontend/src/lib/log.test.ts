@@ -106,6 +106,10 @@ describe('links and texts', () => {
     expect(entryHref(entry({ fingerprint: 'cash-7', month: '2026-01' }))).toBe(
       '/transactions?month=2026-01&tx=cash-7',
     )
+    // A shared group's change opens the group's page.
+    expect(entryHref(entry({ target_type: 'link', target: 'group-4', month: null }))).toBe(
+      '/shared/4',
+    )
   })
 
   it('builds the API path with the filters', () => {

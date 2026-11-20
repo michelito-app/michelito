@@ -29,6 +29,7 @@ from michelito.analysis.links import CashBox, CashBoxMember, Links
 from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
 from michelito.web import summary
+from tests.ledger_helpers import share
 from tests.test_spending import _add_bank_rows, seed
 
 D = Decimal
@@ -255,10 +256,11 @@ class TestManualEntries:
     ) -> None:
         entry = _write(conn, cash_box_store.add_entry, "expense", date(2026, 1, 5), D(900), "DOP")
         fp = cash_box.entry_fingerprint(entry)
-        _write(conn, links.set_shared, fp, D(900), people=3)
+        _write(conn, share, fp, D(900), people=3)
         assert _flow(conn)[fp].amount == D(300)
         _write(conn, cash_box_store.delete_entry, entry)
-        assert links.load(conn).shared == ()
+        assert conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0
+        assert links.load(conn).ledger == {}
 
     def test_manual_fingerprints_never_look_like_statement_ones(self) -> None:
         assert cash_box.entry_fingerprint(7) == "cash-7"

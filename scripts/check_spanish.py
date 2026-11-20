@@ -47,6 +47,7 @@ ALLOWED_PATHS: dict[str, str] = {
     "frontend/src/legacy.test.ts": "tests of the pre-rename identifiers",
     "tests/samples.py": "synthetic Dominican bank statements",
     "tests/fixtures/schema_v17*": "database written by the pre-rename release",
+    "tests/fixtures/schema_v18_shared*": "database written by the schema 18 release (0be7009)",
     "scripts/check_spanish.py": "the Spanish word list of this check",
     "tests/test_check_spanish.py": "examples of what this check flags",
     "LICENSE": "license text",

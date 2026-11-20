@@ -1,4 +1,6 @@
 import { useSearchParams } from 'react-router'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import { CategoryBudget } from '@/components/budget/CategoryBudget'
 import { ReservesSection } from '@/components/budget/ReservesSection'
 import { AccountPicker } from '@/components/filters/AccountPicker'
@@ -37,7 +39,7 @@ export function BudgetPage() {
   }
   if (!ready || months.isPending) return <Skeleton className="h-[300px] rounded-2xl" />
   if (month === null) {
-    return <p className="text-sm text-muted-foreground">{t('budget.noStatements')}</p>
+    return <NoStatements />
   }
   const option = months.data.find((o) => o.month === month) ?? months.data[0]
   return (
@@ -91,4 +93,9 @@ export function BudgetPage() {
       </div>
     </>
   )
+}
+
+function NoStatements() {
+  if (isHosted(useMode())) return <HostedEmpty view="budget" />
+  return <p className="text-sm text-muted-foreground">{t('budget.noStatements')}</p>
 }

@@ -17,7 +17,7 @@ import { BudgetCard } from './BudgetCard'
 import { ByAccount } from './ByAccount'
 import { CategoryTable } from './CategoryTable'
 import { InterestCard } from './InterestCard'
-import { Kpis } from './Kpis'
+import { Kpis, ProvisionalLine } from './Kpis'
 import { MonthReading } from './MonthReading'
 import { PendingCard } from './PendingCard'
 import { RecurringCard } from './RecurringCard'
@@ -124,6 +124,7 @@ function KeptCard({ summary }: { summary: Summary }) {
         <Flow label={t('summary.mobile.in')} value={formatDop(summary.income_cents)} />
         <Flow label={t('summary.mobile.out')} value={formatDop(summary.total_cents)} />
       </dl>
+      <ProvisionalLine cents={summary.provisional_cents} />
     </section>
   )
 }

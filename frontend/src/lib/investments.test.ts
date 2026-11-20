@@ -27,7 +27,7 @@ import {
   ROLE_LABELS,
   showInvestment,
 } from './links'
-import { dateRange } from './sharedList'
+import { dateRange } from './months'
 
 function entry(overrides: Partial<InvestmentEntry> = {}): InvestmentEntry {
   return {
@@ -258,9 +258,8 @@ function tx(overrides: Partial<Tx>): Tx {
     cash_box_currency: null,
     cash_box_amount_cents: null,
     cash_entry_id: null,
-    shared: null,
+    ledger: null,
     exchange: null,
-    suggested_group: null,
     suggested_exchange_with: null,
     pending_cents: 0,
     ...overrides,

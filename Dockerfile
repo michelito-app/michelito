@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
-# Image of the public demo (Michelito): only `michelito demo`, made-up data, no Gmail and no
-# keyring. See docs/deployment.md. Base images are pinned by digest (Dependabot bumps them).
+# Image of the public demo (Michelito): `michelito demo`, made-up data, no Gmail and no keyring.
+# The same image runs the hosted app (`michelito hosted`, with MICHELITO_MODE=hosted: only the
+# server commands) when deploy/docker-compose.yml says so. See docs/deployment.md. Base images are pinned by digest (Dependabot bumps them).
 
 # 1. The interface: builds frontend/ into src/michelito/web/static/ (like `npm run build`).
 FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS frontend
@@ -39,7 +40,8 @@ RUN rm -rf /usr/local/bin/pip* /usr/local/lib/python3.13/site-packages/pip* \
     && groupadd --system --gid 10001 michelito \
     && useradd --system --uid 10001 --gid michelito --no-create-home \
        --home-dir /nonexistent --shell /usr/sbin/nologin michelito \
-    && install -d -o michelito -g michelito -m 700 /data
+    && install -d -o michelito -g michelito -m 700 /data \
+    && install -d -o michelito -g michelito -m 700 /run/michelito-pdf
 COPY --from=app /app/.venv /app/.venv
 # MICHELITO_MODE=demo: only `demo` and `feedback` exist in the container. The other demo options
 # (public host, trusted proxy, repo) are set by docker-compose.yml.

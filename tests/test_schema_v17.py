@@ -28,7 +28,7 @@ _RESERVE_COLUMNS = [name for name, _ in db.RESERVE_COLUMNS["links"]]
 _ADDED = {
     "links": ", 'reserve'",
     "link_members": ", 'reserved'",
-    "review_marks": ", 'possible_reserve'",
+    "review_marks": ", 'possible_reserve', 'possible_payment'",  # 'possible_payment': schema 19
 }
 
 
@@ -61,14 +61,15 @@ def _downgrade(raw: sqlite3.Connection) -> None:
 
 
 def _v16(path: Path) -> dict[str, str]:
-    """A schema 16 database: a shared expense and a reviewed transaction, made through the
-    change log. Returns the fingerprints used."""
+    """A schema 16 database: a linked expense (an investment contribution: since schema 19
+    shared groups live in the ledger) and a reviewed transaction, made through the change log.
+    Returns the fingerprints used."""
     with closing(db.connect(path)) as conn:
         seed(conn)
         flow = [m for m in spending.load_all(conn) if m.kind == "expense" and m.amount > 0]
         shared, reviewed, free = flow[0], flow[1], flow[2]
-        with conn, changelog.track(conn, "shared", "transaction", shared.fingerprint, "x"):
-            links.set_shared(conn, shared.fingerprint, shared.amount, people=2)
+        with conn, changelog.track(conn, "investment", "transaction", shared.fingerprint, "x"):
+            links.create_investment(conn, shared.fingerprint)
         with conn, changelog.track(conn, "reviewed", "transaction", reviewed.fingerprint, "y"):
             review_marks.set_reviewed(conn, reviewed.fingerprint, "duplicate", True)
     with closing(sqlite3.connect(path)) as raw:
@@ -98,7 +99,7 @@ def test_v16_rows_and_log_survive_and_reserves_fit(tmp_path: Path) -> None:
         assert "'reserve'" not in _sql(raw, "links")
         before = {t: _rows(raw, t) for t in ("links", "link_members", "review_marks", "change_log")}
     with closing(db.connect(path)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 18
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION >= 17
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert "'reserve'" in _sql(conn, "links")
         assert "'reserved'" in _sql(conn, "link_members")
@@ -193,10 +194,10 @@ def test_rebuilding_links_keeps_the_sequence_of_deleted_ids(tmp_path: Path) -> N
     with closing(db.connect(path)) as conn:
         flow = [m for m in spending.load_all(conn) if m.kind == "expense" and m.amount > 0]
         gone = flow[3]
-        with conn, changelog.track(conn, "shared", "transaction", gone.fingerprint, "w"):
-            links.set_shared(conn, gone.fingerprint, gone.amount, people=2)
-        with conn, changelog.track(conn, "shared", "transaction", gone.fingerprint, "w") as d:
-            links.unshare(conn, gone.fingerprint)
+        with conn, changelog.track(conn, "investment", "transaction", gone.fingerprint, "w"):
+            made = links.create_investment(conn, gone.fingerprint)
+        with conn, changelog.track(conn, "investment", "transaction", gone.fingerprint, "w") as d:
+            links.remove_investment_member(conn, made, gone.fingerprint)
         deleted = d.entry_id
     with closing(sqlite3.connect(path)) as raw:
         _downgrade(raw)

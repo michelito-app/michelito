@@ -14,6 +14,7 @@ import pytest
 from michelito import db
 from michelito.analysis import cash_box_store, changelog, corrections, links, spending
 from michelito.analysis import categories as cat
+from tests.ledger_helpers import groups_summary, old_group, old_manual
 from tests.test_spending import _add_bank_rows, seed
 
 D = Decimal
@@ -52,10 +53,8 @@ def _v14(path: Path) -> None:
         legs = [next(fp for text, fp in fps.items() if text.startswith("FARMACIA"))]
         legs.append(next(fp for text, fp in fps.items() if text.startswith("TIENDA ONLINE")))
         with conn:
-            links.set_shared(conn, cafe, D(300), people=3, with_whom="Ana")
-            links.add_manual(
-                conn, links.group_of(conn, cafe), D(25), date(2026, 1, 3), "DOP", "Ana"
-            )
+            group = old_group(conn, cafe, people=3, with_whom="Ana")
+            old_manual(conn, group, D(25), date(2026, 1, 3), "DOP", "Ana")
             links.create_exchange(conn, legs, D("60"))
             made = links.create_investment(conn, fps["MB a 0000000066 SOCIO INVENTADO"])
             links.add_investment_member(
@@ -113,6 +112,16 @@ def _snapshot(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
     return {t: [tuple(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY rowid")] for t in _KEPT}
 
 
+def _without_shared(snapshot: dict[str, list[tuple]]) -> dict[str, list[tuple]]:
+    shared = {row[0] for row in snapshot["links"] if row[1] == "shared"}
+    return {
+        **snapshot,
+        "links": [r for r in snapshot["links"] if r[0] not in shared],
+        "link_members": [r for r in snapshot["link_members"] if r[0] not in shared],
+        "link_manual": [r for r in snapshot["link_manual"] if r[1] not in shared],
+    }
+
+
 def _tables(conn: sqlite3.Connection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
@@ -142,7 +151,10 @@ def test_v14_data_survives_and_the_log_fits(tmp_path: Path) -> None:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION >= 15
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert set(_NEW) <= _tables(conn)
-        assert _snapshot(conn) == before  # no row was lost or changed (nor its id)
+        # No row was lost or changed (nor its id), except the shared group: schema 19 moves it
+        # to the ledger.
+        assert _snapshot(conn) == _without_shared(before)
+        assert [g["name"] for g in groups_summary(conn)] == ["Ana"]
         assert _ddl(conn) == ddl  # same columns, CHECKs and indexes
         for table in _REBUILT:
             sql = conn.execute(

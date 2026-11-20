@@ -25,6 +25,10 @@ class ReviewItemOut(BaseModel):
     investment_id: int | None = None  # possible contribution or return: the proposed investment
     category_id: int | None = None  # possible rule: the proposed category
     reserve_id: int | None = None  # possible reserve: the proposed reserve
+    group_id: int | None = None  # possible payment: the group
+    contact_id: int | None = None  # possible payment: who pays (null: unattributed)
+    payment_id: int | None = None  # possible payment: the unlinked payment it reconciles
+    provisional: bool = False  # still provisional (from a bank alert): it can be discarded
 
     @classmethod
     def of(cls, view: ReviewView) -> ReviewItemOut:
@@ -45,6 +49,10 @@ class ReviewItemOut(BaseModel):
             investment_id=item.investment_id,
             category_id=item.category_id,
             reserve_id=item.reserve_id,
+            group_id=item.group_id,
+            contact_id=item.contact_id,
+            payment_id=item.payment_id,
+            provisional=item.provisional,
         )
 
 

@@ -1,4 +1,6 @@
-# Caddy in front of the demo (see docs/deployment.md). Automatic HTTPS for {$MICHELITO_HOST}.
+# Caddy in front of the demo and the hosted app (see docs/deployment.md). Automatic HTTPS for
+# {$MICHELITO_HOST} (the demo) and {$MICHELITO_APP_HOST} (the hosted app); each host goes to its
+# own container, with the same strict headers.
 {
 	# HTTP/1.1 and HTTP/2 only: the firewall opens 443/tcp, not UDP (HTTP/3).
 	servers {
@@ -8,7 +10,7 @@
 	skip_install_trust
 }
 
-{$MICHELITO_HOST} {
+(strict_headers) {
 	encode zstd gzip
 
 	header {
@@ -26,12 +28,32 @@
 		-Server
 		-Via
 	}
+}
+
+(app_proxy) {
+	# X-Forwarded-For: Caddy replaces it with the IP of whoever connected (a single hop) and
+	# drops the one the client sends, because there are no `trusted_proxies`. The app takes the
+	# last one (it trusts it only from the internal network: --trusted-proxy).
+	header_up -X-Real-IP
+	header_up -Forwarded
+}
+
+{$MICHELITO_HOST} {
+	import strict_headers
 
 	reverse_proxy app:8600 {
-		# X-Forwarded-For: Caddy replaces it with the IP of whoever connected (a single hop) and
-		# drops the one the client sends, because there are no `trusted_proxies`. The app takes
-		# the last one.
-		header_up -X-Real-IP
-		header_up -Forwarded
+		import app_proxy
+	}
+}
+
+{$MICHELITO_APP_HOST} {
+	import strict_headers
+
+	# Private data and session state: no cache may keep an API answer (the app says so too).
+	header /api/* Cache-Control "no-store"
+
+	# The hosted app only runs with the "hosted" profile; until then this answers 502.
+	reverse_proxy hosted:8620 {
+		import app_proxy
 	}
 }

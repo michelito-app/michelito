@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { message } from '../src/i18n'
-import { rowFingerprint } from './phone'
+import { logMark, undoSince } from './ledger'
 import { escapeRegExp, literal, t } from './text'
 
 // Made-up data from tests/e2e_server.py. January 2026 is a month with purchases on three cards.
@@ -1120,19 +1120,25 @@ test.describe('editable categories', () => {
   })
 })
 
-test.describe('shared expenses, reimbursements and notes', () => {
+test.describe('shared expenses from a transaction, and notes', () => {
   test.describe.configure({ mode: 'serial' })
-  // February 2026: a RD$ 3,000 dinner on the VISA DEMO and two TOKE DE (RD$ 1,000 on the 4th and
-  // RD$ 500 on the 6th).
+  // February 2026: a RD$ 3,000 dinner on the VISA DEMO. Everything written here is undone at the
+  // end (through the log), so the other specs find the made-up data as it was.
   const FEBRUARY = '2026-02'
   const DINNER = 'RESTAURANTE COMPARTIDO'
+  const GROUP = 'Cena del equipo' // spanish-data
+  const NEW_PERSON = 'Ana Ficticia' // spanish-data
+  let mark = 0
 
-  /** The shared-line figures: your share, reimbursed and owed, as the test id renders them. */
-  function sharedLine(share: string, reimbursed: string, owed: string): string {
-    return `${t('links.stat.yourShare')}${share}${t('links.stat.reimbursed')}${reimbursed}${t('links.stat.owed')}${owed}`
-  }
+  test.beforeAll(async ({ request }) => {
+    mark = await logMark(request)
+  })
 
-  test('«Share…» opens the screen; three people leaves your share and «Back» selects the row', async ({
+  test.afterAll(async ({ request }) => {
+    await undoSince(request, mark)
+  })
+
+  test('«Share…» goes straight to «I paid it» with it; a new group from there keeps the draft', async ({
     page,
   }) => {
     await page.goto(`/transactions?month=${FEBRUARY}`)
@@ -1140,103 +1146,58 @@ test.describe('shared expenses, reimbursements and notes', () => {
     const dinner = list.getByRole('button', { name: new RegExp(DINNER) })
     await dinner.click()
     const detail = page.getByRole('complementary')
-    await detail.getByRole('button', { name: t('links.action.share') }).click()
+    await detail
+      .getByRole('region', { name: t('shared.tx.title') })
+      .getByRole('button', { name: t('shared.tx.share') })
+      .click()
 
-    await expect(page).toHaveURL(/\/transactions\/[^/?]+$/)
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(new RegExp(DINNER))
-    // Focus goes to the title (it announces the screen) and the sections hang from it (h2).
-    await expect(page.getByRole('heading', { level: 1 })).toBeFocused()
-    await expect(page.getByRole('heading', { level: 2, name: t('links.share.title') })).toBeVisible()
-    await page.getByLabel(t('transactions.split.peopleCount')).fill('3')
-    await page.getByRole('button', { name: t('links.share.mark') }).click()
-    await expect(
-      page.getByRole('heading', {
-        level: 2,
-        name: t('links.group.heading', { expenses: t('links.expenseCount', { count: 1 }) }),
-      }),
-    ).toBeVisible()
-    await expect(page.getByTestId('shared-line')).toHaveText(
-      sharedLine('RD$ 1,000', 'RD$ 0', 'RD$ 2,000'),
+    const sheet = page.getByRole('dialog', { name: t('shared.add.mine') })
+    await expect(sheet).toContainText(DINNER)
+    await sheet.getByRole('button', { name: t('shared.add.newGroup') }).click()
+    const create = page.getByRole('dialog', { name: t('shared.newGroup.title') })
+    await create.getByLabel(t('shared.newGroup.name')).fill(GROUP)
+    const search = create.getByLabel(t('shared.newGroup.search'))
+    await search.fill(NEW_PERSON)
+    await create.getByRole('button', { name: t('shared.people.createNamed', { name: NEW_PERSON }) }).click()
+    await search.fill('Lu')
+    await create.getByRole('list', { name: t('shared.people.suggestions') }).getByRole('button', { name: /^Luis/ }).click()
+    await create.getByRole('button', { name: t('shared.newGroup.create') }).click()
+    await expect(create).toHaveCount(0)
+
+    // Back in the draft: the new group is chosen and the split is equal among the three.
+    await expect(sheet.getByRole('button', { name: GROUP })).toHaveAttribute('aria-pressed', 'true')
+    await expect(sheet.getByTestId('split-summary')).toHaveText(
+      t('shared.add.splitEqual', { count: 3, amount: 'RD$ 1,000' }),
     )
+    await sheet.getByRole('button', { name: t('shared.add.save') }).click()
+    await expect(sheet).toHaveCount(0)
 
-    await page.getByRole('link', { name: t('links.page.back') }).click()
-    await expect(page).toHaveURL(new RegExp(`/transactions\\?month=${FEBRUARY}&tx=`))
-    await expect(dinner).toHaveAttribute('aria-pressed', 'true')
     await expect(dinner).toContainText(t('links.badge.shared'))
     await expect(dinner).toContainText(t('links.badge.owed', { amount: 'RD$ 2,000' }))
-    await expect(dinner).toContainText(t('transactions.amount.gross', { amount: 'RD$ 3,000' }))
     await expect(detail.getByTestId('link-summary-shared')).toHaveText(
-      new RegExp(
-        `^${templateSource(message('links.summary.sharedText'), {
-          title: `${DINNER}.*`,
-          status: escapeRegExp(t('links.group.owed', { amount: 'RD$ 2,000' })),
-          refunds: escapeRegExp(t('links.summary.refundCount', { count: 0 })),
-        })}$`,
-      ),
+      t('shared.tx.entryPending', { group: GROUP, share: 'RD$ 1,000', pending: 'RD$ 2,000' }),
+    )
+    await detail.getByRole('link', { name: t('shared.tx.openGroup') }).click()
+    await expect(page).toHaveURL(/\/shared\/\d+$/)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(GROUP)
+    await expect(page.getByTestId('group-sentence')).toHaveText(
+      t('shared.group.sentence.owed', { amount: 'RD$ 2,000' }),
     )
   })
 
-  test('the panel shortcut links the suggested TOKE DE', async ({ page }) => {
-    await page.goto(`/transactions?month=${FEBRUARY}`)
-    const list = page.getByRole('region', { name: LIST })
-    const toke = list.getByRole('button', { name: /TOKE DE PERSONA/ })
-    await expect(toke).toContainText(t('links.badge.suggestedReimbursement'))
-    await toke.click()
-    const detail = page.getByRole('complementary')
-    await expect(detail).toContainText(
-      new RegExp(templateSource(message('links.shortcut.reimbursement'), { what: `${DINNER}[^?]*` })),
-    )
-    await detail.getByRole('button', { name: t('links.shortcut.link') }).click()
-    await expect(toke).toContainText(t('links.badge.reimbursement'))
-    await expect(toke).not.toContainText(t('links.badge.suggestedReimbursement'))
-    await expect(detail.getByTestId('link-summary-reimbursement')).toHaveText(
-      new RegExp(
-        `^${templateSource(message('links.summary.reimbursementOf'), { what: `${DINNER}.*` })} · ${escapeRegExp(
-          t('links.group.owed', { amount: 'RD$ 1,000' }),
-        )}$`,
-      ),
-    )
-    const dinner = list.getByRole('button', { name: new RegExp(DINNER) })
-    await expect(dinner).toContainText(t('links.badge.owed', { amount: 'RD$ 1,000' }))
-  })
-
-  test('«Manage…» links another reimbursement from the screen, with the search box', async ({
-    page,
-  }) => {
-    await page.goto(`/transactions?month=${FEBRUARY}`)
-    await page.getByRole('button', { name: new RegExp(DINNER) }).click()
-    await page.getByRole('complementary').getByRole('button', { name: t('links.action.manage') }).click()
-    await page.getByRole('button', { name: t('links.group.addRefund') }).click()
-
-    const candidates = t('links.refund.candidates')
-    const credits = page.getByRole('group', { name: candidates })
-    await expect(credits).toContainText('TOKE DE AMIGA INVENTADA')
-    await page
-      .getByRole('searchbox', {
-        name: literal(t('transactions.picker.searchIn', { label: candidates.toLowerCase() })),
-      })
-      .fill('500')
-    await expect(credits.getByRole('checkbox')).toHaveCount(1)
-    await credits.getByRole('checkbox', { name: /TOKE DE AMIGA/ }).check()
-    await page.getByRole('button', { name: t('links.refund.linkCredits', { count: 1 }) }).click()
-    await expect(page.getByTestId('shared-line')).toHaveText(
-      sharedLine('RD$ 1,000', 'RD$ 1,500', 'RD$ 500'),
-    )
-    await expect(page.getByRole('list', { name: t('links.group.refunds') })).toContainText(
-      'TOKE DE AMIGA',
-    )
-  })
-
-  test('Pending lists what you are owed; Transactions filters the shared ones with something pending', async ({
+  test('Pending lists the group and opens its page; Transactions filters the shared ones with something pending', async ({
     page,
   }) => {
     await page.goto(`/?month=${FEBRUARY}`)
-    // The Summary widget adds up every month (with the made-up pending items of December).
     const widget = page.getByRole('region', { name: t('summary.pendingCard.title') })
     await widget.getByRole('link', { name: t('summary.pendingCard.link') }).click()
     await expect(page).toHaveURL(/\/pending$/)
     const owed = page.getByRole('region', { name: t('pending.figure.owed') })
-    await expect(owed.getByRole('link', { name: new RegExp(DINNER) })).toContainText('RD$ 500')
+    const row = owed.getByRole('link', { name: new RegExp(GROUP) })
+    await expect(row).toContainText('RD$ 2,000')
+    await row.click()
+    await expect(page).toHaveURL(/\/shared\/\d+$/)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(GROUP)
 
     await page.goto(`/transactions?month=${FEBRUARY}&shared=pending`)
     const rows = page.getByRole('region', { name: LIST }).getByRole('button')
@@ -1244,6 +1205,17 @@ test.describe('shared expenses, reimbursements and notes', () => {
     await expect(rows.first()).toContainText(DINNER)
     await page.getByRole('button', { name: t('transactions.filters.removeShared') }).click()
     await expect(page).not.toHaveURL(/shared=/)
+  })
+
+  test('removing it from the group leaves the detail with the offer again', async ({ page }) => {
+    await page.goto(`/transactions?month=${FEBRUARY}`)
+    const list = page.getByRole('region', { name: LIST })
+    const dinner = list.getByRole('button', { name: new RegExp(DINNER) })
+    await dinner.click()
+    const detail = page.getByRole('complementary')
+    await detail.getByRole('button', { name: t('shared.tx.remove') }).click()
+    await expect(detail.getByTestId('link-summary-shared')).toHaveText(t('shared.tx.offer'))
+    await expect(dinner).not.toContainText(t('links.badge.shared'))
   })
 
   test('a note is saved, marked on the row and found by the search', async ({ page }) => {
@@ -1260,20 +1232,6 @@ test.describe('shared expenses, reimbursements and notes', () => {
     await page.goto(`/transactions?month=${FEBRUARY}&q=luis`)
     await expect(list.getByRole('button')).toHaveCount(1)
     await expect(list.getByRole('button').first()).toContainText(DINNER)
-  })
-
-  test('at 390 px the shared screen fits without sideways scrolling', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(`/transactions?month=${FEBRUARY}`)
-    // On a phone the detail manages links in sheets: the shared screen opens by its address.
-    const fingerprint = await rowFingerprint(page, new RegExp(DINNER))
-    await page.goto(`/transactions/${encodeURIComponent(fingerprint)}`)
-    await expect(page.getByTestId('shared-line')).toBeVisible()
-    await page.getByRole('button', { name: t('links.group.addRefund') }).click()
-    await page.getByRole('button', { name: t('links.refund.paidElsewhere') }).click()
-    await expect(page.getByLabel(t('links.refund.place'))).toBeVisible()
-    const width = await page.evaluate(() => document.documentElement.scrollWidth)
-    expect(width).toBeLessThanOrEqual(390)
   })
 })
 

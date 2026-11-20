@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from functools import cached_property
 
-from michelito.analysis import investments, reserves, review
+from michelito.analysis import investments, ledger, ledger_suggest, reserves, review
 from michelito.analysis import links as link_data
 from michelito.analysis.accounts import BANK_KINDS, AccountInfo
 from michelito.analysis.changelog_rules import RuleSuggestion
@@ -44,6 +45,22 @@ class Context:
     unions: Mapping[str, str] = field(default_factory=dict)  # Recurring unions
     # Expenses that look like a reserve's (`web.budget.link_hints`): fingerprint -> the reserve.
     reserve_hints: Mapping[str, Reserve] = field(default_factory=dict)
+    book: ledger.Ledger = ledger.EMPTY  # the shared ledger, for possible payments
+
+    @cached_property
+    def payments(self) -> dict[str, ledger_suggest.ReverseSuggestion]:
+        """Credits that look like a payment from someone who owes the user (computed once)."""
+        if not self.book.groups:
+            return {}
+        states = ledger.states(self.book, self.rates)
+        return ledger_suggest.reverse_suggestions(self.flow, self.links, self.book, states)
+
+    # Provisionals missing from their statement (`live_store.unmatched`): fingerprint -> the
+    # closing date of the statement they should have been in; and the user's decisions.
+    unmatched: Mapping[str, date] = field(default_factory=dict)
+    decisions: Mapping[str, str] = field(default_factory=dict)
+    # Purchases a reversal alert named that still count (`live_store.reversals`).
+    reversals: Mapping[str, str] = field(default_factory=dict)
 
     @cached_property
     def hints(self) -> dict[str, review.Hint]:
@@ -77,7 +94,17 @@ def month_items(ctx: Context, month: str) -> list[ReviewView]:
         hints=ctx.hints,
         unions=ctx.unions,
     )
-    found = [*_rule_items(ctx, mine, month), *_reserve_items(ctx, mine, month), *found]
+    proposed = _payment_items(ctx, mine, month)
+    shown = {i.fingerprint for i in proposed}
+    found = [i for i in found if i.fingerprint not in shown]
+    found = [
+        *proposed,
+        *_unconfirmed_items(ctx, mine, month),
+        *_reversal_items(ctx, mine, month),
+        *_rule_items(ctx, mine, month),
+        *_reserve_items(ctx, mine, month),
+        *found,
+    ]
     return [ReviewView(item, labels.get(item.account, item.account)) for item in found]
 
 
@@ -142,6 +169,98 @@ def _reserve_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[r
                 ),
                 reviewed=(move.fingerprint, "possible_reserve") in ctx.reviewed,
                 reserve_id=reserve.id,
+            )
+        )
+    return items
+
+
+def _unconfirmed_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[review.Item]:
+    """ "It did not show up in your <month> statement. Was it reversed?" for each provisional of
+    the month missing from its statement; one already kept comes out as reviewed."""
+    items = []
+    for move in mine:
+        closing = ctx.unmatched.get(move.fingerprint)
+        if closing is None or move.month != month:
+            continue
+        amount = abs(move.amount)
+        items.append(
+            review.Item(
+                kind="unconfirmed",
+                fingerprint=move.fingerprint,
+                day=move.day,
+                merchant=move.merchant,
+                description=move.description,
+                account=move.account,
+                amount=amount,
+                currency=move.currency,
+                amount_dop=to_dop(amount, move.currency, rate_for(ctx.rates, month)),
+                reason=t(
+                    "web.review.unconfirmed_reason",
+                    month=reserves.month_name(closing.strftime("%Y-%m")),
+                ),
+                reviewed=ctx.decisions.get(move.fingerprint) == "keep",
+                provisional=True,
+            )
+        )
+    return items
+
+
+def _reversal_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[review.Item]:
+    """ "The bank reported a reversal…" for each purchase of the month a reversal alert named
+    that still counts (linked, so not voided; or charged by the statement anyway)."""
+    items = []
+    for move in mine:
+        state = ctx.reversals.get(move.fingerprint)
+        if state is None or move.month != month:
+            continue
+        amount = abs(move.gross if move.gross is not None else move.amount)
+        key = "web.review.reversal_charged" if state == "charged" else "web.review.reversal_linked"
+        items.append(
+            review.Item(
+                kind="reversal",
+                fingerprint=move.fingerprint,
+                day=move.day,
+                merchant=move.merchant,
+                description=move.description,
+                account=move.account,
+                amount=amount,
+                currency=move.currency,
+                amount_dop=to_dop(amount, move.currency, rate_for(ctx.rates, month)),
+                reason=t(key),
+                reviewed=ctx.decisions.get(move.fingerprint) == "keep",
+                provisional=move.provisional,
+            )
+        )
+    return items
+
+
+def _payment_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[review.Item]:
+    """ "Did Ana pay you RD$1,250?": each credit of the month that looks like a group payment; one
+    marked "No" comes out as reviewed."""
+    items = []
+    names = {g.id: g.name for g in ctx.book.groups}
+    for move in mine:
+        found = ctx.payments.get(move.fingerprint)
+        if found is None or move.month != month:
+            continue
+        who = ctx.book.name(found.contact_id) or t("web.review.payment_someone")
+        key = "web.review.payment_link_reason" if found.payment_id else "web.review.payment_reason"
+        items.append(
+            review.Item(
+                kind="possible_payment",
+                fingerprint=move.fingerprint,
+                day=move.day,
+                merchant=move.merchant,
+                description=move.description,
+                account=move.account,
+                amount=found.amount,
+                currency=move.currency,
+                amount_dop=to_dop(found.amount, move.currency, rate_for(ctx.rates, month)),
+                reason=t(key, name=who, group=names.get(found.group_id, "")),
+                reviewed=(move.fingerprint, "possible_payment") in ctx.reviewed,
+                group_id=found.group_id,
+                contact_id=found.contact_id,
+                payment_id=found.payment_id,
             )
         )
     return items

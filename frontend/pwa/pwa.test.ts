@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { crc32, iconPixels, iconPng } from './icon.ts'
-import { isShell, manifest, THEME_COLOR } from './plugin.ts'
+import { isShell, manifest, SHARE_TARGET, THEME_COLOR } from './plugin.ts'
 import { CACHE_PREFIX, serviceWorkerSource } from './sw.ts'
 
 describe('icon', () => {
@@ -43,6 +43,23 @@ describe('manifest', () => {
     expect(value.icons.map((icon) => icon.sizes)).toEqual(['192x192', '512x512', '512x512'])
     expect(value.icons.some((icon) => icon.purpose === 'maskable')).toBe(true)
   })
+
+  it('receives PDFs shared from the phone (Web Share Target) as a multipart POST', () => {
+    const value = manifest() as {
+      share_target: {
+        action: string
+        method: string
+        enctype: string
+        params: { files: { name: string; accept: string[] }[] }
+      }
+    }
+    expect(value.share_target).toMatchObject({
+      action: SHARE_TARGET,
+      method: 'POST',
+      enctype: 'multipart/form-data',
+    })
+    expect(value.share_target.params.files[0].accept).toContain('application/pdf')
+  })
 })
 
 describe('app shell', () => {
@@ -62,5 +79,12 @@ describe('app shell', () => {
     expect(source).toContain('["/","/assets/a.js"]')
     expect(source).toContain("url.pathname.startsWith('/api/')")
     expect(source).not.toMatch(/indexedDB/i)
+  })
+
+  it('leaves the share target to the network, before looking at the method', () => {
+    const source = serviceWorkerSource('v1', ['/'])
+    const share = source.indexOf("url.pathname === '/share-target'")
+    expect(share).toBeGreaterThan(0)
+    expect(share).toBeLessThan(source.indexOf("request.method !== 'GET'"))
   })
 })

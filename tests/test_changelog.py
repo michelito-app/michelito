@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from michelito import db
-from michelito.analysis import catalog, changelog, corrections, links
+from michelito.analysis import catalog, changelog, corrections, ledger_store
 from michelito.analysis import categories as cat
 from michelito.analysis.changelog_rules import (
     CategoryEdit,
@@ -21,6 +21,7 @@ from michelito.analysis.changelog_rules import (
     sessions,
     undone_ids,
 )
+from tests.ledger_helpers import pay, share
 
 T0 = datetime(2026, 2, 20, 18, 40, tzinfo=UTC)
 FP = "a1b2c3d4e5f6a1b2c3d4e5f6"  # a statement fingerprint (24 hex digits)
@@ -208,50 +209,61 @@ def test_a_merchant_rule_undo_brings_back_the_previous_rule(conn) -> None:
     }  # the previous one; the new one, deleted
 
 
+_LEDGER = (
+    "contacts",
+    "ledger_groups",
+    "ledger_members",
+    "ledger_entries",
+    "ledger_splits",
+    "ledger_payments",
+    "ledger_links",
+)
+
+
 def _shared(conn: sqlite3.Connection, expense: str, credit: str) -> int:
-    """A group of an expense "for someone else" with an imported reimbursement and a hand-entered
+    """A group of an expense "for someone else" with an imported payment and a hand-entered
     one."""
     from decimal import Decimal  # noqa: PLC0415
 
     with conn:
-        links.set_shared(conn, expense, Decimal("100.00"), for_other=True, with_whom="Ana")
-        group = links.group_of(conn, expense)
-        links.add_reimbursement(conn, group, credit)
-        links.add_manual(conn, group, Decimal("20.00"), datetime(2026, 1, 9).date(), "DOP", "Ana")
+        group = share(conn, expense, Decimal("100.00"), for_other=True, with_whom="Ana")
+        pay(conn, group, credit, amount=Decimal("30.00"), day=datetime(2026, 1, 8).date())
+        pay(conn, group, amount=Decimal("20.00"), day=datetime(2026, 1, 9).date())
     return group
 
 
-def test_undo_of_deleting_a_group_restores_members_roles_and_manual(conn) -> None:
+def _rows(conn: sqlite3.Connection) -> dict[str, list[dict]]:
+    return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY 1")] for t in _LEDGER}
+
+
+def test_undo_of_deleting_a_group_restores_members_entries_and_payments(conn) -> None:
     group = _shared(conn, FP, CASH)
-    tables = ("links", "link_members", "link_manual")
-    before = {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t}")] for t in tables}
-    with conn, changelog.track(conn, "shared", "link", str(group), "Ana") as draft:
-        assert links.unshare(conn, FP)  # the last expense: deletes the group (cascading)
-    assert conn.execute("SELECT COUNT(*) FROM link_members").fetchone()[0] == 0
+    before = _rows(conn)
+    with conn, changelog.track(conn, "group", "link", f"group-{group}", "Ana") as draft:
+        ledger_store.delete_group(conn, group)  # cascading
+    assert conn.execute("SELECT COUNT(*) FROM ledger_links").fetchone()[0] == 0
     entry = changelog.get(conn, draft.entry_id)
     assert set(entry.fingerprints) == {FP, CASH}
     with conn:
         changelog.undo(conn, draft.entry_id)
-    after = {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t}")] for t in tables}
-    assert after == before
+    assert _rows(conn) == before
 
 
 def test_undo_never_touches_rows_of_a_later_entry(conn) -> None:
     from decimal import Decimal  # noqa: PLC0415
 
-    with conn, changelog.track(conn, "shared", "transaction", FP, "X") as made:
-        links.set_shared(conn, FP, Decimal("100.00"), people=2)
-    group = links.group_of(conn, FP)
-    with conn, changelog.track(conn, "shared", "link", str(group), "X") as joined:
-        links.add_expense(conn, group, CASH, Decimal("50.00"), people=2)
+    with conn, changelog.track(conn, "group_entry", "link", "group-new", "X") as made:
+        group = share(conn, FP, Decimal("100.00"), people=2)
+    with conn, changelog.track(conn, "group_entry", "link", f"group-{group}", "X") as joined:
+        share(conn, CASH, Decimal("50.00"), people=2, group=group)
     # Undoing the creation would delete the group and, cascading, the expense added later.
     with pytest.raises(changelog.UndoBlocked), conn:
         changelog.undo(conn, made.entry_id)
-    assert conn.execute("SELECT COUNT(*) FROM link_members").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM ledger_links").fetchone()[0] == 2
     with conn:
         changelog.undo(conn, joined.entry_id)
         changelog.undo(conn, made.entry_id)
-    assert conn.execute("SELECT COUNT(*) FROM links").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM ledger_groups").fetchone()[0] == 0
 
 
 def test_reason_is_trimmed_limited_and_not_a_change(conn) -> None:

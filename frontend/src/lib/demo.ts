@@ -5,12 +5,14 @@ import { LOCALE, t } from '@/i18n'
 import { ApiError, request } from '@/lib/api'
 
 export interface ModeInfo {
-  mode: 'local' | 'demo'
+  mode: 'local' | 'demo' | 'hosted'
   session: boolean
   name?: string
   version?: string
   repo?: string
   notice?: string
+  demo_url?: string // hosted: the public demo, linked from the signed-out page
+  return_url?: string // demo: the hosted app, for the "sample data" band's way back
 }
 
 export const LOCAL: ModeInfo = { mode: 'local', session: true }
@@ -27,6 +29,10 @@ export function useMode(): ModeInfo {
 
 export function isDemo(mode: ModeInfo): boolean {
   return mode.mode === 'demo'
+}
+
+export function isHosted(mode: ModeInfo): boolean {
+  return mode.mode === 'hosted'
 }
 
 /** Visible name: the demo's name, or the usual one when local. */

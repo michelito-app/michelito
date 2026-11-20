@@ -26,11 +26,13 @@ export interface TxFilters {
   group: GroupBy
   sort: SortBy
   shared: SharedFilter | null // `shared=pending`: shared expenses with something pending
+  provisional: boolean // `provisional=1`: only the ones from bank alerts, without a statement yet
 }
 
 /** Shared-expense filter: only the ones with something pending ("you are owed"). */
 export type SharedFilter = 'pending'
 export const SHARED_PENDING_PARAM = 'pending'
+export const PROVISIONAL_PARAM = '1'
 
 /** "Group by" options; the day is not written to the URL. */
 export const GROUP_OPTIONS: readonly { param: string | null; group: GroupBy; label: string }[] = [
@@ -53,7 +55,10 @@ export const KIND_OPTIONS: readonly { param: string; kind: Kind; label: string }
 ]
 
 /** Filters that narrow the list (the ones sent to the API besides the month). */
-export type ListFilters = Pick<TxFilters, 'accounts' | 'category' | 'q' | 'kind' | 'shared'>
+export type ListFilters = Pick<
+  TxFilters,
+  'accounts' | 'category' | 'q' | 'kind' | 'shared' | 'provisional'
+>
 
 export type Scope = NonNullable<EditBody['scope']>
 
@@ -81,6 +86,7 @@ const PARAM = {
   group: 'group',
   sort: 'sort',
   shared: 'shared',
+  provisional: 'provisional',
 } as const
 
 function groupOf(param: string | null): GroupBy {
@@ -121,6 +127,7 @@ export function parseFilters(params: URLSearchParams): TxFilters {
     group: groupOf(value(params, PARAM.group)),
     sort: sortOf(value(params, PARAM.sort)),
     shared: value(params, PARAM.shared) === SHARED_PENDING_PARAM ? 'pending' : null,
+    provisional: value(params, PARAM.provisional) === PROVISIONAL_PARAM,
   }
 }
 
@@ -136,6 +143,8 @@ function paramText(filters: TxFilters, key: keyof TxFilters): string | null {
       return filters.accounts === null ? null : filters.accounts.join(',')
     case 'shared':
       return filters.shared === 'pending' ? SHARED_PENDING_PARAM : null
+    case 'provisional':
+      return filters.provisional ? PROVISIONAL_PARAM : null
     default:
       return filters[key]
   }
@@ -158,14 +167,23 @@ export function hasNarrowing(filters: TxFilters): boolean {
     filters.category !== null ||
     filters.kind !== null ||
     filters.shared !== null ||
+    filters.provisional ||
     filters.q.trim() !== ''
   )
 }
 
-/** Clears accounts, category, kind, shared and search; keeps the month, the chosen row, the
- * grouping and the sort. */
+/** Clears accounts, category, kind, shared, provisional and search; keeps the month, the chosen
+ * row, the grouping and the sort. */
 export function clearFilters(filters: TxFilters): TxFilters {
-  return { ...filters, accounts: null, category: null, q: '', kind: null, shared: null }
+  return {
+    ...filters,
+    accounts: null,
+    category: null,
+    q: '',
+    kind: null,
+    shared: null,
+    provisional: false,
+  }
 }
 
 /** Path of /api/transactions with the filters set. */
@@ -176,6 +194,7 @@ export function apiPath(month: string, filters: ListFilters): string {
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.kind) params.set('kind', filters.kind)
   if (filters.shared) params.set('shared', filters.shared)
+  if (filters.provisional) params.set('provisional', 'true')
   return `/api/transactions?${params}`
 }
 
@@ -217,12 +236,13 @@ export function compactDayLabel(iso: string, today: string): string {
 }
 
 /** How many settings the phone's filter sheet holds that differ from the default (kind,
- * category, the shared filter, grouping and sort). */
+ * category, the shared and provisional filters, grouping and sort). */
 export function activeFilterCount(filters: TxFilters): number {
   return [
     filters.kind !== null,
     filters.category !== null,
     filters.shared !== null,
+    filters.provisional,
     filters.group !== 'day',
     filters.sort !== 'date',
   ].filter(Boolean).length

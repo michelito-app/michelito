@@ -1,7 +1,11 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router'
 import { AppShell } from '@/components/AppShell'
+import { LoadError } from '@/components/LoadError'
+import { Gate } from '@/components/onboarding/Gate'
 import { t } from '@/i18n'
 import { legacyRedirect } from '@/legacy'
+import { isHosted, useMode } from '@/lib/demo'
+import { useOnboarding } from '@/lib/onboarding'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { BudgetPage } from '@/pages/BudgetPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
@@ -13,11 +17,44 @@ import { PendingPage } from '@/pages/PendingPage'
 import { Placeholder } from '@/pages/Placeholder'
 import { RecurringPage } from '@/pages/RecurringPage'
 import { ReportsPage } from '@/pages/ReportsPage'
+import { SettingsPage } from '@/pages/SettingsPage'
+import { SharedGroupPage } from '@/pages/SharedGroupPage'
 import { SharedPage } from '@/pages/SharedPage'
+import { SharedPersonPage } from '@/pages/SharedPersonPage'
 import { SummaryPage } from '@/pages/SummaryPage'
 import { TransactionsPage } from '@/pages/TransactionsPage'
 
 export function App() {
+  const hosted = isHosted(useMode())
+  return hosted ? <HostedGate /> : <AppRoutes hosted={false} />
+}
+
+/** Hosted mode: until one statement squares, only the welcome and upload flow (the gate). */
+function HostedGate() {
+  const onboarding = useOnboarding()
+  if (onboarding.isError) {
+    return (
+      <main className="mx-auto max-w-xl p-6">
+        <LoadError
+          what={t('onboarding.gate.label')}
+          error={onboarding.error}
+          onRetry={() => onboarding.refetch()}
+        />
+      </main>
+    )
+  }
+  if (onboarding.isPending) {
+    return (
+      <p role="status" className="p-10 text-sm text-muted-foreground">
+        {t('demo.gate.loading')}
+      </p>
+    )
+  }
+  if (!onboarding.data.open) return <Gate />
+  return <AppRoutes hosted />
+}
+
+function AppRoutes({ hosted }: { hosted: boolean }) {
   return (
     <Routes>
       <Route element={<AppShell />}>
@@ -27,6 +64,8 @@ export function App() {
         <Route path="transactions/:fingerprint" element={<LinkPage />} />
         <Route path="pending" element={<PendingPage />} />
         <Route path="shared" element={<SharedPage />} />
+        <Route path="shared/people/:id" element={<SharedPersonPage />} />
+        <Route path="shared/:id" element={<SharedGroupPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
         <Route path="recurring" element={<RecurringPage />} />
         <Route path="reports" element={<ReportsPage />} />
@@ -34,6 +73,7 @@ export function App() {
         <Route path="categories" element={<CategoriesPage />} />
         <Route path="log" element={<LogPage />} />
         <Route path="import" element={<ImportPage />} />
+        {hosted && <Route path="settings" element={<SettingsPage />} />}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

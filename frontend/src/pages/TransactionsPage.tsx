@@ -1,4 +1,6 @@
 import { ListChecks } from 'lucide-react'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
@@ -213,6 +215,7 @@ export function TransactionsPage() {
         onChange={changeFilters}
         onSearch={onSearch}
         mobile={mobile}
+        hasProvisional={(summary.data?.provisional_cents ?? 0) > 0}
       >
         {!picking && items.length > 0 && (
           <button
@@ -444,6 +447,7 @@ function EmptyList({ onClear }: { onClear: (() => void) | null }) {
 }
 
 function NoStatements() {
+  if (isHosted(useMode())) return <HostedEmpty view="transactions" />
   return (
     <div className={cn(PANEL, 'flex flex-col gap-2 px-6 py-10 text-center')}>
       <h1 className="text-xl font-bold tracking-tight">{t('transactions.title')}</h1>

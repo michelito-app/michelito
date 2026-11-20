@@ -16,6 +16,14 @@
     michelito new [--json] [--mark-reviewed]      transactions not reviewed yet
     michelito demo [--port N] [--data DIR]        public demo with made-up data
     michelito feedback [--json] [--usage]         the demo's feedback and usage
+    michelito hosted [--port N] [--data DIR]      hosted mode: accounts and email sign-in
+    michelito invite EMAIL [--data DIR]           invite one email to hosted mode
+    michelito rotate-master-key --new PATH        re-wrap hosted data keys under a new master key
+    michelito export-account --out FILE           the local database, to import into hosted mode
+    michelito import-account --email E --from F   a hosted account from that export (server)
+    michelito verify-import --months M1,M2,M3     figures to compare the local and hosted data
+    michelito backup | restore | ops-check        hosted backups (R2), restore, failure email
+    michelito alert-check [EML...]                a bank alert's structure (stdin; no values)
 
 `sync` and `report` exit with code 1 if there are alerts, 2 if a secret is missing.
 """
@@ -44,21 +52,26 @@ from pathlib import Path
 
 from michelito import (
     cli_demo,
+    cli_hosted,
     cli_insights,
     cli_log,
+    cli_ops,
     config,
     db,
     extract,
     importer,
     ingest,
+    migrations_v19,
     pdf,
     report,
     sources,
     vault,
 )
+from michelito.alerts import inspect as alert_inspect
 from michelito.analysis import bcrd, rates, spending, transfers
 from michelito.analysis import report as spending_report
 from michelito.gmail import authorize, build_client
+from michelito.i18n import t
 from michelito.parsers import popular_web
 from michelito.web.accounts import DuePayment, account_views, due_text, upcoming_payments
 
@@ -69,11 +82,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     paths = config.default_paths()
     if cli_demo.demo_mode():
         return _demo_only(args, paths)
+    if cli_ops.hosted_mode() and not getattr(args, "server", False):
+        print(f"With {cli_ops.MODE_ENV}=hosted only the server commands work.", file=sys.stderr)
+        return 2
     try:
         return args.handler(args, paths)
     except (vault.MissingSecretError, sources.SourcesError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+    except migrations_v19.MigrationMismatch as exc:
+        print(t("core.migration_mismatch", detail=str(exc)), file=sys.stderr)
+        return 3
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -141,9 +160,17 @@ def _parser() -> argparse.ArgumentParser:
         help="set a month's rate (RD$ per US$) by hand",
     )
     rates_cmd.set_defaults(handler=_cmd_rates)
+    alert_check = commands.add_parser(
+        "alert-check",
+        help="check bank alert emails (.eml or stdin) against the parsers; prints no values",
+    )
+    alert_check.add_argument("files", nargs="*", metavar="EML", help="'-' or none: stdin")
+    alert_check.set_defaults(handler=_cmd_alert_check)
     cli_insights.add_commands(commands)
     cli_log.add_commands(commands)
     cli_demo.add_commands(commands)
+    cli_hosted.add_commands(commands)
+    cli_ops.add_commands(commands)
     return parser
 
 
@@ -195,6 +222,11 @@ class _FixRate(argparse.Action):
 
 
 _month_name = cli_insights.month_name
+
+
+def _cmd_alert_check(args: argparse.Namespace, paths: config.Paths) -> int:
+    """In memory only: opens no database and saves nothing."""
+    return alert_inspect.main(args.files)
 
 
 def _cmd_auth(args: argparse.Namespace, paths: config.Paths) -> int:

@@ -1,4 +1,4 @@
-import { Search, SlidersHorizontal, X } from 'lucide-react'
+import { Clock, Search, SlidersHorizontal, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { t } from '@/i18n'
 import type { Category } from '@/lib/api'
@@ -34,6 +34,8 @@ interface FiltersProps {
   children?: ReactNode
   /** Phone: the search stays visible; the rest goes into a sheet behind "Filters (N)". */
   mobile?: boolean
+  /** The month has provisional transactions (from bank alerts): offers their filter. */
+  hasProvisional?: boolean
 }
 
 /** Search, filters, grouping and sort of the list; all of it lives in the URL. */
@@ -44,10 +46,17 @@ export function Filters({
   onSearch,
   children,
   mobile = false,
+  hasProvisional = false,
 }: FiltersProps) {
   if (mobile) {
     return (
-      <MobileFilters filters={filters} categories={categories} onChange={onChange} onSearch={onSearch}>
+      <MobileFilters
+        filters={filters}
+        categories={categories}
+        onChange={onChange}
+        onSearch={onSearch}
+        hasProvisional={hasProvisional}
+      >
         {children}
       </MobileFilters>
     )
@@ -55,14 +64,26 @@ export function Filters({
   return (
     <div role="search" className="flex flex-wrap items-center gap-2.5">
       <SearchField q={filters.q} onSearch={onSearch} />
-      <FilterFields filters={filters} categories={categories} onChange={onChange} />
+      <FilterFields
+        filters={filters}
+        categories={categories}
+        onChange={onChange}
+        hasProvisional={hasProvisional}
+      />
       {children}
     </div>
   )
 }
 
 /** The phone's row: search, the button that opens the filter sheet and the select button. */
-function MobileFilters({ filters, categories, onChange, onSearch, children }: FiltersProps) {
+function MobileFilters({
+  filters,
+  categories,
+  onChange,
+  onSearch,
+  children,
+  hasProvisional,
+}: FiltersProps) {
   const [open, setOpen] = useState(false)
   const count = activeFilterCount(filters)
   return (
@@ -87,7 +108,12 @@ function MobileFilters({ filters, categories, onChange, onSearch, children }: Fi
       {open && (
         <BottomSheet title={t('transactions.filters.title')} onClose={() => setOpen(false)}>
           <div className="flex flex-col gap-2.5 [&>label]:w-full">
-            <FilterFields filters={filters} categories={categories} onChange={onChange} />
+            <FilterFields
+              filters={filters}
+              categories={categories}
+              onChange={onChange}
+              hasProvisional={hasProvisional}
+            />
           </div>
           <Button className="h-11 rounded-xl text-sm font-semibold" onClick={() => setOpen(false)}>
             {t('transactions.filters.done')}
@@ -98,10 +124,11 @@ function MobileFilters({ filters, categories, onChange, onSearch, children }: Fi
   )
 }
 
-type FilterFieldsProps = Pick<FiltersProps, 'filters' | 'categories' | 'onChange'>
+type FilterFieldsProps = Pick<FiltersProps, 'filters' | 'categories' | 'onChange' | 'hasProvisional'>
 
-/** Kind, category, grouping, sort and the shared filter (when set). */
-function FilterFields({ filters, categories, onChange }: FilterFieldsProps) {
+/** Kind, category, grouping, sort, the provisional filter (when the month has provisionals or it
+ * is on) and the shared filter (when set). */
+function FilterFields({ filters, categories, onChange, hasProvisional }: FilterFieldsProps) {
   return (
     <>
       <SelectField
@@ -152,6 +179,23 @@ function FilterFields({ filters, categories, onChange }: FilterFieldsProps) {
           </option>
         ))}
       </SelectField>
+      {(hasProvisional || filters.provisional) && (
+        <button
+          type="button"
+          aria-pressed={filters.provisional}
+          onClick={() => onChange({ provisional: !filters.provisional })}
+          className={cn(
+            'flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold',
+            filters.provisional
+              ? 'border-primary/40 bg-secondary text-secondary-foreground'
+              : 'border-border bg-card text-foreground',
+            FOCUS,
+          )}
+        >
+          <Clock size={15} aria-hidden="true" />
+          {t('transactions.filters.provisional')}
+        </button>
+      )}
       {filters.shared === 'pending' && (
         <button
           type="button"

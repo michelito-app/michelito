@@ -11,8 +11,9 @@ from pathlib import Path
 import pytest
 
 from michelito import db
-from michelito.analysis import cash_box_store, catalog, changelog, corrections, links
+from michelito.analysis import cash_box_store, catalog, changelog, corrections, ledger_store, links
 from michelito.analysis import categories as cat
+from tests.ledger_helpers import pay, share
 
 EXPENSE = "a1b2c3d4e5f6a1b2c3d4e5f6"
 CREDIT = "b1b2c3d4e5f6a1b2c3d4e5f6"
@@ -39,10 +40,13 @@ def _state(conn: sqlite3.Connection, entry_id: int, days=None) -> changelog.Undo
 
 def _group(conn: sqlite3.Connection) -> int:
     with conn:
-        links.set_shared(conn, EXPENSE, D(100), for_other=True, with_whom="Ana")
-        group = links.group_of(conn, EXPENSE)
-        links.add_reimbursement(conn, group, CREDIT)
+        group = share(conn, EXPENSE, D(100), for_other=True, with_whom="Ana")
+        pay(conn, group, CREDIT, amount=D(40))
     return group
+
+
+def _ledger_links(conn: sqlite3.Connection) -> list[tuple]:
+    return [tuple(r) for r in conn.execute("SELECT fingerprint, group_id FROM ledger_links")]
 
 
 def _members(conn: sqlite3.Connection) -> list[tuple]:
@@ -52,27 +56,26 @@ def _members(conn: sqlite3.Connection) -> list[tuple]:
 @pytest.mark.parametrize("reused", [False, True])
 def test_a_reimbursement_never_returns_to_another_group(conn, reused: bool) -> None:
     group = _group(conn)
-    removed = _tracked(conn, "shared", links.remove_reimbursement, group, CREDIT)
-    deleted = _tracked(conn, "shared", links.unshare, EXPENSE)
+    removed = _tracked(conn, "group_payment", ledger_store.unlink, CREDIT)
+    deleted = _tracked(conn, "group", ledger_store.delete_group, group)
     with conn:
-        if reused:  # a database from before schema 15 reused the deleted id
+        if reused:  # a row inserted by hand with the deleted id
             conn.execute(
-                "INSERT INTO links (id, kind, with_whom, created_at, updated_at) "
-                "VALUES (?, 'shared', 'Other', 'another date', 'another date')",
+                "INSERT INTO ledger_groups (id, name, created_at, updated_at) "
+                "VALUES (?, 'Other', 'another date', 'another date')",
                 (group,),
             )
         else:
-            links.set_shared(conn, OTHER, D(50), people=2, with_whom="Other")
-    if not reused:
-        assert links.group_of(conn, OTHER) != group  # AUTOINCREMENT: the id is not inherited
+            other = share(conn, OTHER, D(50), people=2, with_whom="Other")
+            assert other != group  # AUTOINCREMENT: the id is not inherited
     state = _state(conn, removed)
     assert (state.allowed, state.blocked_by) == (False, deleted)
-    assert f"vínculo n.º {group}" in state.message  # spanish-ui
+    assert f"grupo n.º {group}" in state.message  # spanish-ui
     assert f"n.º {deleted}" in state.message
-    before = _members(conn)
+    before = _ledger_links(conn)
     with pytest.raises(changelog.UndoBlocked), conn:
         changelog.undo(conn, removed)
-    assert _members(conn) == before
+    assert _ledger_links(conn) == before
 
 
 @pytest.mark.parametrize("reused", [False, True])
@@ -117,17 +120,17 @@ def test_a_first_store_in_the_box_waits_for_a_later_deposit(conn) -> None:
 
 
 def test_a_credit_that_moved_to_another_link_blocks_its_undo(conn) -> None:
-    group = _group(conn)
-    removed = _tracked(conn, "shared", links.remove_reimbursement, group, CREDIT)
+    _group(conn)
+    removed = _tracked(conn, "group_payment", ledger_store.unlink, CREDIT)
 
     def other_group(conn: sqlite3.Connection) -> None:
-        links.set_shared(conn, OTHER, D(50), people=2)
-        links.add_reimbursement(conn, links.group_of(conn, OTHER), CREDIT)
+        pay(conn, share(conn, OTHER, D(50), people=2), CREDIT, amount=D(25))
 
-    moved = _tracked(conn, "shared", other_group)
+    moved = _tracked(conn, "group_payment", other_group)
     state = _state(conn, removed)
     assert (state.allowed, state.blocked_by) == (False, moved)
-    assert "otro vínculo" in state.message  # spanish-ui
+    # The link is keyed by the fingerprint: the later entry holds that very row.
+    assert f"posterior n.º {moved}" in state.message  # spanish-ui
 
 
 def test_an_investment_never_keeps_a_return_before_its_first_contribution(conn) -> None:
@@ -161,8 +164,8 @@ def test_a_link_only_category_is_not_restored_by_hand(conn) -> None:
 
 
 def test_the_rehearsal_leaves_nothing_behind(conn) -> None:
-    group = _group(conn)
-    removed = _tracked(conn, "shared", links.remove_reimbursement, group, CREDIT)
-    before = _members(conn)
+    _group(conn)
+    removed = _tracked(conn, "group_payment", ledger_store.unlink, CREDIT)
+    before = _ledger_links(conn)
     assert _state(conn, removed).allowed
-    assert _members(conn) == before and not conn.in_transaction
+    assert _ledger_links(conn) == before and not conn.in_transaction

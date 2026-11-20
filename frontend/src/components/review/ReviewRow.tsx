@@ -6,7 +6,8 @@ import { t } from '@/i18n'
 import type { Selection } from '@/lib/accountFilter'
 import type { InvestmentRole, ReviewItem } from '@/lib/api'
 import { useLinkToReserve } from '@/lib/budgetQueries'
-import { useChangeInvestment, useEditTransaction } from '@/lib/queries'
+import { useChangeInvestment, useDecideProvisional, useEditTransaction } from '@/lib/queries'
+import { confirmPossiblePayment, useLedgerWrite } from '@/lib/sharedQueries'
 import { amountText, itemHref, KIND_LABELS, metaText, openLabel, reviewedLabel } from '@/lib/review'
 import { cn } from '@/lib/utils'
 
@@ -71,6 +72,10 @@ export function ReviewRow({ item, selection, busy, onReviewed, onOneOff }: Revie
         ) : item.investment_id != null &&
           (item.kind === 'possible_contribution' || item.kind === 'possible_return') ? (
           <InvestmentActions item={item} busy={busy} onReviewed={onReviewed} />
+        ) : item.kind === 'possible_payment' && item.group_id != null ? (
+          <PaymentActions item={item} busy={busy} onReviewed={onReviewed} />
+        ) : item.kind === 'unconfirmed' || (item.kind === 'reversal' && item.provisional) ? (
+          <UnconfirmedActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_reserve' && item.reserve_id != null ? (
           <ReserveActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_rule' && item.category_id != null ? (
@@ -217,6 +222,39 @@ function RuleActions({ item, busy, onReviewed }: InvestmentActionsProps) {
   )
 }
 
+/** A provisional (from a bank alert) missing from its statement: "Discard" removes it (it was
+ * reversed or never charged; undoable from the log); "Keep" leaves it counted and reviewed. */
+function UnconfirmedActions({ item, busy, onReviewed }: InvestmentActionsProps) {
+  const decide = useDecideProvisional()
+  const pending = busy || decide.isPending
+  return (
+    <>
+      <Button
+        className={ACTION}
+        aria-label={t('review.row.discardLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => decide.mutate({ fingerprint: item.fingerprint, decision: 'discard' })}
+      >
+        {t('review.row.discard')}
+      </Button>
+      <Button
+        variant="outline"
+        className={SECONDARY}
+        aria-label={t('review.row.keepLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => onReviewed(item, true)}
+      >
+        {t('review.row.keep')}
+      </Button>
+      {decide.isError && (
+        <p role="alert" className="basis-full text-[13px] text-up-ink">
+          {t('review.row.saveError', { message: decide.error.message })}
+        </p>
+      )}
+    </>
+  )
+}
+
 /** An expense that looks like it belongs to a reserve: "Yes, it is from the reserve" links it
  * (it leaves its category's cap); "No" marks it reviewed and it does not come back. */
 function ReserveActions({ item, busy, onReviewed }: InvestmentActionsProps) {
@@ -244,6 +282,39 @@ function ReserveActions({ item, busy, onReviewed }: InvestmentActionsProps) {
       {link.isError && (
         <p role="alert" className="basis-full text-[13px] text-up-ink">
           {t('review.row.saveError', { message: link.error.message })}
+        </p>
+      )}
+    </>
+  )
+}
+
+/** "Did Ana pay you?": yes records the payment with this credit and links it (one tap); "No"
+ * marks it reviewed. */
+function PaymentActions({ item, busy, onReviewed }: InvestmentActionsProps) {
+  const pay = useLedgerWrite()
+  const pending = busy || pay.isPending
+  return (
+    <>
+      <Button
+        className={ACTION}
+        aria-label={t('review.row.paymentLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => pay.mutate(() => confirmPossiblePayment(item))}
+      >
+        {t('review.row.payment')}
+      </Button>
+      <Button
+        variant="outline"
+        className={SECONDARY}
+        aria-label={t('review.row.notPaymentLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => onReviewed(item, true)}
+      >
+        {t('review.row.notPayment')}
+      </Button>
+      {pay.isError && (
+        <p role="alert" className="basis-full text-[13px] text-up-ink">
+          {t('review.row.saveError', { message: pay.error.message })}
         </p>
       )}
     </>

@@ -1,7 +1,8 @@
 # Deploying the demo (Michelito)
 
 The public demo runs on a VPS with Docker: the app's image (`michelito demo`, made-up data)
-behind Caddy, which adds HTTPS and the security headers. GitHub Actions builds and deploys it on
+behind Caddy (the hosted app, `michelito.app`, runs next to it from the same image: see
+section 10), which adds HTTPS and the security headers. GitHub Actions builds and deploys it on
 its own every time CI passes on `main`; if the new version does not answer, the server goes back
 to the previous one and the job fails.
 
@@ -32,7 +33,7 @@ GitHub Actions
   workflow built), without published ports, on the `internal` network (no way out to the
   internet). Both containers have a read-only file system (except their volumes and an in-memory
   `/tmp`), no capabilities (Caddy only the one to open 80/443), `no-new-privileges`, process and
-  memory limits (app 512 MB, Caddy 128 MB), and restart on their own. The `public` network has its
+  memory limits (demo 384 MB, hosted app 384 MB, Caddy 128 MB), and restart on their own. The `public` network has its
   own IPv6 (see "IPv6").
 - **Caddy** (`deploy/Caddyfile`): automatic certificate for `$MICHELITO_HOST`, compression, HSTS,
   a strict CSP (everything from the same origin, nothing inline), `X-Content-Type-Options`,
@@ -378,3 +379,139 @@ If Cloudflare's orange cloud (proxy) is turned on:
    enough: Docker publishes the ports outside its rules).
 4. Check that the CSP does not clash with what Cloudflare injects (Rocket Loader, analytics:
    better turned off).
+
+## 10. The hosted app (michelito.app)
+
+The same image runs `michelito hosted` in its own container (`hosted`, profile `hosted`), with
+its own volume (`michelito_hosted_data`) and its own internal network shared only with Caddy:
+the demo mounts neither and cannot reach it. Caddy has a fixed address on that network
+(`MICHELITO_CADDY_HOSTED_IP`, 172.30.54.2, outside the automatic range, the subnet's upper half) and
+that single address is the hosted app's only trusted proxy. Unlike the demo, the hosted app has
+a way out (`egress`): it sends email through Resend and backups to R2.
+
+```
+visitor ─https─▶ Caddy ─┬─ "internal" (172.30.53.0/24) ────────▶ app   (demo, :8600, volume data)
+                        └─ "hosted_internal" (172.30.54.0/24) ─▶ hosted (:8620, volume hosted_data)
+                           Caddy = 172.30.54.2, the only proxy      ├─ "egress" → Resend
+                                                                     └─ unix socket (volume pdf_socket)
+                                                                          ▶ pdfworker (no network,
+                                                                            no secrets, no data)
+backup (only `docker compose run`, profile ops): volume hosted_data, "egress" → R2
+```
+
+The `pdfworker` container opens every uploaded PDF (the hosted app sends the bytes and password
+over the socket and gets back only the positioned words). It has no secrets, no data volume and
+`network_mode: none`; a pdfminer exploit that escaped the per-file limits would find nothing to
+read and no way out. Inside it there are three identities: it starts as root only to set them up;
+the socket server runs as uid 10002 and owns the socket's folder (0750, group 10001: the hosted
+app may connect, nobody else may enter); each worker process, fresh for every file, runs as uid
+10003 with no supplementary groups, so it cannot enter that folder, replace the socket, signal
+the server or write anywhere. Root survives only as the server's saved uid, with the SETUID,
+SETGID and KILL capabilities to start and stop workers (CHOWN for the set-up). The hosted app
+checks with `SO_PEERCRED` that the socket's holder is uid 10002 (`MICHELITO_PDF_WORKER_UID`)
+before sending anything, and logs a data-free error otherwise. Each request is one connection
+served by a forked process that exits after its reply. Memory limits: demo 384 MB, hosted 384 MB, pdfworker 384 MB, Caddy 128 MB
+(maximums, not reservations; check `docker stats` after the first week).
+
+### Turning it on (once)
+
+1. DNS: `michelito.app` (A/AAAA) to the VPS; `auth.michelito.app` only for Resend's sending
+   records. Caddy gets the certificate on its own.
+2. The secrets, as files in `/opt/michelito/secrets/` owned by the container's user (uid 10001)
+   and mode 0400 (compose mounts them as they are; the master key is refused if others can read
+   it). **Never** inside a volume, never in a backup:
+   ```bash
+   sudo install -d -o 10001 -g 10001 -m 500 /opt/michelito/secrets
+   cd /opt/michelito/secrets
+   openssl rand -hex 32 | sudo install -o 10001 -g 10001 -m 400 /dev/stdin master.key
+   openssl rand -hex 32 | sudo install -o 10001 -g 10001 -m 400 /dev/stdin hosted-secret.key
+   # paste each value from Resend / Cloudflare (R2 API token: object read and write on the bucket only)
+   sudo install -o 10001 -g 10001 -m 400 /dev/stdin resend-api.key
+   sudo install -o 10001 -g 10001 -m 400 /dev/stdin r2-access-key-id
+   sudo install -o 10001 -g 10001 -m 400 /dev/stdin r2-secret-access-key
+   ```
+   Keep an **offline copy of `master.key`** in your password manager: without it no backup can
+   be restored, and with it (plus a backup) everything can be read.
+3. `.env`: add
+   ```
+   COMPOSE_PROFILES=hosted
+   MICHELITO_APP_HOST=michelito.app
+   MICHELITO_R2_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
+   MICHELITO_R2_BUCKET=michelito-backups
+   MICHELITO_OPS_EMAIL=<the owner's address>
+   ```
+   (optional: `MICHELITO_HOSTED_NET`, `MICHELITO_HOSTED_RANGE`, `MICHELITO_CADDY_HOSTED_IP` if
+   172.30.54.0/24 clashes with something). Check R2's free tier limits before enabling.
+   The R2 secrets are mounted only in the `backup` service (profile `ops`, never started by
+   `up`): the web container has the master key, the code-hash secret and the Resend key only.
+   **Recommended** in Cloudflare: turn on the bucket's object lock (or a bucket lifecycle rule
+   that keeps objects at least 30 days) so that a stolen R2 token cannot delete or overwrite the
+   backups, and give the token object read and write only on that bucket.
+4. Copy the new `docker-compose.yml` and `Caddyfile` (section 8) and run
+   `sudo -u deploy docker compose --project-directory /opt/michelito up -d`. From then on
+   `deploy.sh` backs up the hosted folder before each deploy with the `backup` service
+   (`docker compose run --rm backup backup --to /data/deploy-backups`, in its volume, keeps 10),
+   whether or not the hosted app is running, and does not deploy if that fails; then it waits
+   for both health checks. In GitHub,
+   set the repository variable `MICHELITO_APP_HOST=michelito.app` so the workflow also checks it
+   from outside.
+5. Invite yourself: `sudo -u deploy docker compose --project-directory /opt/michelito exec hosted michelito invite you@example.com`.
+
+### Nightly jobs (cron on the host)
+
+`/etc/cron.d/michelito` (times in UTC):
+
+```
+30 3 * * * deploy cd /opt/michelito && docker compose run --rm -T backup >/dev/null 2>>/opt/michelito/ops.log
+0 9 * * *  deploy cd /opt/michelito && docker compose exec -T hosted michelito ops-check >/dev/null 2>>/opt/michelito/ops.log
+```
+
+- `backup` (the `backup` service: the only container with the R2 credentials) uploads to R2
+  under `backups/<date>/` (each account's encrypted database as it is, with its holders inside;
+  the accounts database sealed under a key derived from the master key; a manifest with sizes
+  and SHA-256, authenticated with an HMAC), reads every object back, and deletes backups older
+  than 30 days. It records success or failure (no data) in `/data/ops/status.json`.
+- `ops-check` emails `MICHELITO_OPS_EMAIL` **only when something failed**: the last backup failed
+  or is older than 26 hours, sign-in emails could not be sent in the last day, or statements
+  failed to parse (counts and short fingerprints only). Nothing failed: no email.
+- Neither prints a key, a credential or a figure; `ops.log` only gets error messages.
+
+### Monitoring
+
+`/api/health` answers on both hosts. Add a free external uptime monitor (for example UptimeRobot
+or Better Stack's free plan; the account is yours to create) with two HTTPS checks every 5
+minutes: `https://demo.michelito.app/api/health` and `https://michelito.app/api/health`,
+alerting your email. It sees what a visitor sees (DNS, certificate, Caddy, the app); the daily
+`ops-check` covers what it cannot (backups, parsers, email sending).
+
+### Restore test (once before the alpha, on a clean machine)
+
+On a machine that never had the data (a fresh VM or laptop user), with the repository checked out
+and `uv sync` done:
+
+1. Put the master key from your password manager in a file outside any data folder:
+   `install -m 400 /dev/stdin ~/restore-master.key` (paste, Ctrl-D).
+2. A read-only R2 token for the bucket (create it in Cloudflare, delete it afterwards), then:
+   ```bash
+   export MICHELITO_R2_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
+   export MICHELITO_R2_BUCKET=michelito-backups
+   read -rs MICHELITO_R2_ACCESS_KEY_ID; export MICHELITO_R2_ACCESS_KEY_ID
+   read -rs MICHELITO_R2_SECRET_ACCESS_KEY; export MICHELITO_R2_SECRET_ACCESS_KEY
+   uv run michelito restore --from-r2 --date latest --data ~/restore-test \
+     --master-key ~/restore-master.key
+   ```
+   It must end with "every database opened with its key and passed the integrity checks".
+3. Start it on loopback and look at your own data:
+   ```bash
+   cd frontend && npm ci && npm run build && cd ..
+   uv run michelito hosted --data ~/restore-test --master-key ~/restore-master.key \
+     --insecure-cookie --mailer outbox --port 8720
+   ```
+   Sign in at `http://127.0.0.1:8720` with the code from `~/restore-test/outbox/` (sign-in asks
+   for a code; the outbox stays on this machine). Optionally compare with `verify-import` against
+   the server.
+4. Clean up: `rm -rf ~/restore-test`, `shred -u ~/restore-master.key`, delete the R2 token.
+
+A deploy backup (`/data/deploy-backups/<stamp>-<sha>/` in the hosted volume) restores the same
+way with `--from-dir`, onto an empty folder (for example after stopping the container, into a new
+volume).

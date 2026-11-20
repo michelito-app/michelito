@@ -41,6 +41,8 @@ ALLOWED_FILES: dict[str, str] = {
     "LICENSE": "official text of the AGPL-3.0",
     "tests/fixtures/schema_v17.sql": "hex fingerprints of synthetic rows (tests/samples.py)",
     "tests/fixtures/schema_v17_expected.json": "hex fingerprints of the same synthetic rows",
+    "tests/fixtures/schema_v18_shared.sql": "hex fingerprints of synthetic rows (tests/samples.py)",
+    "tests/fixtures/schema_v18_shared_expected.json": "hex fingerprints of the same synthetic rows",
 }
 
 # Long numbers that belong to nobody, with the reason.
@@ -86,6 +88,7 @@ ALLOWED_EMAIL_DOMAINS: frozenset[str] = frozenset(
         "afpcrecer.com.do",
         "gnu.org",
         "fsf.org",
+        "auth.michelito.app",  # the project's own sender for sign-in codes (hosted mode)
     }
 )
 

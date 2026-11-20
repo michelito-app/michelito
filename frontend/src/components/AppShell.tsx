@@ -8,6 +8,7 @@ import {
   Lock,
   PiggyBank,
   Repeat,
+  Settings,
   Sprout,
   Tags,
   Users,
@@ -15,10 +16,11 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { DemoBanner } from '@/components/demo/DemoBanner'
+import { SampleBand } from '@/components/onboarding/SampleBand'
 import { FOCUS } from '@/components/summary/styles'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { t } from '@/i18n'
-import { countVisit, isDemo, productName, useMode } from '@/lib/demo'
+import { countVisit, isDemo, isHosted, productName, useMode } from '@/lib/demo'
 import { type NavMonthContext, navHref } from '@/lib/navMonth'
 import { cn } from '@/lib/utils'
 
@@ -117,11 +119,37 @@ const NAV: NavItem[] = [
   },
 ]
 
-// Only in the demo: the sample statement (locally it is imported with `michelito import`).
+// In the demo, the sample statement (locally it is imported with `michelito import`); in hosted
+// mode, uploading statements (the same screen as the gate).
 const IMPORT_NAV: NavItem = {
   to: '/import',
   label: t('shell.nav.import'),
   icon: <FileUp size={18} strokeWidth={2} aria-hidden="true" />,
+}
+
+// Only in hosted mode: the account and its devices.
+const SETTINGS_NAV: NavItem = {
+  to: '/settings',
+  label: t('auth.shell.settings'),
+  icon: <Settings size={18} strokeWidth={2} aria-hidden="true" />,
+}
+
+/** The footnote under the menu: where the data lives in each mode. */
+function ModeNote({ demo, hosted }: { demo: boolean; hosted: boolean }) {
+  if (demo) {
+    return (
+      <>
+        <FlaskConical size={14} aria-hidden="true" />
+        {t('shell.publicDemo')}
+      </>
+    )
+  }
+  return (
+    <>
+      <Lock size={14} aria-hidden="true" />
+      {hosted ? t('auth.shell.signedIn') : t('shell.localOnly')}
+    </>
+  )
 }
 
 function Logo({ name }: { name: string }) {
@@ -161,7 +189,8 @@ export function AppShell() {
   useEffect(() => {
     if (demo) countVisit(pathname)
   }, [demo, pathname])
-  const nav = demo ? [...NAV, IMPORT_NAV] : NAV
+  const hosted = isHosted(mode)
+  const nav = demo ? [...NAV, IMPORT_NAV] : hosted ? [...NAV, IMPORT_NAV, SETTINGS_NAV] : NAV
   const shell = (
     <div className={cn('flex flex-wrap items-stretch', demo ? 'flex-1' : 'min-h-screen')}>
       <nav
@@ -188,29 +217,20 @@ export function AppShell() {
           </NavLink>
         ))}
         <div className="mt-auto flex items-center gap-2 px-3 pt-4 text-xs text-muted-foreground">
-          {demo ? (
-            <>
-              <FlaskConical size={14} aria-hidden="true" />
-              {t('shell.publicDemo')}
-            </>
-          ) : (
-            <>
-              <Lock size={14} aria-hidden="true" />
-              {t('shell.localOnly')}
-            </>
-          )}
+          <ModeNote demo={demo} hosted={hosted} />
         </div>
       </nav>
       <main className="flex min-w-0 flex-[999_1_560px] flex-col gap-6 px-4 pt-6 pb-12 max-md:pb-[calc(var(--bottom-bar)+env(safe-area-inset-bottom)+1.5rem)] sm:px-10 sm:pt-8">
         <Outlet context={context} />
       </main>
-      <BottomBar nav={nav} navMonth={navMonth} demo={demo} />
+      <BottomBar nav={nav} navMonth={navMonth} demo={demo} hosted={hosted} />
     </div>
   )
   if (!demo) return shell
   // In the demo the notice header goes on top of everything and the rest fills what is left.
   return (
     <div className="flex min-h-screen flex-col">
+      {mode.return_url && <SampleBand returnUrl={mode.return_url} />}
       <DemoBanner />
       {shell}
     </div>
@@ -221,6 +241,7 @@ interface BottomBarProps {
   nav: NavItem[]
   navMonth: string | null
   demo: boolean
+  hosted: boolean
 }
 
 const BAR_ITEM =
@@ -228,7 +249,7 @@ const BAR_ITEM =
 
 /** Phone navigation, fixed at the bottom (above the home indicator): Summary, Transactions,
  * Shared, Investments and "More", a sheet with the other sections. */
-function BottomBar({ nav, navMonth, demo }: BottomBarProps) {
+function BottomBar({ nav, navMonth, demo, hosted }: BottomBarProps) {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const main = nav.filter((item) => BAR_PATHS.includes(item.to))
@@ -309,12 +330,7 @@ function BottomBar({ nav, navMonth, demo }: BottomBarProps) {
             ))}
           </ul>
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            {demo ? (
-              <FlaskConical size={14} aria-hidden="true" />
-            ) : (
-              <Lock size={14} aria-hidden="true" />
-            )}
-            {demo ? t('shell.publicDemo') : t('shell.localOnly')}
+            <ModeNote demo={demo} hosted={hosted} />
           </p>
         </BottomSheet>
       )}

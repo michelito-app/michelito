@@ -7,6 +7,7 @@ import { iconPng } from './icon.ts'
 import { serviceWorkerSource } from './sw.ts'
 
 export const THEME_COLOR = '#1f6f5c'
+export const SHARE_TARGET = '/share-target'
 export const BACKGROUND_COLOR = '#f7f7f5'
 
 const ICONS = [
@@ -26,6 +27,14 @@ export function manifest(): Record<string, unknown> {
     start_url: '/',
     scope: '/',
     display: 'standalone',
+    // Android: share a statement PDF to Michelito. Only hosted mode serves this route; the
+    // service worker leaves it to the network, like /api.
+    share_target: {
+      action: SHARE_TARGET,
+      method: 'POST',
+      enctype: 'multipart/form-data',
+      params: { files: [{ name: 'statements', accept: ['application/pdf', '.pdf'] }] },
+    },
     background_color: BACKGROUND_COLOR,
     theme_color: THEME_COLOR,
     icons: ICONS.filter((icon) => icon.file !== 'icons/apple-touch-icon.png').map((icon) => ({

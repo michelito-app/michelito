@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Literal, get_args
 
 from michelito.analysis import catalog, categories, corrections, rates
-from michelito.analysis.accounts import AccountInfo
+from michelito.analysis.accounts import AccountInfo, account_label
 from michelito.analysis.categories import Kind
 from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
@@ -48,6 +48,7 @@ class TxView:
     note: str = ""
     gross: Decimal | None = None  # statement amount of a shared expense (amount: your share)
     links: RowLinks = RowLinks()
+    provisional: bool = False  # from a bank alert, its statement has not arrived yet
 
     @property
     def suggested_one_off(self) -> bool:
@@ -66,6 +67,7 @@ class Filters:
     # wins over `category` (a name).
     category_ref: str | None = None
     shared: SharedFilter | None = None
+    provisional: bool = False  # only the provisional ones (still without a statement)
 
 
 def list_transactions(
@@ -101,6 +103,7 @@ def list_transactions(
         and _in_category(m, filters.category_ref, category)
         and (filters.kind is None or m.kind == filters.kind)
         and (not needle or _matches(m, needle))
+        and (not filters.provisional or m.provisional)
     ]
     selected.sort(key=lambda m: m.day, reverse=True)  # stable: keeps the load order
     rows = link_rows([m.fingerprint for m in selected]) if link_rows else {}
@@ -116,7 +119,7 @@ def list_transactions(
             kind=m.kind,
             original_category=m.original_category,
             account=m.account,
-            account_label=labels.get(m.account, m.account),
+            account_label=account_label(labels, m.account),
             amount=m.amount,
             currency=m.currency,
             amount_dop=rates.to_dop(m.amount, m.currency, rates.rate_for(rates_by_month, m.month)),
@@ -129,16 +132,18 @@ def list_transactions(
             note=m.note,
             gross=m.gross,
             links=rows.get(m.fingerprint, RowLinks()),
+            provisional=m.provisional,
         )
         for m in selected
     ]
 
 
 def _in_shared(row: RowLinks | None, wanted: SharedFilter) -> bool:
-    state = None if row is None else row.expense
-    if state is None:
+    """In a group (an entry the user paid, or a group movement); "pending": owed to the user."""
+    found = None if row is None else row.ledger
+    if found is None or found.entry is None:
         return False
-    return wanted == "shared" or state.pending > 0
+    return wanted == "shared" or found.entry.pending > 0
 
 
 def _matches(item: Movement, needle: str) -> bool:

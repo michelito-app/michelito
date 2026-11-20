@@ -13,6 +13,9 @@
 #   extensions  attachments that are saved, in lowercase.
 #   parse       optional (true). false: the attachment is archived without trying to parse it,
 #               like the AFPs, which have no parser yet.
+#   alerts      optional (false). true: bank alerts (one email per purchase), read in memory to
+#               show provisional transactions until the statement arrives; nothing is saved to
+#               raw/ and `extensions` is not used.
 
 # The queries name the banks' real (Spanish) sender addresses and subjects.
 # spanish-data: begin
@@ -43,4 +46,9 @@ name = "afp_crecer"
 query = "from:info@afpcrecer.com.do subject:cuenta"
 extensions = [".pdf"]
 parse = false
+
+[[source]]
+name = "popular_alerts"
+query = 'from:notificaciones@popularenlinea.com subject:"Notificación de Consumo"'
+alerts = true
 # spanish-data: end

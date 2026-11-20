@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
@@ -15,6 +16,18 @@ BANK_KINDS = ("savings", "checking")
 CASH_KIND = "cash"
 CASH_BOX_KEY = "manual:cash-box"
 CASH_BOX_NAME = t("analysis.accounts.cash_box_name")
+# Group movements (`spending.group_movements`): your share of a shared expense with no transaction
+# of yours. Not a stored account: it has no statements and is not in `accounts`.
+GROUP_ACCOUNT = "ledger:shared"
+GROUP_ACCOUNT_NAME = t("analysis.accounts.group_account_name")
+
+
+def account_label(labels: Mapping[str, str], key: str) -> str:
+    """The account's display name (the group movements' too); the key if unknown."""
+    if key == GROUP_ACCOUNT:
+        return GROUP_ACCOUNT_NAME
+    return labels.get(key, key)
+
 
 # One row per account; for cards, the most recent card gives the product and last 4 digits.
 _ACCOUNTS = """

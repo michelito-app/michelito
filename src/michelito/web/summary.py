@@ -10,11 +10,10 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
-from michelito.analysis import anomalies, cash_box, categories, spending
-from michelito.analysis.accounts import AccountInfo
+from michelito.analysis import anomalies, cash_box, categories, ledger, spending
+from michelito.analysis.accounts import AccountInfo, account_label
 from michelito.analysis.exchanges import ExchangeState
 from michelito.analysis.rates import Rate, rate_for, to_dop
-from michelito.analysis.shared import ExpenseState
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 
@@ -128,8 +127,8 @@ class Summary:
     needs_income: bool = False  # no bank account chosen: no flow to show
     to_cards: Decimal = _ZERO  # payments from the chosen accounts to cards not chosen
     to_own: Decimal = _ZERO  # "Between my accounts" leaving the chosen ones
-    # Owed to you: what is pending of the month's shared expenses (by expense date) in the
-    # chosen accounts, in RD$. It subtracts from nothing: it is no longer in the expenses.
+    # Owed to you: what is pending of the month's group expenses you paid (by expense date) in
+    # the chosen accounts, in RD$. It subtracts from nothing: it is no longer in the expenses.
     owed: Decimal = _ZERO
     # Open currency exchanges that started in the month (their oldest leg) with some leg in the
     # chosen accounts: what is pending, in RD$. Informational: not subtracted.
@@ -147,6 +146,8 @@ class Summary:
     to_cash_box: Decimal = _ZERO
     # The month's income by category, largest first (they add up to `income`).
     income_lines: list[IncomeLine] = field(default_factory=list)
+    # Of `total`, what is still provisional (from bank alerts, without a statement yet), RD$.
+    provisional: Decimal = _ZERO
 
 
 @dataclass(frozen=True)
@@ -244,7 +245,7 @@ def build_summary(
     rates: Mapping[str, Rate],
     month: str,
     selected: Collection[str] | None = None,
-    shared_states: Mapping[str, ExpenseState] | None = None,
+    groups: Mapping[int, ledger.GroupState] | None = None,
     exchange_states: Mapping[int, ExchangeState] | None = None,
 ) -> Summary:
     """The month's summary. Takes every kind of movement (`spending.load_all`).
@@ -258,9 +259,8 @@ def build_summary(
     across all accounts, so a card payment is still a transfer even if the card is not chosen;
     here only the movements and the accounts are trimmed.
 
-    `shared_states` (the state of each shared expense, `shared.by_expense`) and
-    `exchange_states` (`exchanges.states`): for "Owed to you" and "Pending exchanges"; without
-    them, zero.
+    `groups` (`ledger.states`) and `exchange_states` (`exchanges.states`): for "Owed to you" and
+    "Pending exchanges"; without them, zero.
     """
     chosen = selection(accounts, selected)
     options = month_options(movements, accounts, chosen)
@@ -311,12 +311,13 @@ def build_summary(
         needs_income=needs_income,
         to_cards=to_cards,
         to_own=to_own,
-        owed=_owed(movements, shared_states or {}, chosen, rates, month),
+        owed=_owed(movements, groups or {}, chosen, rates, month),
         exchanges_pending=_exchanges_pending(exchange_states or {}, chosen, month),
         what_happened=_what_happened(flow, trend[-1]),
         invested=_invested(mine, rates, month),
         to_cash_box=cash_box.stored_dop(mine, rates, month),
         income_lines=_income_lines(p for p in incomes if p.move.month == month),
+        provisional=_sum(p for p in current if p.move.provisional),
     )
 
 
@@ -343,19 +344,24 @@ def _invested(movements: Iterable[Movement], rates: Mapping[str, Rate], month: s
 
 def _owed(
     movements: Sequence[Movement],
-    states: Mapping[str, ExpenseState],
+    groups: Mapping[int, ledger.GroupState],
     chosen: frozenset[str] | None,
     rates: Mapping[str, Rate],
     month: str,
 ) -> Decimal:
-    """What is pending of the month's shared expenses in the chosen accounts, in RD$ (US$
-    without a rate do not count)."""
+    """What is still owed to you for the month's group expenses (by expense date), in RD$ (US$
+    without a rate do not count). With chosen accounts, only those paid from them."""
+    accounts = {m.fingerprint: m.account for m in movements}
     total = _ZERO
-    for move in movements:
-        state = states.get(move.fingerprint)
-        if state is None or move.month != month or (chosen and move.account not in chosen):
-            continue
-        total += to_dop(state.pending, move.currency, rate_for(rates, move.month)) or _ZERO
+    for state in groups.values():
+        for item in state.entries:
+            fp = item.entry.fingerprint
+            if item.pending <= 0 or item.day.strftime("%Y-%m") != month:
+                continue
+            if chosen and (fp is None or accounts.get(fp) not in chosen):
+                continue
+            value = to_dop(item.pending, item.currency, rate_for(rates, month))
+            total += value or _ZERO
     return total
 
 
@@ -690,5 +696,5 @@ def _by_account(
     totals: defaultdict[str, Decimal] = defaultdict(Decimal)
     for item in current:
         totals[item.move.account] += item.dop
-    rows = [AccountTotal(k, labels.get(k, k), t, usd[k]) for k, t in totals.items()]
+    rows = [AccountTotal(k, account_label(labels, k), t, usd[k]) for k, t in totals.items()]
     return sorted(rows, key=lambda row: (-row.total, row.key))

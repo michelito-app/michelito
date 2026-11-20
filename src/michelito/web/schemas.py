@@ -17,7 +17,6 @@ from michelito.analysis.investments import InvestmentState, Status
 from michelito.analysis.rates import Rate
 from michelito.analysis.recurring import Cadence, PriceChange
 from michelito.analysis.recurring_marks import MarkStatus
-from michelito.analysis.shared import ExpenseState, SharedState
 from michelito.web import accounts as accounts_view
 from michelito.web import categories as categories_view
 from michelito.web import interest as interest_view
@@ -201,6 +200,8 @@ class SummaryOut(BaseModel):
         int  # the month's withdrawals stored in the cash box (RD$): not subtracted either
     )
     incomes: list[IncomeLineOut]  # the month's income by category (crypto apart), largest first
+    # The month's expenses still without a statement (from bank alerts), RD$; already counted.
+    provisional_cents: int = 0
 
     @classmethod
     def of(cls, s: summary_view.Summary) -> SummaryOut:
@@ -281,6 +282,7 @@ class SummaryOut(BaseModel):
                 IncomeLineOut(category=i.category, amount_cents=to_cents(i.amount), count=i.count)
                 for i in s.income_lines
             ],
+            provisional_cents=to_cents(s.provisional),
         )
 
 
@@ -329,69 +331,6 @@ def _linked(v: links_view.LinkedTx | None) -> LinkedTxOut | None:
     return None if v is None else LinkedTxOut.of(v)
 
 
-class ManualOut(BaseModel):
-    id: int
-    amount_cents: int
-    day: str
-    person: str
-    place: str  # "" = cash
-    currency: str  # the money's
-
-
-class GroupExpenseOut(LinkedTxOut):
-    """A group expense: its split and its state after applying reimbursements (its currency)."""
-
-    people: int | None
-    my_share_cents: int | None
-    for_other: bool
-    share_cents: int  # your part according to the split
-    counted_cents: int  # what counts as your spending
-    reimbursed_cents: int  # what was applied (oldest to newest)
-    pending_cents: int  # owed to you on this expense
-    written_off_cents: int
-
-
-class SharedTotalOut(BaseModel):
-    """The figures of the group's expenses in one currency."""
-
-    currency: Currency
-    share_cents: int
-    reimbursed_cents: int
-    pending_cents: int
-    written_off_cents: int
-
-
-class GroupRefOut(BaseModel):
-    """A group in a list ("Add it to a group", suggestions): title and what is pending."""
-
-    id: int
-    title: str  # the name, else "With whom", else the first expense's merchant
-    name: str
-    with_whom: str
-    first_fingerprint: str  # the first expense: opens the group screen
-    expense_count: int
-    pending: list[CurrencyCentsOut]  # by currency (RD$ before US$)
-    last_split: SplitOut  # the split of the last expense added: proposed when adding another
-
-    @classmethod
-    def ref(cls, st: SharedState) -> GroupRefOut:
-        last = st.link.expenses[-1]
-        return cls(
-            id=st.id,
-            title=st.title,
-            name=st.link.name,
-            with_whom=st.link.with_whom,
-            first_fingerprint=st.first.fingerprint,
-            expense_count=len(st.expenses),
-            pending=_currency_cents(sorted(st.pending.items())),
-            last_split=SplitOut(
-                people=last.people,
-                my_share_cents=None if last.my_share is None else to_cents(last.my_share),
-                for_other=last.for_other,
-            ),
-        )
-
-
 class InvestmentRefOut(BaseModel):
     """An investment in a list ("Add to an existing one", the Transactions row): title, status
     and capital still to come back, in its currency."""
@@ -423,76 +362,6 @@ class InvestmentHintOut(InvestmentRefOut):
     """The "Another contribution to…?" or "A return from…?" hint for a row."""
 
     kind: Literal["possible_contribution", "possible_return"]
-
-
-class SplitOut(BaseModel):
-    people: int | None
-    my_share_cents: int | None
-    for_other: bool
-
-
-class SharedOut(GroupRefOut):
-    """A shared group: its expenses (each with its split and state), what was paid back and
-    what is pending by currency, and its reimbursements."""
-
-    written_off: bool  # "They won't pay me back" (the whole group)
-    expenses: list[GroupExpenseOut]  # oldest to newest
-    totals: list[SharedTotalOut]
-    excess: list[CurrencyCentsOut]  # paid back in excess after settling everything: does not count
-    unconverted: list[
-        str
-    ]  # reimbursements (fingerprint or "manual:<id>") that did not count: no rate
-    reimbursements: list[LinkedTxOut]
-    manual: list[ManualOut]
-
-    @classmethod
-    def of(cls, view: links_view.GroupView) -> SharedOut:
-        st = view.state
-        link = st.link
-        return cls(
-            **GroupRefOut.ref(st).model_dump(),
-            written_off=link.written_off,
-            expenses=[_group_expense(e, tx) for e, tx in view.expenses],
-            totals=[
-                SharedTotalOut(
-                    currency=_currency(t.currency),
-                    share_cents=to_cents(t.share),
-                    reimbursed_cents=to_cents(t.reimbursed),
-                    pending_cents=to_cents(t.pending),
-                    written_off_cents=to_cents(t.written_off),
-                )
-                for t in st.totals
-            ],
-            excess=_currency_cents(list(st.excess_by)),
-            unconverted=list(st.unconverted),
-            reimbursements=[LinkedTxOut.of(c) for c in view.credits],
-            manual=[
-                ManualOut(
-                    id=m.id,
-                    amount_cents=to_cents(m.amount),
-                    day=m.day.isoformat(),
-                    person=m.person,
-                    place=m.place,
-                    currency=m.currency,
-                )
-                for m in link.manual
-            ],
-        )
-
-
-def _group_expense(e: ExpenseState, tx: links_view.LinkedTx) -> GroupExpenseOut:
-    split = e.split
-    return GroupExpenseOut(
-        **LinkedTxOut.of(tx).model_dump(),
-        people=split.people,
-        my_share_cents=None if split.my_share is None else to_cents(split.my_share),
-        for_other=split.for_other,
-        share_cents=to_cents(e.share),
-        counted_cents=to_cents(e.counted),
-        reimbursed_cents=to_cents(e.reimbursed),
-        pending_cents=to_cents(e.pending),
-        written_off_cents=to_cents(e.written_off),
-    )
 
 
 class ExchangeOut(BaseModel):
@@ -535,6 +404,37 @@ class ExchangeOut(BaseModel):
         )
 
 
+class LedgerTxOut(BaseModel):
+    """A transaction's place in the shared ledger (the detail's "Part of group X"): the entry
+    it comes from, the payment it reconciles, or (`group`) the user's share of an expense
+    someone else paid."""
+
+    group_id: int
+    group_name: str
+    role: Literal["entry", "payment", "group"]
+    entry_id: int | None
+    payment_id: int | None
+    my_share_cents: int | None
+    pending_cents: int | None  # still owed to the user for the entry
+    currency: str
+    paid_by_name: str  # who paid the entry (empty: the user)
+
+    @classmethod
+    def of(cls, row: links_view.LedgerRow) -> LedgerTxOut:
+        item, payment = row.entry, row.payment
+        return cls(
+            group_id=row.group_id,
+            group_name=row.group_name,
+            role=row.role,  # type: ignore[arg-type]
+            entry_id=None if item is None else item.entry.id,
+            payment_id=None if payment is None else payment.id,
+            my_share_cents=None if item is None else to_cents(item.my_share),
+            pending_cents=None if item is None else to_cents(item.pending),
+            currency=(item.currency if item is not None else payment.currency if payment else ""),
+            paid_by_name=row.paid_by,
+        )
+
+
 class TxOut(BaseModel):
     fingerprint: str
     day: str
@@ -556,19 +456,17 @@ class TxOut(BaseModel):
     one_off_reasons: list[str]
     one_off_dismissed: bool
     note: str
-    # Links: "shared" (amount_cents is your part; gross_cents, the statement amount),
-    # "reimbursement", "exchange" or "" (none).
+    # Links: "shared" (a group entry: amount_cents is your part; gross_cents, the statement
+    # amount), "reimbursement" (a group payment), "group" (your share of an expense someone else
+    # paid: no bank), "exchange", "investment", "cash_box", "reserve" or "" (none).
     link: str
-    link_id: int | None  # id of the saved link (also when dormant)
-    can_share: bool  # can be marked as a shared expense
-    can_reimburse: bool  # can be the reimbursement of a shared expense
+    link_id: int | None  # id of the saved link or ledger group (also when dormant)
+    can_share: bool  # can be added to a group ("I paid it")
+    can_reimburse: bool  # a credit that can be a payment received
     can_exchange: bool  # can be a leg of a currency exchange
     gross_cents: int | None
-    pending_cents: int  # owed to you on this expense (in a shared group); 0 otherwise
-    # The row's shared group, as expense or as reimbursement (null: none or dormant).
-    shared: SharedOut | None
-    reimbursement_of: LinkedTxOut | None  # the first expense of the group it reimburses
-    suggested_group: GroupRefOut | None  # "Reimbursement of <group>?"
+    pending_cents: int  # owed to you on this expense (in a group); 0 otherwise
+    ledger: LedgerTxOut | None  # the row's place in a shared group
     exchange: ExchangeOut | None
     suggested_exchange_with: LinkedTxOut | None
     can_invest: bool  # a bank debit that can be a contribution ("It is an investment…")
@@ -589,12 +487,15 @@ class TxOut(BaseModel):
     cash_box_amount_cents: int | None
     # A movement entered by hand in the box: its id (null if it comes from a statement).
     cash_entry_id: int | None
+    # From a bank alert, waiting for its statement ("Pending statement").
+    provisional: bool = False
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
         row = v.links
         return cls(
             fingerprint=v.fingerprint,
+            provisional=v.provisional,
             day=v.day.isoformat(),
             merchant=v.merchant,
             description=v.description,
@@ -620,12 +521,10 @@ class TxOut(BaseModel):
             can_reimburse=row.can_reimburse,
             can_exchange=row.can_exchange,
             gross_cents=_cents(v.gross),
-            pending_cents=0 if row.expense is None else to_cents(row.expense.pending),
-            shared=None if row.group is None else SharedOut.of(row.group),
-            reimbursement_of=_linked(row.reimbursement_of),
-            suggested_group=None
-            if row.suggested_group is None
-            else GroupRefOut.ref(row.suggested_group),
+            pending_cents=0
+            if row.ledger is None or row.ledger.entry is None or row.ledger.role != "entry"
+            else to_cents(row.ledger.entry.pending),
+            ledger=None if row.ledger is None else LedgerTxOut.of(row.ledger),
             exchange=None
             if row.exchange is None
             else ExchangeOut.of(row.exchange, row.exchange_legs),
@@ -896,66 +795,9 @@ class EditBody(BaseModel):
     one_off: bool | None = None
     scope: Literal["transaction", "merchant"] = "transaction"
     note: str | None = Field(default=None, max_length=corrections.NOTE_MAX)  # "" clears it
-    # Absent = leave it; null = no longer shared (unlinks its reimbursements).
-    shared: SharedBody | None = None
-    written_off: StrictBool | None = None  # "They won't pay me back"
 
 
 Person = Annotated[str, Field(max_length=links.PERSON_MAX)]
-
-
-class SplitBody(BaseModel):
-    """Exactly one form: `people` ("We were N"), `my_share_cents` or `for_other`."""
-
-    people: int | None = Field(default=None, ge=2, le=100)
-    my_share_cents: int | None = Field(default=None, gt=0, le=10**12)
-    for_other: StrictBool = False
-
-
-class SharedBody(SplitBody):
-    """The expense's split. If the expense is not in a group: `link_id` adds it to that group;
-    without it, a new one is created (`with_whom`: "With whom", optional)."""
-
-    link_id: int | None = None
-    with_whom: Person | None = None
-
-
-class GroupPatch(BaseModel):
-    """Absent fields do not change; "" or null clears the name or "With whom"."""
-
-    name: Person | None = None
-    with_whom: Person | None = None
-    written_off: StrictBool | None = None
-
-
-class GroupExpenseBody(BaseModel):
-    fingerprint: str = Field(min_length=1, max_length=64)
-    split: SplitBody
-
-
-class ManualBody(BaseModel):
-    amount_cents: int = Field(gt=0, le=10**12)
-    day: date
-    person: Person | None = None
-    place: Person | None = None  # empty or "Efectivo": in cash
-    currency: Currency | None = None  # null: that of the group's oldest expense
-
-
-class ReimbursementBody(BaseModel):
-    """An imported credit (`credit`, its fingerprint) or one entered by hand (`manual`)."""
-
-    credit: str | None = Field(default=None, min_length=1, max_length=64)
-    manual: ManualBody | None = None
-
-
-class GroupCandidateOut(GroupRefOut):
-    primary: bool
-
-
-class CandidatesOut(BaseModel):
-    credits: list[CandidateOut]  # credits that can reimburse this expense's group
-    groups: list[GroupCandidateOut]  # groups with something pending that this credit can reimburse
-    places: list[str]  # "where" values used before in manual reimbursements
 
 
 Fingerprints = Annotated[
@@ -1138,6 +980,7 @@ class PendingItemOut(BaseModel):
     rate: str | None  # RD$ per US$ of `pending_dop_cents`: the exchange's or the latest
     expense_count: int  # the group's expenses (1 in an exchange)
     parts: list[CurrencyCentsOut]  # what is pending by currency (a group can have both)
+    link_id: int | None = None  # a group: its id (opens /shared/<id>)
 
     @classmethod
     def of(cls, item: pending_view.PendingItem) -> PendingItemOut:
@@ -1154,6 +997,7 @@ class PendingItemOut(BaseModel):
             age_days=item.age_days,
             rate=None if item.rate is None else str(item.rate.quantize(_RATE_QUANTUM)),
             expense_count=item.expense_count,
+            link_id=item.link_id,
             parts=_currency_cents(list(item.parts))
             if item.parts
             else _currency_cents([(item.currency, item.pending)]),

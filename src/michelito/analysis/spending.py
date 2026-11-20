@@ -12,9 +12,11 @@ Cards and bank accounts (savings and checking) are loaded. What counts as an exp
   ("DEV …"): it takes the category of the debit it cancels (`reversals`) or, without one,
   subtracts from "transfers to third parties".
 - Card payments and transfers between my accounts are transfers: they don't count.
-- A shared expense counts only for your share (`shared`); the credits that reimburse it are
-  "reimbursement" and the legs of a currency exchange, "currency exchange" (`links`): neither is
-  income or expense.
+- A shared expense you paid counts only for your share (and what was written off; see
+  `ledger`); the payments you receive or make for a group are "reimbursement" and the legs of a
+  currency exchange, "currency exchange" (`links`): neither is income or expense. Your share of
+  an expense someone else paid is a **group movement** (no bank, account `GROUP_ACCOUNT`): an
+  expense in its month and category (accrual), even before you pay that person back.
 - In an investment (`links`, `investments`) the contribution is "investments" (a transfer: it
   doesn't subtract from what you have left), the yield "investment returns" (income) and the
   return of capital "capital return" (a transfer); of a mixed credit only the yield part is
@@ -35,6 +37,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any
 
 from michelito.analysis import (
     accounts,
@@ -45,9 +48,11 @@ from michelito.analysis import (
     corrections,
     coverage,
     investments,
+    ledger,
+    ledger_store,
     links,
+    live_store,
     reversals,
-    shared,
     transfers,
 )
 from michelito.analysis.rates import Rate
@@ -72,6 +77,9 @@ ORDER BY t.transacted_on, s.period_end, s.currency, t.sequence
 """
 _CARD_TRANSACTIONS = _TRANSACTIONS.format(kinds="= 'credit_card'")
 _BANK_TRANSACTIONS = _TRANSACTIONS.format(kinds="IN ('savings', 'checking')")
+
+# A statement row, or the dict that stands for a provisional one (`_provisional`).
+RowLike = Mapping[str, Any] | sqlite3.Row
 
 _IDENTITY = ("account", "transacted_on", "description", "amount_cents", "direction", "currency")
 
@@ -104,12 +112,17 @@ class Movement:
     original_key: str = ""
     category_kind: categories.Kind | None = None  # kind of a user category
     note: str = ""  # the user's free-form note
-    # Link (`links`): "shared" (shared expense: `amount` is what counts as your expense and
-    # `gross` the statement amount), "reimbursement" (a credit that reimburses one), "exchange"
-    # (a leg of a currency exchange) or "investment" (a contribution or credit of an investment;
-    # in a mixed credit `amount` is only the yield and `gross` the whole credit). Empty: none.
+    # Link (`links`, `ledger`): "shared" (shared expense: `amount` is what counts as your
+    # expense and `gross` the statement amount), "group" (your share of a group expense with no
+    # transaction: `gross` is the whole expense), "reimbursement" (a payment for a group),
+    # "exchange" (a leg of a currency exchange) or "investment" (a contribution or credit of an
+    # investment; in a mixed credit `amount` is only the yield and `gross` the whole credit).
+    # Empty: none.
     link: str = ""
     gross: Decimal | None = None
+    # From a bank alert, still waiting for its statement (`live_store`): it counts like any
+    # other transaction, but never in a statement's validation.
+    provisional: bool = False
 
     @property
     def ref(self) -> str:
@@ -192,12 +205,16 @@ def load_all(
         (row["description"], row["mcc"]) for row in cards if not _is_payment(row)
     )
     fixes = corrections.load(conn, known)
+    live = live_store.load(conn)
     seen: Counter[tuple[object, ...]] = Counter()
     movements = []
     for row in (*cards, *banks):
         identity = tuple(row[key] for key in _IDENTITY)
-        movements.append(_movement(row, learned, fixes, seen[identity]))
+        mark = _fingerprint(row, seen[identity])
+        # A statement row that confirmed a provisional keeps the provisional's identity.
+        movements.append(_movement(row, learned, fixes, live.aliases.get(mark, mark)))
         seen[identity] += 1
+    movements.extend(_provisional(item, learned, fixes) for item in live.provisionals)
     infos = accounts.account_infos(conn)
     detected = transfers.detect_transfers(
         movements, infos, holders, card_last4=transfers.last4_by_card_account(conn)
@@ -215,10 +232,68 @@ def load_all(
     # What was entered by hand in the cash box, after detecting transfers and reversals: it
     # doesn't come from a statement (see `cash_box`).
     manual = [_manual_movement(e, fixes) for e in cash_box_store.load_entries(conn)]
-    named = tuple(_named(m, known) for m in (*paired, *(m for m in manual if m is not None)))
+    rates = load_rates(conn)
+    book = ledger_store.load(conn)
+    groups = ledger.states(book, rates)
+    grouped = group_movements(book, groups, known, fixes)
+    named = tuple(
+        _named(m, known) for m in (*paired, *(m for m in manual if m is not None), *grouped)
+    )
     # Last: the user's links (shared expenses, reimbursements and exchanges) win.
     bank_keys = {info.key for info in infos if info.kind in accounts.BANK_KINDS}
-    return with_links(named, links.load(conn), known, bank_keys, load_rates(conn))
+    return with_links(named, links.load(conn), known, bank_keys, rates, groups)
+
+
+GROUP_ACCOUNT = accounts.GROUP_ACCOUNT
+GROUP_INSTITUTION = "ledger"
+
+
+def group_fingerprint(entry_id: int) -> str:
+    return f"group-{entry_id}"
+
+
+def group_movements(
+    book: ledger.Ledger,
+    groups: Mapping[int, ledger.GroupState],
+    known: catalog.Catalog,
+    fixes: corrections.Corrections,
+) -> list[Movement]:
+    """Your share of each group expense with no transaction of yours (someone else paid it, or
+    you paid without a linked transaction): a movement in its month and category (the entry's,
+    else the group's, else "Other"); the category set by hand wins. A linked entry whose
+    transaction is missing (a changed statement) adds nothing."""
+    found = []
+    for group in book.groups:
+        state = groups.get(group.id)
+        for item in () if state is None else state.entries:
+            entry = item.entry
+            if entry.fingerprint is not None or item.counted <= 0:
+                continue
+            mark = group_fingerprint(entry.id)
+            chosen_id = entry.category_id or group.category_id
+            category = None if chosen_id is None else known.by_id(chosen_id)
+            original = categories.OTHER if category is None else category.ref
+            chosen = fixes.transaction_category(mark)
+            found.append(
+                Movement(
+                    day=entry.day,
+                    merchant=group.name,
+                    description=entry.description,
+                    category=chosen or original,
+                    amount=item.counted,
+                    currency=entry.currency,
+                    institution=GROUP_INSTITUTION,
+                    fingerprint=mark,
+                    one_off=fixes.is_one_off(mark),
+                    note=fixes.note_for(mark),
+                    corrected=chosen is not None and chosen != original,
+                    account=GROUP_ACCOUNT,
+                    original_category=original,
+                    link="group",
+                    gross=entry.amount,
+                )
+            )
+    return found
 
 
 def with_links(
@@ -227,16 +302,16 @@ def with_links(
     known: catalog.Catalog,
     banks: Collection[str] | None = None,
     rates: Mapping[str, Rate] | None = None,
+    groups: Mapping[int, ledger.GroupState] | None = None,
 ) -> tuple[Movement, ...]:
     """Applies the links: without any, returns the same transactions.
 
-    - Each expense of a shared group (if it is still a positive expense) counts for what
-      `shared.group_state` says (its share and its part of what was written off); `gross` keeps
-      the statement amount.
-    - A credit linked as a reimbursement is always "reimbursement", even when the link is
-      dormant (its expense no longer appears or stopped being an expense): it stays linked
-      until removed. The exception: one in the expense's other currency without a rate for its
-      month stays as it was.
+    - A transaction linked to a group entry (if it is still a positive expense) counts for what
+      `ledger.group_state` says (your share and what was written off); `gross` keeps the
+      statement amount.
+    - A transaction linked to a group payment is always "reimbursement" (received or paid back:
+      neither income nor expense). The exception: a credit in another currency without a rate
+      for its month, which counted nothing, stays as it was.
     - The legs of an exchange are always "currency exchange" (also when the exchange is missing
       a leg or no longer balances), except those not from a bank account.
     - In an investment, a contribution (if it is still a debit) is "investments"; a credit,
@@ -249,31 +324,26 @@ def with_links(
     `rates`: rates by month, to count a reimbursement in the expense's other currency (without
     them, a reimbursement in another currency doesn't lower what you are owed).
     """
-    if not found.shared and not found.exchanges and not found.investments and not found.cash_boxes:
+    groups = groups or {}
+    if not groups and not found.exchanges and not found.investments and not found.cash_boxes:
         return tuple(movements)
     by_fp = {m.fingerprint: m for m in movements}
     counted: dict[str, Decimal] = {}
-    credits = {
-        credit
-        for link in found.shared
-        for credit in link.reimbursements
-        if credit in by_fp and by_fp[credit].amount < 0
-    }
-    for link in found.shared:
-        present = [
-            move
-            for e in link.expenses
-            if (move := by_fp.get(e.fingerprint)) is not None
-            and move.kind == "expense"
-            and move.amount > 0
-        ]
-        if not present:
-            continue
-        state = shared.group_state(link, present, by_fp, rates or {})
-        counted.update((e.fingerprint, e.counted) for e in state.expenses)
-        # A credit in the other currency without a rate doesn't lower any expense: it doesn't
-        # stop being income either (otherwise that money would vanish from the totals).
-        credits -= state.uncounted
+    credits: set[str] = set()
+    for state in groups.values():
+        for item in state.entries:
+            fp = item.entry.fingerprint
+            move = None if fp is None else by_fp.get(fp)
+            if move is not None and move.kind == "expense" and move.amount > 0:
+                counted[move.fingerprint] = item.counted
+        credits.update(
+            p.payment.fingerprint
+            for p in state.payments
+            if p.payment.fingerprint in by_fp
+            # A credit in another currency without a rate counted nothing: it stays income
+            # (otherwise that money would vanish from the totals).
+            and p.payment.fingerprint not in state.uncounted
+        )
     legs = {
         leg
         for exchange in found.exchanges
@@ -443,27 +513,65 @@ def _with_reversal(
     )
 
 
-def _is_payment(row: sqlite3.Row) -> bool:
+def _is_payment(row: RowLike) -> bool:
     return row["direction"] == CREDIT and categories.is_payment(row["description"])
 
 
-def _is_promotion(row: sqlite3.Row) -> bool:
+def _is_promotion(row: RowLike) -> bool:
     return row["direction"] == CREDIT and categories.is_promotion(row["description"])
 
 
-def _movement(
-    row: sqlite3.Row, learned: dict[str, str], fixes: corrections.Corrections, occurrence: int
-) -> Movement:
-    day = date.fromisoformat(row["transacted_on"])
-    mark = corrections.fingerprint(
+def _fingerprint(row: RowLike, occurrence: int) -> str:
+    """The content fingerprint of a statement row (`corrections.fingerprint`)."""
+    return corrections.fingerprint(
         row["account"],
-        day,
+        date.fromisoformat(row["transacted_on"]),
         row["description"],
         row["amount_cents"],
         row["direction"],
         row["currency"],
         occurrence,
     )
+
+
+def card_fingerprints(conn: sqlite3.Connection) -> list[tuple[sqlite3.Row, str]]:
+    """Every card statement row with its content fingerprint, counted like `load_all` (the
+    same order and occurrences), for matching alerts against statements (`live_match`)."""
+    seen: Counter[tuple[object, ...]] = Counter()
+    found = []
+    for row in conn.execute(_CARD_TRANSACTIONS):
+        identity = tuple(row[key] for key in _IDENTITY)
+        found.append((row, _fingerprint(row, seen[identity])))
+        seen[identity] += 1
+    return found
+
+
+def _provisional(
+    item: live_store.Provisional, learned: dict[str, str], fixes: corrections.Corrections
+) -> Movement:
+    """A provisional purchase as a card debit: the same categorization (merchant rules, MCC
+    learned from the statements) and corrections by its own fingerprint."""
+    row = {
+        "transacted_on": item.day.isoformat(),
+        "description": item.merchant,
+        "amount_cents": item.amount_cents,
+        "direction": "debit",
+        "currency": item.currency,
+        "mcc": None,
+        "institution": item.institution,
+        "kind": item.kind,
+        "account": item.account,
+    }
+    return replace(_movement(row, learned, fixes, item.fingerprint), provisional=True)
+
+
+def _movement(
+    row: RowLike,
+    learned: dict[str, str],
+    fixes: corrections.Corrections,
+    mark: str,
+) -> Movement:
+    day = date.fromisoformat(row["transacted_on"])
     legacy = categories.merchant_key(row["description"])
     if row["kind"] == "credit_card":
         merchant, chosen = legacy, fixes.category_for(mark, legacy)
@@ -497,7 +605,7 @@ def _movement(
     )
 
 
-def _bank_kinds(row: sqlite3.Row) -> tuple[categories.Kind, ...] | None:
+def _bank_kinds(row: RowLike) -> tuple[categories.Kind, ...] | None:
     """Kinds a merchant rule can give a bank transaction; on cards, all of them.
 
     The same counterpart sends and receives ("LBTR JUAN PEREZ"), and a previous key was just

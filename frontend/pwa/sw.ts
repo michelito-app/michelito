@@ -2,7 +2,8 @@
 //
 // It keeps only the static interface (the "app shell"): index.html, the hashed JS/CSS/fonts and
 // the icons. Nothing under /api is ever answered from a cache or stored (neither Cache Storage nor
-// IndexedDB): those requests are not even handled here. Pages are fetched from the network first,
+// IndexedDB): those requests are not even handled here, nor is the share target (/share-target,
+// the PDFs shared from the phone), which always goes to the network. Pages are fetched from the network first,
 // so after a deploy the next load gets the new interface; the cached shell only answers offline.
 // A new build has a new version: it installs, takes over at once and deletes the old caches.
 
@@ -42,8 +43,10 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request
-  if (request.method !== 'GET') return
   const url = new URL(request.url)
+  // The shared PDFs: network only, whatever the method.
+  if (url.pathname === '/share-target') return
+  if (request.method !== 'GET') return
   if (url.origin !== self.location.origin) return
   // The data never goes through here: no cache, no copy.
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return

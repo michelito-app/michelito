@@ -1,4 +1,4 @@
-"""Links for the web: what each Transactions row shows about shared groups, reimbursements,
+"""Links for the web: what each Transactions row shows about shared groups (the ledger),
 currency exchanges and investments, and the checks on the requests that change them."""
 
 from __future__ import annotations
@@ -9,13 +9,12 @@ from datetime import date
 from decimal import Decimal
 from functools import cached_property
 
-from michelito.analysis import cash_box, exchanges, investments, shared
-from michelito.analysis.accounts import BANK_KINDS, AccountInfo
+from michelito.analysis import cash_box, exchanges, investments, ledger, ledger_suggest, shared
+from michelito.analysis.accounts import BANK_KINDS, AccountInfo, account_label
 from michelito.analysis.exchanges import ExchangeState
 from michelito.analysis.investments import InvestmentState, Suggestion
 from michelito.analysis.links import AlreadyLinked, LinkError, Links
 from michelito.analysis.rates import Rate, rate_for
-from michelito.analysis.shared import ExpenseState, SharedState
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 
@@ -38,29 +37,30 @@ class LinkedTx:
 
 
 @dataclass(frozen=True)
-class GroupView:
-    """A shared group with its expenses and credits ready to show."""
+class LedgerRow:
+    """The row's place in the shared ledger: an entry it comes from, a payment it reconciles or
+    (a group movement) the user's share of an expense someone else paid."""
 
-    state: SharedState
-    expenses: tuple[tuple[ExpenseState, LinkedTx], ...]  # oldest first
-    credits: tuple[LinkedTx, ...]  # linked credits present, by date
+    group_id: int
+    group_name: str
+    role: str  # "entry", "payment" or "group"
+    entry: ledger.EntryState | None = None
+    payment: ledger.Payment | None = None
+    paid_by: str = ""  # who paid the entry (empty: the user)
 
 
 @dataclass(frozen=True)
 class RowLinks:
     # The row's stored link, even when dormant (its expense no longer appears or stopped being an
-    # expense; the exchange is missing a leg): "shared", "reimbursement", "exchange",
-    # "investment" or "".
+    # expense; the exchange is missing a leg): "shared" (a group entry), "reimbursement" (a group
+    # payment), "group" (a group movement), "exchange", "investment" or "".
     kind: str = ""
     link_id: int | None = None
     # What can be done with the row (the same rules the server checks).
     can_share: bool = False
     can_reimburse: bool = False
     can_exchange: bool = False
-    group: GroupView | None = None  # the row's active group (as expense or as reimbursement)
-    expense: ExpenseState | None = None  # the row as an expense of a group
-    reimbursement_of: LinkedTx | None = None  # the first expense of the group it reimburses
-    suggested_group: SharedState | None = None  # "Reimbursement of <group>?"
+    ledger: LedgerRow | None = None
     exchange: ExchangeState | None = None
     exchange_legs: tuple[LinkedTx, ...] = ()  # every leg of the exchange
     suggested_exchange_with: LinkedTx | None = None
@@ -86,9 +86,9 @@ class Context:
     movements: tuple[Movement, ...]
     labels: Mapping[str, str]
     banks: frozenset[str]
-    groups: Mapping[int, SharedState] = field(default_factory=dict)
+    book: ledger.Ledger = ledger.EMPTY
+    groups: Mapping[int, ledger.GroupState] = field(default_factory=dict)
     exchange_states: Mapping[int, ExchangeState] = field(default_factory=dict)
-    reimbursement_suggestions: Mapping[str, int] = field(default_factory=dict)
     exchange_suggestions: Mapping[str, str] = field(default_factory=dict)
     rates: Mapping[str, Rate] = field(default_factory=dict)
     investment_states: Mapping[int, InvestmentState] = field(default_factory=dict)
@@ -111,26 +111,6 @@ class Context:
         return replace(found, converted=value, converted_currency=currency)
 
     @cached_property
-    def expense_states(self) -> dict[str, ExpenseState]:
-        """The state of each shared expense present, by fingerprint."""
-        return shared.by_expense(self.groups)
-
-    def group_view(self, link_id: int) -> GroupView | None:
-        state = self.groups.get(link_id)
-        if state is None:
-            return None
-        currency = state.first.currency
-        credits = sorted(
-            (move for fp in state.link.reimbursements if (move := self.movement(fp)) is not None),
-            key=lambda m: (m.day, m.fingerprint),
-        )
-        return GroupView(
-            state=state,
-            expenses=tuple((e, linked_tx(e.move, self.labels)) for e in state.expenses),
-            credits=tuple(self.credit_for(m, currency) for m in credits),
-        )
-
-    @cached_property
     def _by_fp(self) -> dict[str, Movement]:
         return {m.fingerprint: m for m in self.movements}
 
@@ -140,7 +120,7 @@ def linked_tx(move: Movement, labels: Mapping[str, str]) -> LinkedTx:
         fingerprint=move.fingerprint,
         day=move.day,
         merchant=move.merchant,
-        account_label=labels.get(move.account, move.account),
+        account_label=account_label(labels, move.account),
         amount=shared.gross(move),
         currency=move.currency,
         description=move.description,
@@ -154,6 +134,7 @@ def context(
     rates: Mapping[str, Rate],
     suggest: bool = True,
     reviewed: Collection[tuple[str, str]] = (),
+    book: ledger.Ledger = ledger.EMPTY,
 ) -> Context:
     """`suggest=False` skips the suggestions (the Summary does not need them). `reviewed`: what
     was marked in "To review" (fingerprint, kind): an investment proposal already reviewed ("It
@@ -161,7 +142,7 @@ def context(
     banks = frozenset(a.key for a in accounts if a.kind in BANK_KINDS)
     labels = {a.key: a.label for a in accounts}
     moves = tuple(movements)
-    groups = shared.states(moves, found, rates)
+    groups = ledger.states(book, rates)
     invested = investments.states(moves, found, rates)
     if not suggest:
         return Context(
@@ -169,6 +150,7 @@ def context(
             moves,
             labels,
             banks,
+            book,
             groups,
             exchanges.states(moves, found),
             rates=rates,
@@ -179,9 +161,9 @@ def context(
         movements=moves,
         labels=labels,
         banks=banks,
+        book=book,
         groups=groups,
         exchange_states=exchanges.states(moves, found),
-        reimbursement_suggestions=shared.suggestions(moves, found, groups, rates),
         exchange_suggestions=exchanges.suggestions(
             moves, found, banks, lambda month: rate_for(rates, month)
         ),
@@ -212,17 +194,10 @@ def row_links(ctx: Context, fingerprints: Collection[str]) -> dict[str, RowLinks
 
 def _row(ctx: Context, move: Movement, exchange: ExchangeState | None) -> RowLinks:
     fp = move.fingerprint
-    expense = ctx.expense_states.get(fp)
     kind, link_id = _stored(ctx.links, fp)
-    group = None
-    if link_id is not None and (expense is not None or kind == "reimbursement"):
-        group = ctx.group_view(link_id)
-    owner = ctx.links.reimbursed(fp)
-    of = None
-    if owner is not None:
-        first = ctx.groups[owner.id].first.fingerprint if owner.id in ctx.groups else None
-        of = ctx.linked(first or owner.expenses[0].fingerprint)
-    suggested = ctx.reimbursement_suggestions.get(fp)
+    row = ledger_row(ctx, move)
+    if row is not None and row.role == "group":
+        kind, link_id = "group", row.group_id
     counterpart = ctx.exchange_suggestions.get(fp)
     stored = ctx.links.investment_for(fp)
     member = None if stored is None else stored.member(fp)
@@ -231,13 +206,10 @@ def _row(ctx: Context, move: Movement, exchange: ExchangeState | None) -> RowLin
     return RowLinks(
         kind=kind,
         link_id=link_id,
-        can_share=kind in ("", "shared") and is_shareable(move),
+        can_share=kind == "" and is_shareable(move),
         can_reimburse=shared.is_eligible_credit(move, ctx.links),
         can_exchange=exchanges.is_eligible(move, ctx.links, ctx.banks),
-        group=group,
-        expense=expense,
-        reimbursement_of=of,
-        suggested_group=None if suggested is None else ctx.groups.get(suggested),
+        ledger=row,
         exchange=exchange,
         exchange_legs=()
         if exchange is None
@@ -253,6 +225,34 @@ def _row(ctx: Context, move: Movement, exchange: ExchangeState | None) -> RowLin
         can_deposit=cash_box.can_deposit(move, ctx.links, ctx.banks),
         **_boxed(ctx, move, boxed),
     )
+
+
+def ledger_row(ctx: Context, move: Movement) -> LedgerRow | None:
+    """The row's place in the ledger, if any (a group movement: by its entry)."""
+    fp = move.fingerprint
+    if move.link == "group" and fp.startswith("group-"):
+        entry_id = int(fp.removeprefix("group-"))
+        group = next((g for g in ctx.book.groups if g.entry(entry_id) is not None), None)
+        state = None if group is None else ctx.groups.get(group.id)
+        item = None if state is None else state.entry(entry_id)
+        if group is None or item is None:
+            return None
+        return LedgerRow(group.id, group.name, "group", entry=item, paid_by=_payer(ctx, item))
+    found = ctx.book.entry_for(fp)
+    if found is not None:
+        group, entry = found
+        state = ctx.groups.get(group.id)
+        item = None if state is None else state.entry(entry.id)
+        return LedgerRow(group.id, group.name, "entry", entry=item)
+    paid = ctx.book.payment_for(fp)
+    if paid is not None:
+        group, payment = paid
+        return LedgerRow(group.id, group.name, "payment", payment=payment)
+    return None
+
+
+def _payer(ctx: Context, item: ledger.EntryState) -> str:
+    return "" if item.entry.paid_by == ctx.book.me else ctx.book.name(item.entry.paid_by)
 
 
 def _boxed(ctx: Context, move: Movement, member: cash_box.CashBoxMember | None) -> dict:
@@ -273,10 +273,9 @@ def _boxed(ctx: Context, move: Movement, member: cash_box.CashBoxMember | None) 
 
 def _stored(found: Links, fingerprint: str) -> tuple[str, int | None]:
     """The stored link of the fingerprint (role and id), active or dormant."""
-    if (owner := found.shared_for(fingerprint)) is not None:
-        return "shared", owner.id
-    if (owner := found.reimbursed(fingerprint)) is not None:
-        return "reimbursement", owner.id
+    if (held := found.ledger_for(fingerprint)) is not None:
+        group_id, role = held
+        return ("shared" if role == "entry" else "reimbursement"), group_id
     if (exchange := found.exchange_for(fingerprint)) is not None:
         return "exchange", exchange.id
     if (investment := found.investment_for(fingerprint)) is not None:
@@ -307,37 +306,21 @@ def is_shareable(move: Movement) -> bool:
 
 
 def check_shareable(found: Links, move: Movement) -> None:
-    if found.is_linked(move.fingerprint) and found.shared_for(move.fingerprint) is None:
+    if found.is_linked(move.fingerprint):
         raise AlreadyLinked(t("web.already_linked"))
     if not is_shareable(move):
         raise LinkError(t("web.link.only_expense_shared"))
 
 
-def check_reimbursement(ctx: Context, link_id: int, credit: Movement) -> None:
-    """The credit can reimburse the group: it is not linked, it is an eligible credit and there
-    is a rate to convert it to the currency of each expense of the group."""
-    if ctx.links.is_linked(credit.fingerprint):
+def check_payment_tx(found: Links, move: Movement, received: bool, banks: Collection[str]) -> None:
+    """A transaction can reconcile a payment: unlinked, a credit if received (an eligible one)
+    or, if paid, a debit the candidates would offer (`ledger_suggest.is_payment_debit`)."""
+    if found.is_linked(move.fingerprint):
         raise AlreadyLinked(t("web.link.credit_already_linked"))
-    state = ctx.groups.get(link_id)
-    if state is None:
-        raise LinkError(t("web.link.not_shared"))
-    if credit.amount >= 0:
-        raise LinkError(t("web.link.only_credit_reimburses"))
-    currencies = {e.currency for e in state.expenses}
-    if any(shared.converted(credit, c, ctx.rates) is None for c in currencies):
-        raise LinkError(t("web.link.missing_rate"))
-    if not shared.is_eligible_credit(credit, ctx.links):
+    if received and not shared.is_eligible_credit(move, found):
         raise LinkError(t("web.link.credit_not_eligible"))
-
-
-def check_joinable(ctx: Context, link_id: int, move: Movement) -> None:
-    """The expense can join the group: it is an unlinked expense and the group exists."""
-    if ctx.links.group(link_id) is None:
-        raise LookupError(t("web.link.unknown_group", link_id=link_id))
-    if ctx.links.is_linked(move.fingerprint):
-        raise AlreadyLinked(t("web.already_linked"))
-    if not is_shareable(move):
-        raise LinkError(t("web.link.only_expense_shared"))
+    if not received and not ledger_suggest.is_payment_debit(move, found, banks):
+        raise LinkError(t("web.ledger.payment_needs_debit"))
 
 
 def check_legs(ctx: Context, new: Sequence[Movement], current: Sequence[Movement] = ()) -> None:

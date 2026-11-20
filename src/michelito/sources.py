@@ -9,6 +9,7 @@ uses only the sources it lists (they are not merged with the defaults). The form
     query = "from:statements@bank.example"  # Gmail search
     extensions = [".pdf"]                   # attachments that are saved
     parse = true                            # optional; false: only archived
+    alerts = false                          # optional; true: bank alerts (no extensions)
 
 An install from before the English rename may still have the old file (`legacy.SOURCES_FILE`)
 with the old Spanish keys: while there is no `sources.toml`, that one is read, with its keys
@@ -31,7 +32,7 @@ from michelito.config import ARCHIVE_ONLY, DEFAULT_SOURCES, Source, archive_only
 _NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")  # it goes into a path: no "/", "..", nor spaces
 _EXTENSION = re.compile(r"\.[a-z0-9]{1,10}")
 _TABLE = "source"
-_KEYS = frozenset({"name", "query", "extensions", "parse"})
+_KEYS = frozenset({"name", "query", "extensions", "parse", "alerts"})
 # Names that `michelito import` already uses (source in the database and folder in raw/).
 # The pre-rename names stay reserved: existing raw folders and documents still use them.
 RESERVED_NAMES = frozenset(
@@ -98,6 +99,11 @@ def _source(entry: object, where: str) -> Source:
     query = entry.get("query")
     if not isinstance(query, str) or not query.strip():
         raise SourcesError(f"{where} ({name}): 'query', the Gmail search, is missing")
+    alerts = entry.get("alerts", False)
+    if not isinstance(alerts, bool):
+        raise SourcesError(f"{where} ({name}): 'alerts' is true or false")
+    if alerts:
+        return Source(name, query.strip(), (), alerts=True)
     extensions = entry.get("extensions")
     if (
         not isinstance(extensions, list)

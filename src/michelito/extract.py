@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+from michelito.alerts.common import AlertEmail
+from michelito.analysis import live_match, live_store
 from michelito.config import Source
 from michelito.gmail import AttachmentRef, MailMessage
 from michelito.i18n import t
@@ -24,6 +26,7 @@ from michelito.i18n import t
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _MESSAGE_ID = re.compile(r"[0-9A-Za-z_-]{1,64}")
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+MAX_RETRIES = 20  # failed alerts downloaded again in one sync
 # The name of an attachment whose name has nothing usable (kept from the pre-rename release, so
 # files already in raw/ keep matching).
 _FALLBACK_NAME = "adjunto"  # spanish-data
@@ -76,6 +79,8 @@ def write_private(path: Path, data: bytes) -> None:
 def extract_source(
     conn: sqlite3.Connection, client: MailClient, source: Source, raw_root: Path
 ) -> ExtractStats:
+    if source.alerts:
+        return extract_alerts(conn, client, source)
     known = {row[0] for row in conn.execute("SELECT message_id FROM gmail_messages")}
     new_messages = saved = duplicates = 0
     for message_id in client.list_message_ids(source.query):
@@ -198,3 +203,51 @@ def _metadata(message: MailMessage) -> bytes:
         "attachments": [{"filename": a.filename, "size": a.size} for a in message.attachments],
     }
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def extract_alerts(conn: sqlite3.Connection, client: MailClient, source: Source) -> ExtractStats:
+    """Bank alerts (`michelito.alerts`): each message is parsed in memory and only its fields are
+    stored (`live_store.record`); nothing is written to raw/. A message already stored is not
+    downloaded again; a failed one only if it may succeed now (`live_store.known_message_ids`),
+    at most MAX_RETRIES per sync. At the end, the alerts are reconciled with the cards and
+    statements (`live_match.reconcile`)."""
+    known = live_store.known_message_ids(conn)
+    failed = {str(r[0]) for r in conn.execute("SELECT message_id FROM alerts")} - known
+    new_messages = retries = 0
+    for message_id in client.list_message_ids(source.query):
+        if message_id in known:
+            continue
+        if message_id in failed:
+            if retries >= MAX_RETRIES:
+                continue
+            retries += 1
+        if not _MESSAGE_ID.fullmatch(message_id):
+            raise ValueError(f"unexpected message ID: {message_id!r}")
+        try:
+            message = client.get_message(message_id)
+            with conn:
+                live_store.record(conn, alert_email(message), source.name, _now())
+        except Exception as exc:  # noqa: BLE001 - one bad message must not stop the sync
+            with conn:
+                live_store.record_error(conn, message_id, source.name, type(exc).__name__, _now())
+        known.add(message_id)
+        new_messages += 1
+    with conn:
+        live_match.reconcile(conn, _now())
+    return ExtractStats(source.name, new_messages, 0, 0)
+
+
+def alert_email(message: MailMessage) -> AlertEmail:
+    return AlertEmail(
+        message_id=message.message_id,
+        sender=message.sender,
+        subject=message.subject,
+        received_at=message.received_at,
+        html=message.body_html,
+        text=message.body_text,
+        auth_results=message.auth_results,
+    )
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")

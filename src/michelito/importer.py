@@ -19,6 +19,8 @@ from michelito.extract import MAX_ATTACHMENT_BYTES, safe_filename, write_private
 SOURCE = "imported"
 # Statements the demo generates (`michelito.demo`): no PDF and no raw file.
 GENERATED = "generated"
+# Statements uploaded in hosted mode (`michelito.hosted.uploads`): read in memory, no raw file.
+UPLOADED = "uploaded"
 FOLDER = "imported"
 _SENDER = "manual import"
 _PDF_MAGIC = b"%PDF"
@@ -93,6 +95,36 @@ def register_generated(
     with conn:
         document_id = _record(
             conn, GENERATED, message_id, name, name, path, digest, len(content), stamp
+        )
+    return Registered(document_id, new=True)
+
+
+def register_upload(
+    conn: sqlite3.Connection, name: str, content: bytes, now: datetime
+) -> Registered:
+    """Register an uploaded PDF (hosted mode) as a pending document **without writing it
+    anywhere**: the path only names it (`uploaded:<sha256>`) and the caller parses the bytes it
+    holds in memory. The same file (same sha256) is not registered twice."""
+    digest = hashlib.sha256(content).hexdigest()
+    known = conn.execute(
+        "SELECT id FROM documents WHERE sha256 = ? ORDER BY id", (digest,)
+    ).fetchone()
+    if known is not None:
+        return Registered(known[0], new=False)
+    stamp = now.isoformat(timespec="seconds")
+    message_id = f"{UPLOADED}-{digest[:32]}"
+    filename = safe_filename(name) or f"{digest[:12]}.pdf"
+    with conn:
+        document_id = _record(
+            conn,
+            UPLOADED,
+            message_id,
+            filename,
+            filename,
+            f"{UPLOADED}:{digest}",
+            digest,
+            len(content),
+            stamp,
         )
     return Registered(document_id, new=True)
 

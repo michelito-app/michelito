@@ -1,4 +1,6 @@
 import { useSearchParams } from 'react-router'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { LoadError } from '@/components/LoadError'
 import { BudgetCard } from '@/components/summary/BudgetCard'
@@ -8,6 +10,7 @@ import { CoverageChips } from '@/components/summary/CoverageChips'
 import { InterestCard } from '@/components/summary/InterestCard'
 import { Kpis } from '@/components/summary/Kpis'
 import { MonthHeader } from '@/components/MonthHeader'
+import { SummaryOnboarding } from '@/components/onboarding/SummaryOnboarding'
 import { MobileSummary } from '@/components/summary/MobileSummary'
 import { MonthReading } from '@/components/summary/MonthReading'
 import { PendingCard } from '@/components/summary/PendingCard'
@@ -79,6 +82,7 @@ export function SummaryPage() {
       >
         {summary.data && <CoverageChips coverage={summary.data.coverage} />}
       </MonthHeader>
+      <SummaryOnboarding />
       {summary.isError ? (
         <LoadError what={t('summary.page.summary')} error={summary.error} onRetry={() => summary.refetch()} />
       ) : summary.data ? (
@@ -193,6 +197,7 @@ function MonthBody({
 }
 
 function EmptyState() {
+  if (isHosted(useMode())) return <HostedEmpty view="summary" />
   return (
     <div className={cn(PANEL, 'flex flex-col gap-2 px-6 py-10 text-center')}>
       <h1 className="text-xl font-bold tracking-tight">{t('summary.page.title')}</h1>

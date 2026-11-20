@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { hrefWithSelection, type Selection } from '@/lib/accountFilter'
+import { isHosted, useMode } from '@/lib/demo'
 import type { AlertKind, Recurring } from '@/lib/api'
 import { formatDop } from '@/lib/money'
 import { localToday, shortDay } from '@/lib/months'
@@ -53,6 +54,18 @@ export function RecurringCard({
 }
 
 function CardBody({ data }: { data: Recurring }) {
+  const hosted = isHosted(useMode())
+  if (data.items.length === 0 && hosted) {
+    // Hosted: what fills it, never a bare "none found".
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-[13px] text-ink-2">{t('onboarding.empty.recurring.title')}</p>
+        <Link to="/import" className={WIDGET_ACTION}>
+          {t('onboarding.empty.uploadMonth')}
+        </Link>
+      </div>
+    )
+  }
   if (data.items.length === 0) {
     return <p className="text-[13px] text-muted-foreground">{t('summary.recurringCard.empty')}</p>
   }

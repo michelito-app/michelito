@@ -23,6 +23,16 @@ Pure functions over already loaded transactions. Kinds (`Kind`):
 - "possible_reserve": an expense that looks like it belongs to a reserve
   (`reserves.link_suggestions`; the caller adds it). "Yes" links it; "No" marks it reviewed and
   it doesn't come back.
+- "possible_payment": a credit that looks like a payment from someone who owes you in a shared
+  group, or the bank side of a payment written down unlinked
+  (`ledger_suggest.reverse_suggestions`; the caller adds it). "Yes" records (or links) the
+  payment; "No" marks it reviewed.
+- "unconfirmed": a provisional transaction (from a bank alert) that did not show up in the
+  statement covering its date (`live_store.unmatched`; the caller adds it). "Discard" hides it,
+  "Keep" leaves it counted and marks it reviewed; both go in `provisional_decisions`.
+- "reversal": the bank sent a reversal alert for a purchase that still counts: a provisional it
+  could not void because it is linked (Discard once it is out of the link, or Keep), or one the
+  statement charged anyway (Keep). `live_store.reversals`; the caller adds it.
 
 What already belongs to an investment doesn't show up as "large_third_party" (a contribution is
 "Investments", not "Transfers to third parties") nor as "unusual_income" (neither the yield nor
@@ -60,6 +70,9 @@ Kind = Literal[
     "possible_return",
     "possible_rule",
     "possible_reserve",
+    "possible_payment",
+    "unconfirmed",
+    "reversal",
 ]
 KINDS: tuple[Kind, ...] = get_args(Kind)
 
@@ -91,6 +104,12 @@ class Item:
     investment_id: int | None = None  # possible contribution or return: the proposed investment
     category_id: int | None = None  # possible rule: the proposed category
     reserve_id: int | None = None  # possible reserve: the proposed reserve
+    # Possible payment: the group, who seems to pay (None: unattributed) and, if it reconciles
+    # one already written down, that payment.
+    group_id: int | None = None
+    contact_id: int | None = None
+    payment_id: int | None = None
+    provisional: bool = False  # the movement is still provisional (it can be discarded)
 
 
 @dataclass(frozen=True)

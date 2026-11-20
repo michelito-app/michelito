@@ -1,5 +1,6 @@
 """deploy/deploy.sh with a fake `docker` on the PATH: input validation, deploy by digest,
-falling back when the health check fails, "rollback", feedback.db backups and image cleanup."""
+falling back when the health check fails, "rollback", feedback.db backups, the hosted app's
+backup and health check (with the "hosted" profile) and image cleanup."""
 
 from __future__ import annotations
 
@@ -59,7 +60,24 @@ compose)
 		exit 0 ;;
 	ps) [[ -f $D/running ]] && echo 0123abcd; exit 0 ;;
 	up) echo "$(env_get MICHELITO_TAG) $(env_get MICHELITO_DIGEST)" >"$D/running"; exit 0 ;;
+	run)
+		# `compose run --rm -T backup backup ...`: the backup service, running or not.
+		if [[ $3 == --rm && $4 == -T && $5 == backup && $6 == backup ]]; then
+			[[ -n ${FAKE_HOSTED_BACKUP_FAILS:-} ]] && exit 1
+			printf '%s\n' "$*" >>"$D/hosted-backups"
+			exit 0
+		fi
+		exit 1 ;;
 	exec)
+		if [[ $4 == hosted ]]; then
+			if [[ ${*: -1} == */api/health* ]]; then
+				for bad in ${FAKE_HOSTED_BAD:-}; do
+					[[ $(env_get MICHELITO_DIGEST) == "$bad" ]] && exit 1
+				done
+				exit 0
+			fi
+			exit 1
+		fi
 		code="${*: -1}"
 		if [[ $code == *backup* ]]; then
 			[[ -n ${FAKE_NO_FEEDBACK:-} ]] && exit 3
@@ -418,3 +436,61 @@ def test_keeps_the_last_ten_backups(server: Path) -> None:
 def test_ignores_sighup(server: Path) -> None:
     """If SSH drops, the deploy goes on: the script ignores HUP from the start."""
     assert "trap '' HUP" in SCRIPT.read_text().split("DIR=")[0]
+
+
+# The hosted app (COMPOSE_PROFILES=hosted in .env).
+
+
+def _enable_hosted(root: Path) -> None:
+    env = root / ".env"
+    env.write_text(env.read_text() + "COMPOSE_PROFILES=hosted\n")
+
+
+def hosted_backups(root: Path) -> list[str]:
+    path = root.parent / "hosted-backups"
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def test_without_the_profile_the_hosted_app_is_not_touched(server: Path) -> None:
+    assert run(server, A).returncode == 0
+    assert run(server, B).returncode == 0
+    assert " hosted " not in calls(server)
+
+
+def test_with_the_profile_the_hosted_app_is_backed_up_and_checked(server: Path) -> None:
+    _enable_hosted(server)
+    assert run(server, A).returncode == 0
+    assert hosted_backups(server) == []  # the first deploy: nothing to back up yet
+    result = run(server, B)
+    assert result.returncode == 0, result.stderr
+    [line] = hosted_backups(server)
+    assert line.startswith("compose run --rm -T backup backup --to /data/deploy-backups")
+    assert f"--keep 10 --label {SHA_A[:12]} --skip-empty" in line
+    assert "exec -T hosted python -c" in calls(server)
+    assert running(server) == B
+
+
+def test_a_failed_hosted_backup_does_not_deploy(server: Path) -> None:
+    _enable_hosted(server)
+    assert run(server, A).returncode == 0
+    result = run(server, B, FAKE_HOSTED_BACKUP_FAILS="1")
+    assert result.returncode != 0
+    assert "could not back up the hosted app" in result.stderr
+    assert running(server) == A and version(server) == A
+
+
+def test_an_unhealthy_hosted_app_goes_back(server: Path) -> None:
+    _enable_hosted(server)
+    assert run(server, A).returncode == 0
+    result = run(server, B, FAKE_HOSTED_BAD=DIG_B)
+    assert result.returncode == 1
+    assert running(server) == A
+
+
+def test_the_hosted_backup_runs_even_when_the_hosted_app_is_stopped(server: Path) -> None:
+    _enable_hosted(server)
+    assert run(server, A).returncode == 0
+    (server.parent / "running").unlink()  # nothing running (crashed, stopped by hand)
+    result = run(server, B)
+    assert result.returncode == 0, result.stderr
+    assert len(hosted_backups(server)) == 1

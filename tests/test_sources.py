@@ -61,7 +61,10 @@ CUSTOM_SOURCES = (
 
 
 def test_defaults_are_the_sources_sync_always_used() -> None:
-    assert tuple((s.name, s.query, s.extensions, s.interpret) for s in DEFAULT_SOURCES) == BEFORE
+    statements = tuple(s for s in DEFAULT_SOURCES if not s.alerts)
+    assert tuple((s.name, s.query, s.extensions, s.interpret) for s in statements) == BEFORE
+    # Live sync adds Popular's purchase alerts, parsed in memory (nothing saved to raw/).
+    assert [(s.name, s.extensions) for s in DEFAULT_SOURCES if s.alerts] == [("popular_alerts", ())]
     archive_only = {"afp_reservas", "afp_siembra", "afp_crecer"}  # spanish-data: sender names
     assert frozenset(archive_only) == config.ARCHIVE_ONLY
 

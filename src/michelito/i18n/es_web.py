@@ -85,6 +85,19 @@ MESSAGES: dict[str, str] = {
     "web.review.rule_proposed": "regla propuesta",
     "web.review.rule_discarded": "descartada",
     "web.review.rule_allowed": "se puede proponer",
+    "web.review.unconfirmed_reason": "No apareció en tu estado de {month}. ¿Se reversó?",
+    "web.provisional.discarded": "descartado",
+    "web.provisional.kept": "mantenido sin estado",
+    "web.provisional.pending": "pendiente de estado",
+    "web.provisional.voided": "anulado por una alerta de reverso",
+    "web.provisional.unknown": "no es una transacción pendiente de estado",
+    "web.provisional.linked": "Quítala del grupo primero",
+    "web.review.reversal_linked": (
+        "El banco avisó un reverso de esta compra. Quítala del grupo y descártala, o mantenla."
+    ),
+    "web.review.reversal_charged": (
+        "El banco avisó un reverso, pero tu estado trae el cargo. Revísalo con el banco."
+    ),
     # Saved insights (`web.insight_routes`).
     "web.insight.accounts_mismatch": (
         "las cuentas no son las del dossier que se copió; vuelve a copiarlo"

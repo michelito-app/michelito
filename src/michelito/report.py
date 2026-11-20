@@ -8,6 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from michelito.analysis import live_store
 from michelito.config import COMMIT_FROM, NOTICE_LOOKBACK_DAYS, OVERDUE_DAYS
 from michelito.db import FAILED_PART_STATUSES, PRINTOUT_PARSERS
 
@@ -45,6 +46,7 @@ def build_report(
         _coverage(conn, today, commit_from, overdue_days),
         _failures(conn, commit_from),
         _notices(conn, today),
+        _live(conn),
     )
     return Report(
         lines=tuple(line for lines, _ in parts for line in lines),
@@ -192,3 +194,18 @@ def _short(detail: str | None) -> str:
 def clean(text: str) -> str:
     """Strip control characters: the subject or the PDF could carry terminal sequences."""
     return _CONTROL.sub("?", text)
+
+
+def _live(conn: sqlite3.Connection) -> Part:
+    """Bank alerts (live sync): how many in each status and, for the ones that could not be
+    read, their data-free description. Informational: they raise no alert (an unsigned email
+    anyone can send must not make every `sync` fail)."""
+    counts = live_store.counts(conn)
+    if not counts:
+        return [], []
+    summary = ", ".join(f"{status}: {count}" for status, count in sorted(counts.items()))
+    lines = ["", f"Bank alerts: {summary}"]
+    for failure in live_store.failures(conn):
+        fields = ", ".join(f"{key}={value}" for key, value in sorted(failure.items()))
+        lines.append(f"  not read: {clean(fields)}")
+    return lines, []

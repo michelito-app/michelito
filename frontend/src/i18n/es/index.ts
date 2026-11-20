@@ -20,6 +20,8 @@ import { log } from './log'
 import { claude } from './claude'
 import { demo } from './demo'
 import { importing } from './importing'
+import { auth } from './auth'
+import { onboarding } from './onboarding'
 
 /** Each area's messages, by key prefix. */
 export const AREAS = {
@@ -43,6 +45,8 @@ export const AREAS = {
   claude,
   demo,
   import: importing,
+  auth,
+  onboarding,
 } as const
 
 export const es = {
@@ -66,4 +70,6 @@ export const es = {
   ...claude,
   ...demo,
   ...importing,
+  ...auth,
+  ...onboarding,
 } as const

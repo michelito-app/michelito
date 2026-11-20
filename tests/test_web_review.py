@@ -66,8 +66,13 @@ def test_february_has_one_item_of_each_kind_found(client: TestClient) -> None:
         "investment_id",
         "category_id",
         "reserve_id",
+        "group_id",
+        "contact_id",
+        "payment_id",
+        "provisional",
     }
     assert third["investment_id"] is None
+    assert third["provisional"] is False
     assert third["account_label"] != third["fingerprint"] and third["month"] == FEBRUARY
     assert not any(item["reviewed"] for item in found.values())
 

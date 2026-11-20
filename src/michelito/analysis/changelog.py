@@ -69,6 +69,20 @@ TRACKED = (
     "rule_dismissals",
     "budget_caps",
     "reserve_dismissals",
+    # Hosted onboarding: "Correct" on a top merchant and the cards put off.
+    "reviewed_fingerprints",
+    "onboarding_flags",
+    # The shared ledger (schema 19).
+    "contacts",
+    "contact_aliases",
+    "ledger_groups",
+    "ledger_members",
+    "ledger_entries",
+    "ledger_splits",
+    "ledger_payments",
+    "ledger_links",
+    "ledger_settings",
+    "provisional_decisions",
 )
 _CAPTURE = "changelog_capture"
 
@@ -468,6 +482,9 @@ def _blocked(reason: str, later: int | None) -> UndoState:
 _PARENT_LABELS = {
     "links": t("analysis.changelog.parent_link"),
     "categories": t("analysis.changelog.parent_category"),
+    "ledger_groups": t("analysis.changelog.parent_group"),
+    "ledger_entries": t("analysis.changelog.parent_entry"),
+    "contacts": t("analysis.changelog.parent_contact"),
 }
 
 
@@ -615,6 +632,25 @@ def _end_rehearsal(conn: sqlite3.Connection, own_lock: bool, savepoint: bool = T
             conn.execute("ROLLBACK")
 
 
+# The roles of `link_members` that only old shared groups had (schema 18 and before).
+_OLD_SHARED_ROLES = frozenset({"expense", "reimbursement"})
+
+
+def touches_old_shared(changes: Iterable[Change]) -> bool:
+    """The entry touched an old shared group (a `links` row of kind `shared`, its members or a
+    manual reimbursement): schema 19 moved those to the ledger, so it cannot be undone (it would
+    bring back rows nothing reads)."""
+    for change in changes:
+        rows = [r for r in (change.before, change.after) if r is not None]
+        if change.table == "link_manual":
+            return True
+        if change.table == "links" and any(r.get("kind") == "shared" for r in rows):
+            return True
+        if change.table == "link_members" and any(r.get("role") in _OLD_SHARED_ROLES for r in rows):
+            return True
+    return False
+
+
 def undo_state(
     conn: sqlite3.Connection,
     entry: Entry,
@@ -626,6 +662,8 @@ def undo_state(
     done = undone(conn) if undone_set is None else undone_set
     if entry.id in done:
         return UndoState(False, undone=True, message=t("analysis.changelog.already_undone"))
+    if touches_old_shared(entry.changes):
+        return UndoState(False, message=t("analysis.changelog.old_shared"))
     if not can_undo(entry.changes, current_rows(conn, entry.changes)):
         later = _latest_later(conn, entry, done, keys=[c.row_key for c in entry.changes])
         if later is None:

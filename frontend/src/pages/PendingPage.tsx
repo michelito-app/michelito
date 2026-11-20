@@ -1,4 +1,6 @@
 import { ChevronRight } from 'lucide-react'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 import { AccountPicker } from '@/components/filters/AccountPicker'
@@ -7,7 +9,7 @@ import { FOCUS, PANEL, PANEL_TITLE, ROW_DIVIDER } from '@/components/summary/sty
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import type { Pending, PendingItem } from '@/lib/api'
-import { linkPagePath } from '@/lib/links'
+import { groupPath, linkPagePath } from '@/lib/links'
 import {
   ageText,
   EMPTY_TEXT,
@@ -151,7 +153,11 @@ function Row({ item }: { item: PendingItem }) {
   return (
     <li className={ROW_DIVIDER}>
       <Link
-        to={linkPagePath(item.fingerprint)}
+        to={
+          item.kind === 'shared' && item.link_id != null
+            ? groupPath(item.link_id)
+            : linkPagePath(item.fingerprint)
+        }
         state={{ from: `${location.pathname}${location.search}` }}
         className={cn(
           '-mx-2 flex min-w-0 items-center gap-3 rounded-md px-2 py-3 text-foreground no-underline transition-colors hover:bg-muted/60',
@@ -183,6 +189,7 @@ function Row({ item }: { item: PendingItem }) {
 }
 
 function Empty() {
+  if (isHosted(useMode())) return <HostedEmpty view="pending" />
   return (
     <div className={cn(PANEL, 'flex max-w-[960px] flex-col gap-1.5 px-6 py-10 text-center')}>
       <p className="text-[15px] font-semibold">{EMPTY_TEXT}</p>

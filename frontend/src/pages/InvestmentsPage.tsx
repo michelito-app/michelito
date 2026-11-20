@@ -1,4 +1,6 @@
 import { type ReactNode, useState } from 'react'
+import { isHosted, useMode } from '@/lib/demo'
+import { InvestmentHints } from '@/components/onboarding/InvestmentHints'
 import { Link, useLocation, useSearchParams } from 'react-router'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { InvestmentRow } from '@/components/investments/InvestmentRow'
@@ -195,6 +197,7 @@ function Figures({ data }: { data: InvestmentList }) {
 }
 
 function Empty({ text }: { text: string }) {
+  if (isHosted(useMode())) return <InvestmentHints />
   return (
     <div
       className={cn(PANEL, 'flex max-w-[960px] flex-col items-center gap-2 px-6 py-10 text-center')}

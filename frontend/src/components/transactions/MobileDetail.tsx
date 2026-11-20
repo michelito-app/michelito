@@ -34,14 +34,14 @@ import {
   originText,
 } from '@/lib/transactions'
 import { cn } from '@/lib/utils'
+import { AddExpenseSheet } from '@/components/shared/AddExpenseSheet'
+import { CreditPaymentSheet, SharedTxPanel } from '@/components/shared/TxShared'
 import { CashBoxSection } from './CashBoxSection'
 import { ExchangeSection } from './ExchangeSection'
-import { GroupPanel } from './GroupPanel'
 import { InvestmentSection } from './InvestmentSection'
+import { ProvisionalNote } from './ProvisionalNote'
 import { RecurringSection } from './RecurringSection'
-import { ReimbursementSection } from './ReimbursementSection'
 import { ReserveSection } from './ReserveSection'
-import { SharedSection } from './SharedSection'
 import {
   CategoryField,
   DETAIL_TITLE_ID,
@@ -59,7 +59,7 @@ const SHEET_TITLE: Record<SheetKind, () => string> = {
   note: () => t('transactions.actions.note'),
   oneOff: () => t('transactions.actions.oneOff'),
   shared: () => t('transactions.actions.share'),
-  reimbursement: () => t('transactions.actions.reimbursement'),
+  reimbursement: () => t('shared.credit.title'),
   exchange: () => t('transactions.actions.exchange'),
   investment: () => t('transactions.actions.investment'),
   cashBox: () => t('transactions.actions.cashBox'),
@@ -180,6 +180,7 @@ export function MobileDetail({
           {dayLabel(tx.day)} · {tx.account_label}
         </span>
         <span className="text-[13px] text-muted-foreground">{originText(tx)}</span>
+        <ProvisionalNote tx={tx} />
         <button
           type="button"
           aria-label={t('transactions.detail.changeCategory', { category: tx.category })}
@@ -273,7 +274,15 @@ export function MobileDetail({
         )}
       </section>
 
-      {sheet !== null && (
+      {/* Sharing an expense not in a group goes straight to "I paid it" with it; a credit not in
+          a group can be recorded as a payment received. Both are sheets of their own. */}
+      {sheet === 'shared' && tx.ledger === null && (
+        <AddExpenseSheet tx={tx} onClose={close} onSaved={() => setSheet(null)} />
+      )}
+      {sheet === 'reimbursement' && <CreditPaymentSheet tx={tx} onClose={close} />}
+      {sheet !== null &&
+        !(sheet === 'shared' && tx.ledger === null) &&
+        sheet !== 'reimbursement' && (
         <BottomSheet title={SHEET_TITLE[sheet]()} onClose={close}>
           <SheetBody
             kind={sheet}
@@ -372,16 +381,9 @@ function SheetBody({ kind, tx, correction, onSaved, onDone, onCloseDetail }: She
         </>
       )
     case 'shared':
-      return <SharedSection tx={tx} onSaved={onSaved} />
+      return <SharedTxPanel tx={tx} />
     case 'reimbursement':
-      return (
-        <>
-          <ReimbursementSection tx={tx} />
-          {tx.link === 'reimbursement' && tx.shared && (
-            <GroupPanel group={tx.shared} current={tx.fingerprint} />
-          )}
-        </>
-      )
+      return null
     case 'exchange':
       return <ExchangeSection tx={tx} />
     case 'investment':

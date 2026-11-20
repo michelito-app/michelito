@@ -9,7 +9,7 @@ import { formatDop } from './money'
 export const BATCH_MAX = 500
 
 /** The links that fix the category of their transactions (the server skips them). */
-const FIXED_BY_LINK: readonly LinkKind[] = ['cash_box', 'investment', 'reimbursement', 'exchange']
+const FIXED_BY_LINK: readonly LinkKind[] = ['cash_box', 'investment', 'reimbursement', 'group', 'exchange']
 
 export function fixedByLink(tx: Pick<Tx, 'link'>): boolean {
   return FIXED_BY_LINK.includes(tx.link)

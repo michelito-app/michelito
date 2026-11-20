@@ -17,6 +17,7 @@ import {
   netTone,
   NO_FLOW_NOTE,
   ownMovesNote,
+  provisionalNote,
   oneOffsText,
   rateNote,
   rateText,
@@ -226,6 +227,7 @@ function SpendingNote({ summary, selection }: SectionProps) {
   return (
     <span className="flex flex-col gap-2">
       {versus}
+      <ProvisionalLine cents={summary.provisional_cents} />
       <span>
         <Link to={spendingHref(summary.option.month, selection)} className={cn(INLINE_ACTION, 'no-underline')}>
           {t('summary.kpi.spendingLink')}
@@ -278,6 +280,17 @@ function ReservesNote({ summary, selection }: SectionProps) {
       note={note}
       to={hrefWithSelection(BUDGET_PATH, {}, selection)}
     />
+  )
+}
+
+/** How much is still without a statement (only when part of the month comes from bank alerts). */
+export function ProvisionalLine({ cents }: { cents: number }) {
+  const note = provisionalNote(cents)
+  if (note === null) return null
+  return (
+    <span data-testid="provisional-total" className="text-[13px] text-ink-2">
+      {note.replace(/RD\$ /g, 'RD$\u00a0')}
+    </span>
   )
 }
 

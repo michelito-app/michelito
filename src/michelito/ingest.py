@@ -30,6 +30,7 @@ The details stored in `documents.detail` and `document_parts` are Spanish text f
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections import Counter
 from collections.abc import Callable, Collection
@@ -38,11 +39,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from michelito import db
+from michelito.analysis import live_match
 from michelito.config import ARCHIVE_ONLY
 from michelito.i18n import t
 from michelito.parsers import StatementParser, detect, labeler, popular_web, splitter
 from michelito.parsers.common import Page, Statement, count_notes, validate_statement
 
+_LOG = logging.getLogger(__name__)
 PageReader = Callable[[Path, str], tuple[Page, ...]]
 RETRYABLE = ("invalid", "error", "unsupported")
 
@@ -224,6 +227,7 @@ def _store_part(
     conn: sqlite3.Connection, document_id: int, statement: Statement
 ) -> tuple[str, str | None]:
     """Store a part in its own transaction."""
+    before = _last_statement(conn)
     try:
         with conn:
             stored = db.store_statement(conn, document_id, statement)
@@ -231,6 +235,7 @@ def _store_part(
         if db.DUPLICATE_PERIOD_INDEX in str(exc):
             return "duplicate", t("core.ingest.duplicate_period")
         return "error", f"IntegrityError: {exc}"
+    _reconcile(conn, before)
     return "parsed", t("core.ingest.stored", count=stored)
 
 
@@ -298,6 +303,7 @@ def _store(
 ) -> str:
     """Store the statement and mark the document in the same transaction; `currency`, if
     given, becomes the currency of the account's printouts (also when it was a duplicate)."""
+    before = _last_statement(conn)
     try:
         with conn:
             stored = db.store_statement(conn, document_id, statement)
@@ -315,7 +321,28 @@ def _store(
             if status == "duplicate":
                 _remember(conn, statement, currency)
         return status
+    _reconcile(conn, before)
     return "parsed"
+
+
+def _last_statement(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM statements").fetchone()[0])
+
+
+def _reconcile(conn: sqlite3.Connection, after: int) -> None:
+    """Once the statement is committed, in a transaction of its own: it may confirm provisionals
+    from bank alerts (`live_match`), handing their identity only to the rows just stored. If it
+    fails the statement stays; the next reconcile (the next sync) does the same work."""
+    stored = [
+        int(row[0]) for row in conn.execute("SELECT id FROM statements WHERE id > ?", (after,))
+    ]
+    try:
+        with conn:
+            live_match.reconcile(conn, _now(), stored)
+    except sqlite3.Error as exc:
+        _LOG.warning(
+            "reconciling bank alerts failed (%s); the next sync retries", type(exc).__name__
+        )
 
 
 def _remember(conn: sqlite3.Connection, statement: Statement, currency: str | None) -> None:

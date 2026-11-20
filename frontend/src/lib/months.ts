@@ -44,6 +44,19 @@ export function longDay(iso: string): string {
   return t('months.longDay', { day: Number(iso.slice(8, 10)), month: monthName(iso.slice(0, 7)) })
 }
 
+/** "2026-10-13" → day, short month and year. */
+export function dayWithYear(iso: string): string {
+  return `${shortDay(iso)} ${iso.slice(0, 4)}`
+}
+
+/** A span of days (month names from the UI locale): "20 Dec 2025", "3 Feb – 7 Feb 2026" or,
+ * across years, "18 Dec 2025 – 9 Jan 2026". */
+export function dateRange(first: string, last: string): string {
+  if (first === last) return dayWithYear(first)
+  if (first.slice(0, 4) === last.slice(0, 4)) return `${shortDay(first)} – ${dayWithYear(last)}`
+  return `${dayWithYear(first)} – ${dayWithYear(last)}`
+}
+
 /** Today in the browser's time zone, as "YYYY-MM-DD". */
 export function localToday(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0')

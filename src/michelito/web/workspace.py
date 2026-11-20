@@ -17,7 +17,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -27,10 +27,12 @@ from starlette.responses import Response
 
 @dataclass(frozen=True)
 class Workspace:
-    """A request's database and its holders file."""
+    """A request's database and its holders file. `key`: the database's encryption key (hosted
+    mode; never shown in `repr`); None for a plain file (the local board and the demo)."""
 
     database: Path
     holders: Path
+    key: bytes | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ CURRENT: ContextVar[Workspace | None] = ContextVar("michelito_workspace", defaul
 
 Register = Callable[..., None]
 OnConnect = Callable[[sqlite3.Connection], None]
+Guard = Callable[..., Response | None]
 
 
 @dataclass(frozen=True)
@@ -88,7 +91,11 @@ class Mode:
     route prefixes that answer 403. `max_body`: maximum body size in bytes (None: no limit).
     `info`: what `GET /api/mode` tells the interface. `register(app, connection, load_flow)`:
     the mode's own routes, registered before the "not found" one. `on_connect`: applied to every
-    connection `connection()` opens (in the demo, the copy's size limit)."""
+    connection `connection()` opens (in the demo, the copy's size limit). `body_limits`: a larger
+    body size for some exact paths (hosted uploads). `open_writes`: exact paths whose writes do
+    not need `X-Michelito` (the installed app's share target, which opens no database). `guard`:
+    called (in a thread) with the request and `connection` once the request has its database,
+    before the route; a response it returns stops the request (hosted mode: the upload gate)."""
 
     name: str
     provider: WorkspaceProvider
@@ -99,3 +106,6 @@ class Mode:
     info: dict[str, str] | None = None
     register: Register | None = None
     on_connect: OnConnect | None = None
+    body_limits: tuple[tuple[str, int], ...] = ()
+    open_writes: frozenset[str] = frozenset()
+    guard: Guard | None = None

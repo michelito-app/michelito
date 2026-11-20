@@ -79,9 +79,14 @@ def load_holders(path: Path) -> Holders:
     if not path.is_file():
         return Holders()
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        return parse_holders(path.read_text(encoding="utf-8"))
     except UnicodeDecodeError:
         return Holders()
+
+
+def parse_holders(text: str) -> Holders:
+    """Holders from the text of a holders file (see `load_holders`)."""
+    lines = text.splitlines()
     names: list[str] = []
     numbers: list[int] = []
     for line in lines:

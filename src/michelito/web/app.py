@@ -16,22 +16,21 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from michelito import config, db
+from michelito import config, db, holders, migrations_v19
 from michelito.analysis import accounts as account_data
 from michelito.analysis import (
     cash_box,
     catalog,
     changelog,
+    ledger_store,
     links,
     rates,
     review_marks,
     spending,
-    transfers,
 )
 from michelito.analysis import exchanges as exchange_math
 from michelito.analysis import one_off_dismissals as dismissals
 from michelito.analysis import recurring_marks as marks
-from michelito.analysis import shared as shared_math
 from michelito.analysis.categories import KIND_LABELS, Kind
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
@@ -44,12 +43,13 @@ from michelito.web import (
     edit_log,
     insight_routes,
     investment_routes,
+    ledger_routes,
+    live_routes,
     log_routes,
     recurring_routes,
     report_routes,
     reserve_routes,
     review_routes,
-    shared_routes,
     summary,
     transactions,
 )
@@ -61,7 +61,6 @@ from michelito.web import pending as pending_view
 from michelito.web.schemas import (
     AccountOut,
     CandidateOut,
-    CandidatesOut,
     CategoryBody,
     CategoryOut,
     CategoryPatch,
@@ -71,10 +70,6 @@ from michelito.web.schemas import (
     ExchangeBody,
     ExchangeOut,
     ExchangePatch,
-    GroupCandidateOut,
-    GroupExpenseBody,
-    GroupPatch,
-    GroupRefOut,
     InterestOut,
     LegsBody,
     MonthOptionOut,
@@ -83,11 +78,7 @@ from michelito.web.schemas import (
     PreviewBody,
     PreviewOut,
     RateBody,
-    ReimbursementBody,
     SavedRateOut,
-    SharedBody,
-    SharedOut,
-    SplitBody,
     SummaryOut,
     TransactionsOut,
     TxOut,
@@ -164,6 +155,13 @@ def create_app(
     mode = mode or local_mode(Workspace(db_path, holders_file))
     app = FastAPI(title="michelito", docs_url=None, redoc_url=None, openapi_url=None)
 
+    @app.exception_handler(migrations_v19.MigrationMismatch)
+    async def migration_mismatch(request: Request, exc: Exception) -> JSONResponse:  # noqa: ARG001
+        """The database could not be brought to schema 19 (it stayed as it was): say so."""
+        return JSONResponse(
+            {"detail": t("core.migration_mismatch", detail=str(exc))}, status_code=503
+        )
+
     def workspace() -> Workspace:
         """This request's database; without one (no demo session) none is opened."""
         found = CURRENT.get()
@@ -173,7 +171,8 @@ def create_app(
 
     @contextmanager
     def connection() -> Iterator[sqlite3.Connection]:
-        with closing(db.connect(workspace().database)) as conn:
+        found = workspace()
+        with closing(db.connect(found.database, found.key)) as conn:
             if mode.on_connect is not None:
                 mode.on_connect(conn)
             yield conn
@@ -192,7 +191,12 @@ def create_app(
             token = changelog.AUTHOR.set(request.headers.get(AUTHOR_HEADER, "user"))
             place = CURRENT.set(resolved.workspace)
             try:
-                response = await call_next(request)
+                stop = (
+                    await run_in_threadpool(mode.guard, request, connection)
+                    if mode.guard is not None
+                    else None
+                )
+                response = stop if stop is not None else await call_next(request)
             finally:
                 CURRENT.reset(place)
                 changelog.AUTHOR.reset(token)
@@ -227,7 +231,7 @@ def create_app(
         """Every movement (expenses, income, transfers), with up-to-date holders.
 
         `known`: the category catalog (by default, the database's)."""
-        return spending.load_all(conn, transfers.load_holders(workspace().holders), known)
+        return spending.load_all(conn, holders.of(workspace(), conn), known)
 
     def load_spending(conn: sqlite3.Connection) -> tuple[Movement, ...]:
         """Only the expenses, with the same criteria as the Summary (holders included)."""
@@ -256,7 +260,12 @@ def create_app(
             try:
                 by_month = rates.load(conn)
                 ctx = links_view.context(
-                    movements, links.load(conn), infos, by_month, suggest=False
+                    movements,
+                    links.load(conn),
+                    infos,
+                    by_month,
+                    suggest=False,
+                    book=ledger_store.load(conn),
                 )
                 built = summary.build_summary(
                     movements,
@@ -264,7 +273,7 @@ def create_app(
                     by_month,
                     chosen,
                     selected,
-                    ctx.expense_states,
+                    ctx.groups,
                     ctx.exchange_states,
                 )
             except LookupError:
@@ -279,9 +288,17 @@ def create_app(
             infos = account_data.account_infos(conn)
             selected = parse_accounts(accounts, infos)
             by_month = rates.load(conn)
-            ctx = links_view.context(movements, links.load(conn), infos, by_month, suggest=False)
+            ctx = links_view.context(
+                movements,
+                links.load(conn),
+                infos,
+                by_month,
+                suggest=False,
+                book=ledger_store.load(conn),
+            )
         found = pending_view.build_pending(
             ctx.movements,
+            ctx.book,
             ctx.groups,
             ctx.exchange_states,
             ctx.labels,
@@ -301,11 +318,13 @@ def create_app(
         accounts: AccountKeys = None,
         category_id: int | None = None,
         shared: transactions.SharedFilter | None = None,
+        provisional: bool = False,
     ) -> TransactionsOut:
         """`account` (one account) is the older filter and is still accepted; together with
         `accounts`, the rows that match both remain. The category goes by `category_id` or by
         name (`category`: the current one or an earlier one). `shared`: only shared expenses
-        ("shared") or the ones with an amount pending ("pending")."""
+        ("shared") or the ones with an amount pending ("pending"). `provisional`: only the ones
+        from bank alerts still waiting for their statement."""
         with connection() as conn:
             known = catalog.load(conn)
             movements = load_flow(conn, known)
@@ -326,6 +345,7 @@ def create_app(
                     selected,
                     categories_view.filter_ref(known, category, category_id),
                     shared,
+                    provisional,
                 ),
                 # The suggestions, with the same history as the Summary card.
                 only(movements, selected),
@@ -352,7 +372,12 @@ def create_app(
         one-off expenses are judged against (by default, all of them)."""
         by_month = rates.load(conn)
         ctx = links_view.context(
-            movements, links.load(conn), infos, by_month, reviewed=review_marks.load(conn)
+            movements,
+            links.load(conn),
+            infos,
+            by_month,
+            reviewed=review_marks.load(conn),
+            book=ledger_store.load(conn),
         )
         return transactions.list_transactions(
             movements,
@@ -393,8 +418,8 @@ def create_app(
 
     @app.patch("/api/transactions/{fingerprint}")
     def patch_transaction(fingerprint: str, body: EditBody) -> TxOut:
-        """Category, one-off flag, note and split (`shared`; null removes it) in a single
-        database transaction: an error leaves nothing half done."""
+        """Category, one-off flag and note in a single database transaction: an error leaves
+        nothing half done. (Sharing goes through Shared: `web.ledger_routes`.)"""
         with connection() as conn:
             flow = load_flow(conn)
             target = find_tx(conn, fingerprint)
@@ -416,13 +441,6 @@ def create_app(
                 if problem is not None:
                     raise ValueError(problem)
                 with conn:
-                    if "shared" in body.model_fields_set:
-                        with track_tx(conn, "shared", target):
-                            apply_shared(conn, target, body.shared)
-                    if body.written_off is not None:
-                        group = links.group_of(conn, fingerprint)
-                        with track_link(conn, "shared", group):
-                            links.set_written_off(conn, group, body.written_off)
                     edit_log.edit_transaction(
                         conn, target, known, chosen, body.one_off, body.scope, body.note, flow
                     )
@@ -454,41 +472,6 @@ def create_app(
             conn, kind, "link", str(link_id), edit_log.link_subject(conn, link_id)
         )
 
-    def apply_shared(conn: sqlite3.Connection, target: Movement, body: SharedBody | None) -> None:
-        """`body`: the split (creates a group, adds the expense to `link_id` or changes its
-        split); None removes the expense from its group (the last expense deletes the group)."""
-        if body is None:
-            links.unshare(conn, target.fingerprint)
-            return
-        found = links.load(conn)
-        split = split_args(body)
-        current = found.shared_for(target.fingerprint)
-        if body.link_id is not None and current is None:
-            check_join(conn, body.link_id, target)
-            links.add_expense(
-                conn, body.link_id, target.fingerprint, shared_math.gross(target), **split
-            )
-            return
-        if body.link_id is not None and current is not None and current.id != body.link_id:
-            raise links.AlreadyLinked(t("web.expense_in_other_group"))
-        links_view.check_shareable(found, target)
-        links.set_shared(
-            conn, target.fingerprint, shared_math.gross(target), with_whom=body.with_whom, **split
-        )
-
-    def split_args(body: SplitBody) -> dict:
-        return {
-            "people": body.people,
-            "my_share": None if body.my_share_cents is None else Decimal(body.my_share_cents) / 100,
-            "for_other": body.for_other,
-        }
-
-    def check_join(conn: sqlite3.Connection, link_id: int, target: Movement) -> None:
-        try:
-            links_view.check_joinable(link_context(conn), link_id, target)
-        except LookupError:
-            raise HTTPException(404, t("web.unknown_group")) from None
-
     def link_context(conn: sqlite3.Connection) -> links_view.Context:
         return links_view.context(
             load_flow(conn),
@@ -496,33 +479,6 @@ def create_app(
             account_data.account_infos(conn),
             rates.load(conn),
             suggest=False,
-        )
-
-    def add_refund(
-        conn: sqlite3.Connection, link_id: int, body: ReimbursementBody, ctx: links_view.Context
-    ) -> None:
-        """Links a credit or records a manual one in the group (inside the transaction)."""
-        if body.credit is not None:
-            credit = find_tx(conn, body.credit)
-            links_view.check_reimbursement(ctx, link_id, credit)
-            links.add_reimbursement(conn, link_id, credit.fingerprint)
-            return
-        entry = body.manual
-        if entry is None:
-            raise HTTPException(422, t("web.credit_or_manual"))
-        state = ctx.groups.get(link_id)
-        if state is None:
-            raise links.LinkError(t("web.group_without_expenses"))
-        if entry.day < state.first.day:
-            raise links.LinkError(t("web.refund_before_expense"))
-        links.add_manual(
-            conn,
-            link_id,
-            Decimal(entry.amount_cents) / 100,
-            entry.day,
-            entry.currency or state.first.currency,  # no currency: the oldest expense's, today
-            entry.person,
-            entry.place,
         )
 
     @contextmanager
@@ -538,220 +494,8 @@ def create_app(
         except LookupError as exc:
             raise HTTPException(404, str(exc) or t("web.unknown_group")) from None
 
-    @app.post("/api/transactions/{fingerprint}/reimbursements")
-    def post_reimbursement(fingerprint: str, body: ReimbursementBody) -> TxOut:
-        """Links an imported credit or records a manual one in the expense's group; returns the
-        up-to-date expense."""
-        if (body.credit is None) == (body.manual is None):
-            raise HTTPException(422, t("web.credit_or_manual"))
-        with connection() as conn:
-            expense = find_tx(conn, fingerprint)
-            ctx = link_context(conn)
-            with link_errors(), conn:
-                group = links.group_of(conn, fingerprint)
-                with track_link(conn, "shared", group):
-                    add_refund(conn, group, body, ctx)
-            return tx_out(conn, fingerprint, expense.month)
-
-    @app.delete("/api/transactions/{fingerprint}/reimbursements/manual/{entry_id}")
-    def delete_manual(fingerprint: str, entry_id: int) -> TxOut:
-        with connection() as conn:
-            expense = find_tx(conn, fingerprint)
-            with link_errors(), conn:
-                group = links.group_of(conn, fingerprint)
-                with track_link(conn, "shared", group):
-                    links.remove_manual(conn, group, entry_id)
-            return tx_out(conn, fingerprint, expense.month)
-
-    @app.delete("/api/transactions/{fingerprint}/reimbursements/{credit}")
-    def delete_reimbursement(fingerprint: str, credit: str) -> TxOut:
-        with connection() as conn:
-            expense = find_tx(conn, fingerprint)
-            with link_errors(), conn:
-                group = links.group_of(conn, fingerprint)
-                with track_link(conn, "shared", group):
-                    links.remove_reimbursement(conn, group, credit)
-            return tx_out(conn, fingerprint, expense.month)
-
-    @app.delete("/api/reimbursements/{credit}", status_code=204)
-    def delete_reimbursement_of_credit(credit: str) -> Response:
-        """Unlinks a credit from its own side, through its link: works even when the group has
-        no expenses present (dormant link). 404 if the credit is not a reimbursement."""
-        with connection() as conn:
-            owner = links.load(conn).reimbursed(credit)
-            if owner is None:
-                raise HTTPException(404, t("web.not_a_reimbursement"))
-            with conn, track_link(conn, "shared", owner.id):
-                links.remove_reimbursement(conn, owner.id, credit)
-        return Response(status_code=204)
-
-    @app.get("/api/transactions/{fingerprint}/reimbursement-candidates")
-    def get_reimbursement_candidates(fingerprint: str) -> CandidatesOut:
-        """For a shared expense, the credits that can reimburse its group; for a credit, the
-        groups with an amount pending that it can reimburse."""
-        with connection() as conn:
-            target = find_tx(conn, fingerprint)
-            ctx = link_context(conn)
-            places = links.places(conn)
-        owner = ctx.links.shared_for(fingerprint)
-        if owner is not None and owner.id in ctx.groups:
-            return credit_candidates(ctx, owner.id, places)
-        groups: list[shared_math.GroupCandidate] = []
-        if shared_math.is_eligible_credit(target, ctx.links):
-            groups = shared_math.pick_groups(target, ctx.groups, ctx.rates)
-        return CandidatesOut(
-            credits=[],
-            groups=[
-                GroupCandidateOut(**GroupRefOut.ref(c.state).model_dump(), primary=c.primary)
-                for c in groups
-            ],
-            places=places,
-        )
-
-    def credit_candidates(
-        ctx: links_view.Context, link_id: int, places: list[str]
-    ) -> CandidatesOut:
-        state = ctx.groups[link_id]
-        credits = shared_math.pick_credits(state, ctx.movements, ctx.links, ctx.rates)
-        currency = state.first.currency
-        return CandidatesOut(
-            credits=[
-                CandidateOut.ranked(ctx.credit_for(c.move, currency), c.primary) for c in credits
-            ],
-            groups=[],
-            places=places,
-        )
-
-    # --- Shared groups (by id) --------------------------------------------------------------
-
-    def group_out(conn: sqlite3.Connection, link_id: int) -> SharedOut:
-        view = link_context(conn).group_view(link_id)
-        if view is None:
-            raise HTTPException(404, t("web.unknown_group"))
-        return SharedOut.of(view)
-
-    # Before `/api/shared/{link_id}`: `/api/shared/new-candidates` is not an id.
-    shared_routes.register(app, connection, load_flow, parse_accounts, today)
-
-    @app.get("/api/shared/open")
-    def get_open_groups() -> list[GroupRefOut]:
-        """Groups with an amount pending, most recent first ("add it to a group")."""
-        with connection() as conn:
-            ctx = link_context(conn)
-        return [GroupRefOut.ref(g) for g in shared_math.open_groups(ctx.groups)]
-
-    @app.get("/api/shared/{link_id}")
-    def get_group(link_id: int) -> SharedOut:
-        with connection() as conn:
-            return group_out(conn, link_id)
-
-    @app.patch("/api/shared/{link_id}")
-    def patch_group(link_id: int, body: GroupPatch) -> SharedOut:
-        """The group's name, "with whom" and "they won't pay me back"."""
-        given = body.model_fields_set
-        with connection() as conn:
-            with link_errors(), conn, track_link(conn, "shared", link_id):
-                if "name" in given or "with_whom" in given:
-                    links.set_group(
-                        conn,
-                        link_id,
-                        name=body.name if "name" in given else ...,
-                        with_whom=body.with_whom if "with_whom" in given else ...,
-                    )
-                if body.written_off is not None:
-                    links.set_written_off(conn, link_id, body.written_off)
-            return group_out(conn, link_id)
-
-    @app.post("/api/shared/{link_id}/expenses")
-    def post_group_expense(link_id: int, body: GroupExpenseBody) -> SharedOut:
-        """Adds an unlinked expense to the group, with its split."""
-        with connection() as conn:
-            target = find_tx(conn, body.fingerprint)
-            with link_errors(), conn, track_link(conn, "shared", link_id):
-                check_join(conn, link_id, target)
-                links.add_expense(
-                    conn,
-                    link_id,
-                    target.fingerprint,
-                    shared_math.gross(target),
-                    **split_args(body.split),
-                )
-            return group_out(conn, link_id)
-
-    @app.put("/api/shared/{link_id}/expenses/{fingerprint}")
-    def put_group_expense(link_id: int, fingerprint: str, body: SplitBody) -> SharedOut:
-        """Changes the split of one of the group's expenses."""
-        with connection() as conn:
-            target = find_tx(conn, fingerprint)
-            owner = links.load(conn).shared_for(fingerprint)
-            if owner is None or owner.id != link_id:
-                raise HTTPException(404, t("web.expense_not_in_group"))
-            with link_errors(), conn, track_link(conn, "shared", link_id):
-                links.set_shared(conn, fingerprint, shared_math.gross(target), **split_args(body))
-            return group_out(conn, link_id)
-
-    @app.delete("/api/shared/{link_id}/expenses/{fingerprint}")
-    def delete_group_expense(link_id: int, fingerprint: str) -> Response:
-        """Removes the expense from the group (the reimbursements stay). With the last expense
-        the group is deleted and its reimbursements become free: 204. Otherwise, the up-to-date
-        group."""
-        with connection() as conn:
-            owner = links.load(conn).shared_for(fingerprint)
-            if owner is None or owner.id != link_id:
-                raise HTTPException(404, t("web.expense_not_in_group"))
-            with conn, track_link(conn, "shared", link_id):
-                deleted = links.unshare(conn, fingerprint)
-            if deleted:
-                return Response(status_code=204)
-            return JSONResponse(group_out(conn, link_id).model_dump())
-
-    @app.get("/api/shared/{link_id}/expense-candidates")
-    def get_group_expense_candidates(link_id: int) -> list[CandidateOut]:
-        """The "add another expense" list: unlinked expenses within ±120 days, ranked and marked."""
-        with connection() as conn:
-            ctx = link_context(conn)
-        state = ctx.groups.get(link_id)
-        if state is None:
-            raise HTTPException(404, t("web.unknown_group"))
-        found = shared_math.pick_expenses(state, ctx.movements, ctx.links, ctx.rates)
-        return [
-            CandidateOut.ranked(links_view.linked_tx(c.move, ctx.labels), c.primary) for c in found
-        ]
-
-    @app.get("/api/shared/{link_id}/credit-candidates")
-    def get_group_credit_candidates(link_id: int) -> CandidatesOut:
-        with connection() as conn:
-            ctx = link_context(conn)
-            places = links.places(conn)
-        if link_id not in ctx.groups:
-            raise HTTPException(404, t("web.unknown_group"))
-        return credit_candidates(ctx, link_id, places)
-
-    @app.post("/api/shared/{link_id}/reimbursements")
-    def post_group_reimbursement(link_id: int, body: ReimbursementBody) -> SharedOut:
-        if (body.credit is None) == (body.manual is None):
-            raise HTTPException(422, t("web.credit_or_manual"))
-        with connection() as conn:
-            ctx = link_context(conn)
-            with link_errors(), conn, track_link(conn, "shared", link_id):
-                if ctx.links.group(link_id) is None:
-                    raise LookupError(link_id)
-                add_refund(conn, link_id, body, ctx)
-            return group_out(conn, link_id)
-
-    @app.delete("/api/shared/{link_id}/reimbursements/{credit}")
-    def delete_group_reimbursement(link_id: int, credit: str) -> SharedOut:
-        with connection() as conn:
-            with link_errors(), conn, track_link(conn, "shared", link_id):
-                links.remove_reimbursement(conn, link_id, credit)
-            return group_out(conn, link_id)
-
-    @app.delete("/api/shared/{link_id}/manual/{entry_id}")
-    def delete_group_manual(link_id: int, entry_id: int) -> SharedOut:
-        with connection() as conn:
-            with link_errors(), conn, track_link(conn, "shared", link_id):
-                links.remove_manual(conn, link_id, entry_id)
-            return group_out(conn, link_id)
+    # Shared (the ledger): see `web.ledger_routes`.
+    ledger_routes.register(app, connection, load_flow, parse_accounts, today)
 
     def suggested_reasons(
         conn: sqlite3.Connection,
@@ -1109,6 +853,7 @@ def create_app(
 
     recurring_routes.register(app, connection, load_flow, parse_accounts, today)
     review_routes.register(app, connection, load_flow, parse_accounts)
+    live_routes.register(app, connection, load_flow)
     log_routes.register(app, connection, load_flow)
     batch_routes.register(app, connection, load_flow)
     investment_routes.register(app, connection, load_flow, parse_accounts, today)
@@ -1116,9 +861,7 @@ def create_app(
     report_routes.register(app, connection, load_flow, parse_accounts)
     budget_routes.register(app, connection, load_flow, parse_accounts, today)
     reserve_routes.register(app, connection, load_flow, parse_accounts, today)
-    insight_routes.register(
-        app, connection, load_flow, lambda: transfers.load_holders(workspace().holders)
-    )
+    insight_routes.register(app, connection, load_flow, lambda: holders.of(workspace()))
     dossier_routes.register(app, connection, load_flow)
     if mode.register is not None:
         mode.register(app, connection, load_flow)
@@ -1146,7 +889,12 @@ def local_mode(fixed: Workspace) -> Mode:
 def _refusal(request: Request, mode: Mode) -> Response | None:
     """The response that stops the request before its route, if any: `X-Michelito` missing on a
     method that writes, author not accepted, route blocked in the mode or body too large."""
-    if request.method not in SAFE_METHODS and request.headers.get(WRITE_HEADER) != "1":
+    path = request.url.path
+    if (
+        request.method not in SAFE_METHODS
+        and request.headers.get(WRITE_HEADER) != "1"
+        and path not in mode.open_writes
+    ):
         return JSONResponse(
             {"detail": t("web.missing_header", header=WRITE_HEADER)}, status_code=403
         )
@@ -1157,13 +905,13 @@ def _refusal(request: Request, mode: Mode) -> Response | None:
         return JSONResponse(
             {"detail": t("web.author_not_accepted", mode=mode.name)}, status_code=403
         )
-    path = request.url.path
     if any(path == prefix or path.startswith(f"{prefix}/") for prefix in mode.blocked):
         return JSONResponse(
             {"detail": t("web.unavailable_in_mode", mode=mode.name)}, status_code=403
         )
     if mode.max_body is not None and request.method not in SAFE_METHODS:
-        return _body_refusal(request, mode.max_body)
+        limit = next((size for exact, size in mode.body_limits if path == exact), mode.max_body)
+        return _body_refusal(request, limit)
     return None
 
 

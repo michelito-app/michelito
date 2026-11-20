@@ -21,7 +21,12 @@ from tests.e2e_server import build_demo_db
 
 FEBRUARY = "2026-02"
 OLD_CATEGORY_KINDS = {new: old for old, new in legacy.CATEGORY_KINDS.items()}
-OLD_REVIEW_KINDS = {new: old for old, new in legacy.REVIEW_KINDS.items()}
+# A kind added after the rename is written the same way (schema 19: "To review" proposes
+# payments of shared groups).
+OLD_REVIEW_KINDS = {
+    **{new: old for old, new in legacy.REVIEW_KINDS.items()},
+    "possible_payment": "pago_posible",  # spanish-data
+}
 
 
 @pytest.fixture
@@ -73,9 +78,20 @@ def test_no_english_kind_value_reaches_the_markdown(built: dossier.Dossier) -> N
         assert not cells & english, section
 
 
-@pytest.mark.parametrize("kind", review.KINDS)
+# Review kinds added after the rename: they never had an old stored value.
+NEWER_REVIEW_KINDS = ("unconfirmed", "reversal")
+
+
+@pytest.mark.parametrize("kind", [k for k in review.KINDS if k not in NEWER_REVIEW_KINDS])
 def test_every_review_kind_has_its_old_label(kind: str) -> None:
     assert t(f"dossier.review_kind.{kind}") == OLD_REVIEW_KINDS[kind]
+
+
+@pytest.mark.parametrize("kind", NEWER_REVIEW_KINDS)
+def test_a_newer_review_kind_has_a_spanish_label_in_the_same_style(kind: str) -> None:
+    label = t(f"dossier.review_kind.{kind}")
+    assert kind in review.KINDS
+    assert label != kind and label == label.lower() and " " not in label
 
 
 @pytest.mark.parametrize("kind", sorted(OLD_CATEGORY_KINDS))

@@ -7,6 +7,7 @@ import type { Selection } from '@/lib/accountFilter'
 import type { InvestmentRole, ReviewItem } from '@/lib/api'
 import {
   useChangeInvestment,
+  useDecideProvisional,
   useEditTransaction,
   useMarkReviewed,
   useReview,
@@ -21,6 +22,7 @@ import {
   openLabel,
   originalAmountText,
 } from '@/lib/review'
+import { confirmPossiblePayment, useLedgerWrite } from '@/lib/sharedQueries'
 import { REVIEW_LIMIT, splitTop } from '@/lib/summary'
 import { cn } from '@/lib/utils'
 import { FOCUS, PANEL, PANEL_TITLE, ROW_DIVIDER } from './styles'
@@ -50,6 +52,8 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
   const edit = useEditTransaction()
   const mark = useMarkReviewed()
   const invest = useChangeInvestment()
+  const pay = useLedgerWrite()
+  const decide = useDecideProvisional()
   const [all, setAll] = useState(false)
   // What was decided leaves the card at once; when new data arrives the server rules.
   const updatedAt = review.dataUpdatedAt
@@ -99,6 +103,19 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
     )
   }
 
+  /** A provisional missing from its statement: "Discard" (it was reversed or never charged). */
+  function discard(item: ReviewItem) {
+    decide.mutate(
+      { fingerprint: item.fingerprint, decision: 'discard' },
+      { onSuccess: () => hide(item) },
+    )
+  }
+
+  /** "Did Ana pay you?" answered yes: records the payment with this credit (one tap). */
+  function confirmPayment(item: ReviewItem) {
+    pay.mutate(() => confirmPossiblePayment(item), { onSuccess: () => hide(item) })
+  }
+
   function reviewed(item: ReviewItem) {
     mark.mutate(
       { kind: item.kind, fingerprint: item.fingerprint, reviewed: true },
@@ -124,8 +141,9 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
     )
   }
 
-  const error = edit.error ?? mark.error ?? invest.error
-  const busy = edit.isPending || mark.isPending || invest.isPending
+  const error = edit.error ?? mark.error ?? invest.error ?? pay.error ?? decide.error
+  const busy =
+    edit.isPending || mark.isPending || invest.isPending || pay.isPending || decide.isPending
   return (
     <section
       aria-labelledby="review-title"
@@ -150,6 +168,8 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
             onOneOff={confirmOneOff}
             onInvest={confirmInvestment}
             onRule={acceptRule}
+            onPayment={confirmPayment}
+            onDiscard={discard}
           />
         ))}
       </ul>
@@ -183,6 +203,8 @@ interface ReviewLineProps {
   onOneOff: (item: ReviewItem) => void
   onInvest: (item: ReviewItem, role: InvestmentRole) => void
   onRule: (item: ReviewItem) => void
+  onPayment: (item: ReviewItem) => void
+  onDiscard: (item: ReviewItem) => void
 }
 
 /** A notice on two lines: kind, merchant and amount (they open the transaction in Transactions);
@@ -195,6 +217,8 @@ function ReviewLine({
   onOneOff,
   onInvest,
   onRule,
+  onPayment,
+  onDiscard,
 }: ReviewLineProps) {
   const reason = useId()
   const original = originalAmountText(item)
@@ -237,6 +261,27 @@ function ReviewLine({
         <span className={cn('flex gap-1.5', investing ? 'flex-wrap' : 'shrink-0')}>
           {investing ? (
             <InvestmentButtons item={item} busy={busy} onReviewed={onReviewed} onInvest={onInvest} />
+          ) : item.kind === 'possible_payment' && item.group_id != null ? (
+            <>
+              <button
+                type="button"
+                className={PRIMARY}
+                aria-label={t('summary.review.paymentLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onPayment(item)}
+              >
+                {t('summary.review.payment')}
+              </button>
+              <button
+                type="button"
+                className={SECONDARY}
+                aria-label={t('summary.review.notPaymentLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onReviewed(item)}
+              >
+                {t('summary.review.no')}
+              </button>
+            </>
           ) : item.kind === 'possible_rule' ? (
             <>
               <button
@@ -256,6 +301,27 @@ function ReviewLine({
                 onClick={() => onReviewed(item)}
               >
                 {t('summary.review.dismiss')}
+              </button>
+            </>
+          ) : item.kind === 'unconfirmed' || (item.kind === 'reversal' && item.provisional) ? (
+            <>
+              <button
+                type="button"
+                className={PRIMARY}
+                aria-label={t('review.row.discardLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onDiscard(item)}
+              >
+                {t('review.row.discard')}
+              </button>
+              <button
+                type="button"
+                className={SECONDARY}
+                aria-label={t('review.row.keepLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onReviewed(item)}
+              >
+                {t('review.row.keep')}
               </button>
             </>
           ) : item.kind === 'one_off' ? (

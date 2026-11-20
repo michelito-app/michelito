@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
 import { CategoryOptions } from './Filters'
+import { ProvisionalNote } from './ProvisionalNote'
 import { NewCategoryDialog } from '@/components/categories/NewCategoryDialog'
 import type { Category, Tx } from '@/lib/api'
 import { isNewCategoryOption } from '@/lib/categories'
@@ -92,6 +93,7 @@ export function TransactionDetail({
             {amount.main}
           </span>
           <span className="text-[13px] text-muted-foreground">{originText(tx)}</span>
+          <ProvisionalNote tx={tx} />
         </div>
         <button
           type="button"

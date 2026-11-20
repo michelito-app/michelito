@@ -222,28 +222,42 @@ def test_pagination_and_sessions(client: TestClient) -> None:
     assert {e["session_count"] for e in page["items"]} == {3}
 
 
-def test_shared_group_actions_are_logged_and_undo_restores_members(client: TestClient) -> None:
+def test_shared_group_actions_are_logged_and_undo_restores_them(client: TestClient) -> None:
     expense = _fp(client, "CAFE FICTICIO")
     credit = _fp(client, REFUND)
-    made = _patch(client, expense, shared={"for_other": True, "with_whom": "Carola"})
-    group = made.json()["shared"]["id"]
-    assert _last(client)["kind"] == "shared"
-    assert _last(client)["after"]["text"] == "grupo compartido, gasto compartido"  # spanish-ui
-    client.post(
-        f"/api/transactions/{expense}/reimbursements", json={"credit": credit}, headers=WRITE
-    )
-    client.patch(f"/api/shared/{group}", json={"name": "Trip"}, headers=WRITE)
+    made = client.post(
+        "/api/shared/groups", json={"name": "Carola", "people": [{"name": "Carola"}]}, headers=WRITE
+    ).json()
+    group = made["id"]
+    carola = next(m["id"] for m in made["members"] if not m["is_me"])
+    assert (_last(client)["kind"], _last(client)["target_type"]) == ("group_new", "link")
+    body = {"fingerprint": expense, "split": "equal", "people": [carola]}  # for someone else
+    client.post(f"/api/shared/groups/{group}/entries", json=body, headers=WRITE)
+    entry = _last(client)
+    assert (entry["kind"], entry["target"]) == ("group_entry", f"group-{group}")
+    assert expense in entry["fingerprints"]
+    paid = client.get(f"/api/transactions/{credit}").json()
+    payment = {
+        "from_contact": carola,
+        "to_contact": next(m["id"] for m in made["members"] if m["is_me"]),
+        "amount_cents": -paid["amount_cents"],
+        "day": paid["day"],
+        "fingerprint": credit,
+    }
+    client.post(f"/api/shared/groups/{group}/payments", json=payment, headers=WRITE)
+    client.patch(f"/api/shared/groups/{group}", json={"name": "Trip"}, headers=WRITE)
     renamed = _last(client)
-    assert (renamed["target_type"], renamed["target"]) == ("link", str(group))
     assert "Trip" in renamed["after"]["text"]
-    client.patch(f"/api/shared/{group}", json={"written_off": True}, headers=WRITE)
-    before = client.get(f"/api/shared/{group}").json()
-    gone = client.delete(f"/api/shared/{group}/expenses/{expense}", headers=WRITE)
-    assert gone.status_code == 204
+    written = {"contact_id": carola, "written_off": True}
+    client.post(f"/api/shared/groups/{group}/write-off", json=written, headers=WRITE)
+    before = client.get(f"/api/shared/groups/{group}").json()
+    entry_id = next(i["id"] for i in before["timeline"] if i["kind"] == "entry")
+    gone = client.delete(f"/api/shared/entries/{entry_id}", headers=WRITE)
+    assert gone.status_code == 200
     deleted = _last(client)
-    assert set(deleted["fingerprints"]) == {expense, credit}
+    assert expense in deleted["fingerprints"]
     assert _undo(client, deleted["id"]).status_code == 200
-    assert client.get(f"/api/shared/{group}").json() == before
+    assert client.get(f"/api/shared/groups/{group}").json() == before
 
 
 def test_exchange_investment_and_cash_box_are_logged(client: TestClient) -> None:

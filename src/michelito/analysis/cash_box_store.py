@@ -149,11 +149,15 @@ def update_entry(
 
 def delete_entry(conn: sqlite3.Connection, entry_id: int) -> None:
     """Deletes the entry and everything stored by its fingerprint: its note and category, its
-    review marks and its place in a shared group (if it was the group's last expense, the group
-    is deleted)."""
+    review marks and its place in a shared group (the group entry it was is deleted too)."""
     entry(conn, entry_id)
     fingerprint = entry_fingerprint(entry_id)
-    links.unshare(conn, fingerprint)
+    conn.execute(
+        "DELETE FROM ledger_entries WHERE id IN "
+        "(SELECT entry_id FROM ledger_links WHERE fingerprint = ?)",
+        (fingerprint,),
+    )
+    conn.execute("DELETE FROM ledger_links WHERE fingerprint = ?", (fingerprint,))
     for table in ("link_members", "transaction_notes", "one_off_dismissals", "review_marks"):
         conn.execute(f"DELETE FROM {table} WHERE fingerprint = ?", (fingerprint,))
     conn.execute("DELETE FROM cash_entries WHERE id = ?", (entry_id,))

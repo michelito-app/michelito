@@ -13,3 +13,5 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/blob-report/
 frontend/e2e/
+# …except the hosted e2e helper, which playwright.config.ts imports (tsc checks it in the build).
+!frontend/e2e/hostedServer.ts

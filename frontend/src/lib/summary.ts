@@ -285,3 +285,10 @@ export function trendIncomeNote(trend: MonthTotal[], month: string): string | nu
     amount: formatDop(chosen.income_cents),
   })
 }
+
+/** "RD$ X still without a statement": how much of the month's spending comes from bank alerts and still
+ * waits for its statement (it is already counted); null when nothing does. */
+export function provisionalNote(provisionalCents: number): string | null {
+  if (provisionalCents <= 0) return null
+  return t('summary.provisional', { amount: formatDop(provisionalCents) })
+}

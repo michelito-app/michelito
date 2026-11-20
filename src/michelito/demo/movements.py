@@ -36,6 +36,14 @@ CARD_PAYMENT = "SU PAGO GRACIAS"
 CARD_PAYMENT_FROM_BANK = "PAGO TARJETA CREDITO FICTICIA"
 SHARED_DINNER = "RESTAURANTE COMPARTIDO FICTICIO"
 SHARED_REFUND = "TOKE DE AMIGA FICTICIA"
+# The beach trip with two friends (last complete month): a dinner the person paid, what they sent
+# to one friend and what the other one sent back (not linked yet: "To review" proposes it).
+TRIP_DINNER = "RESTAURANTE PLAYA FICTICIO"
+TRIP_SENT = "TRANSFERENCIA A LUIS FICTICIO"
+TRIP_BACK = "TOKE DE ROSA INVENTADA"
+TRIP_DINNER_AMOUNT = Decimal("4500.00")
+TRIP_SENT_AMOUNT = Decimal("6000.00")
+TRIP_BACK_AMOUNT = Decimal("1500.00")
 INVEST_SENT = "MB a 0000000066 INVERSOR FICTICIO"
 INVEST_BACK = "TRANSF DE INVERSOR FICTICIO"
 ATM = "RETIRO CAJERO FICTICIO SANTO DOMINGO"
@@ -132,6 +140,14 @@ def _month(plan_: Plan, rng: random.Random, index: int, month: date, review: dat
     _one_offs(plan_, index, month)
     if month == review:
         _to_review(plan_, month)
+        _beach_trip(plan_, month)
+
+
+def _beach_trip(plan_: Plan, month: date) -> None:
+    """The movements of the shared beach trip (see `generate`: the group and its payments)."""
+    plan_.add(CARD, Row(on(month, 11), TRIP_DINNER, TRIP_DINNER_AMOUNT, mcc="5812"))
+    plan_.add(CHECKING, Row(on(month, 20), TRIP_SENT, TRIP_SENT_AMOUNT))
+    plan_.add(CHECKING, Row(on(month, 22), TRIP_BACK, TRIP_BACK_AMOUNT, direction="credit"))
 
 
 def _groceries(plan_: Plan, rng: random.Random, month: date) -> None:

@@ -139,7 +139,7 @@ def test_every_stored_value_is_translated(tmp_path: Path) -> None:
         old = [(t, c, v) for t, c, v in _stored_strings(raw) if v in _OLD_VALUES]
         assert {t for t, _, _ in old} >= {"categories", "review_marks", "change_log", "statements"}
     with closing(db.connect(path)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 18
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION >= 18
         left = [
             (t, c, v) for t, c, v in _stored_strings(conn) if v in _OLD_VALUES or _OLD_KEY.search(v)
         ]
@@ -237,13 +237,14 @@ def test_every_stored_value_is_translated(tmp_path: Path) -> None:
 def test_movements_corrections_and_links_read_the_same(tmp_path: Path) -> None:
     path = _v17(tmp_path / "v17.db")
     with closing(sqlite3.connect(path)) as raw:
-        untouched = ("transactions", "link_manual", "merchant_categories", "category_keywords",
+        untouched = ("transactions", "merchant_categories", "category_keywords",
                      "budget_caps", "exchange_rates", "cards", "document_parts")  # fmt: skip
         before = {t: _rows(raw, t) for t in untouched}
         sequence = _rows(raw, "sqlite_sequence")
     with closing(db.connect(path)) as conn:
         assert {t: _rows(conn, t) for t in untouched} == before
-        assert sorted(_rows(conn, "sqlite_sequence")) == sorted(sequence)
+        # Schema 19 adds the ledger's sequences; the old ones stay as they were.
+        assert set(sequence) <= set(_rows(conn, "sqlite_sequence"))
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         found = {
@@ -278,7 +279,7 @@ def test_the_migration_is_idempotent(tmp_path: Path) -> None:
     db.connect(path).close()
     first = _dump(path)
     with closing(db.connect(path)) as again:
-        assert again.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert again.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert _dump(path) == first
 
 
@@ -298,7 +299,10 @@ def test_old_entries_keep_their_undo_state(tmp_path: Path) -> None:
         for entry in changelog.load(conn):
             state = changelog.undo_state(conn, entry, done)
             found[str(entry.id)] = [state.allowed, state.undone, state.blocked_by]
-        assert found == EXPECTED["undo"]
+        # Entry 10 created a shared group: schema 19 moved its rows to the ledger, so that old
+        # entry can no longer put them back. Every other entry keeps its state.
+        expected = {**EXPECTED["undo"], "10": [False, False, None]}
+        assert found == expected
 
 
 def _entry(conn: sqlite3.Connection, kind: str, target: str | None = None) -> changelog.Entry:

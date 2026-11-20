@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { DismissedSection } from '@/components/recurring/DismissedSection'
 import { GroupSection } from '@/components/recurring/GroupSection'
@@ -90,6 +92,7 @@ function Header({ data, children }: { data: Recurring; children?: ReactNode }) {
 }
 
 function Empty() {
+  if (isHosted(useMode())) return <HostedEmpty view="recurring" />
   return (
     <div className={cn(PANEL, 'flex max-w-[960px] flex-col gap-1.5 px-6 py-10 text-center')}>
       <p className="text-[15px] font-semibold">{t('recurring.empty.title')}</p>

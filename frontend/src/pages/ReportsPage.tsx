@@ -1,4 +1,6 @@
 import { useSearchParams } from 'react-router'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { LoadError } from '@/components/LoadError'
 import { CompareTable } from '@/components/reports/CompareTable'
@@ -58,9 +60,7 @@ export function ReportsPage() {
         ) : comparison.data && months.data ? (
           <div aria-busy={comparison.isPlaceholderData} className={cn('min-w-0', comparison.isPlaceholderData && 'opacity-60')}>
             {comparison.data.months.length === 0 ? (
-              <p className={cn(PANEL, 'px-6 py-5 text-sm text-muted-foreground')}>
-                {t('reports.page.empty')}
-              </p>
+              <NoMonths />
             ) : (
               <CompareTable
                 data={comparison.data}
@@ -78,5 +78,12 @@ export function ReportsPage() {
         {ready && <ReviewHistory selection={selection} />}
       </div>
     </>
+  )
+}
+
+function NoMonths() {
+  if (isHosted(useMode())) return <HostedEmpty view="reports" />
+  return (
+    <p className={cn(PANEL, 'px-6 py-5 text-sm text-muted-foreground')}>{t('reports.page.empty')}</p>
   )
 }

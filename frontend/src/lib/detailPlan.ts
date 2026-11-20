@@ -51,7 +51,7 @@ export interface PlanInput {
 /** Pure: the links and the actions of the phone's detail. */
 export function detailPlan({ tx, reserve, recurring }: PlanInput): DetailPlan {
   const links: LinkLine[] = linkSummaries(tx)
-    .filter((summary) => tx.link === summary.kind)
+    .filter((summary) => (summary.kind === 'shared' ? tx.ledger !== null : tx.link === summary.kind))
     .map((summary) => ({ kind: summary.kind, title: summary.title, text: summary.text }))
   const cashLinked = tx.cash_box_role !== '' || tx.cash_entry_id !== null
   if (cashLinked) {

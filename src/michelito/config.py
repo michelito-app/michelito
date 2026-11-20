@@ -70,6 +70,9 @@ class Source:
     query: str
     extensions: tuple[str, ...]
     interpret: bool = True  # False: archived without trying to parse it
+    # True: bank alerts (one email per movement, see `michelito.alerts`): parsed in memory, only
+    # their fields are stored and nothing is written to raw/; `extensions` is not used.
+    alerts: bool = False
 
 
 # Default senders: the ones `sync` uses when there is no `sources.toml` in the data folder (see
@@ -91,6 +94,12 @@ DEFAULT_SOURCES: tuple[Source, ...] = (
     ),
     Source("afp_siembra", "from:estadodecuenta@afpsiembra.com", (".pdf",), interpret=False),
     Source("afp_crecer", "from:info@afpcrecer.com.do subject:cuenta", (".pdf",), interpret=False),
+    Source(
+        "popular_alerts",
+        'from:notificaciones@popularenlinea.com subject:"Notificación de Consumo"',
+        (),
+        alerts=True,
+    ),
 )
 # spanish-data: end
 

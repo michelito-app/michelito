@@ -64,6 +64,11 @@ MESSAGES: dict[str, str] = {
     "dossier.review_kind.possible_return": "cobro_posible",
     "dossier.review_kind.possible_rule": "regla_posible",
     "dossier.review_kind.possible_reserve": "reserva_posible",
+    # Added after the rename (schema 19), written the same way.
+    "dossier.review_kind.possible_payment": "pago_posible",
+    # Added after the rename (live sync): no old value, the same style.
+    "dossier.review_kind.unconfirmed": "sin_estado",
+    "dossier.review_kind.reversal": "reverso",
     # Totals, as the Markdown lists them (one per key of the data's `totals`).
     "dossier.total.income": "ingresos",
     "dossier.total.income_through": "ingresos hasta",

@@ -20,6 +20,7 @@ from michelito import cli, db
 from michelito.analysis import (
     cash_box_store,
     corrections,
+    ledger_store,
     links,
     providers,
     rates,
@@ -28,6 +29,8 @@ from michelito.analysis import (
 )
 from michelito.parsers.common import Section, Statement, Transaction
 from michelito.web.app import create_app
+from tests import e2e_live
+from tests.ledger_helpers import pay, share
 from tests.test_spending import seed
 
 # Made-up rates (RD$ per US$) for the seed months and the extra statements.
@@ -475,7 +478,7 @@ def _link_pending(conn) -> None:
     by_text = {m.description: m for m in spending.load_all(conn, ())}
     with conn:
         gift = by_text[PENDING_GIFT]
-        links.set_shared(conn, gift.fingerprint, gift.amount, for_other=True, with_whom="Luis")
+        share(conn, gift.fingerprint, gift.amount, for_other=True, with_whom="Luis")
         for dop_leg, usd_leg in (
             (PENDING_GAVE, "DEPOSITO CAMBISTA FICTICIO"),
             (PENDING_GOT, "ENVIO A PRIMO FICTICIO"),
@@ -492,12 +495,18 @@ def _link_closed(conn) -> None:
     by_text = {m.description: m for m in spending.load_all(conn, ())}
     with conn:
         clothes = by_text[SETTLED_EXPENSE]
-        settled = links.set_shared(conn, clothes.fingerprint, clothes.amount, people=2)
-        links.set_group(conn, settled, name="Ropa de Marta", with_whom="Marta")
-        links.add_manual(conn, settled, Decimal("2175.00"), date(2026, 1, 10), "DOP", "Marta")
+        settled = share(
+            conn,
+            clothes.fingerprint,
+            clothes.amount,
+            people=2,
+            with_whom="Marta",
+            name="Ropa de Marta",  # spanish-data
+        )
+        pay(conn, settled, amount=Decimal("2175.00"), day=date(2026, 1, 10))
         books = by_text[WRITTEN_OFF_EXPENSE]
-        lost = links.set_shared(conn, books.fingerprint, books.amount, people=2, with_whom="Rosa")
-        links.set_written_off(conn, lost, True)
+        lost = share(conn, books.fingerprint, books.amount, people=2, with_whom="Rosa")
+        ledger_store.set_written_off(conn, lost, None, True)
 
 
 def _link_investments(conn) -> None:
@@ -558,11 +567,12 @@ def _store_extra(conn, household: bool = False) -> None:
             db.store_statement(conn, document_id, statement)
 
 
-def build_demo_db(path: Path, household: bool = False) -> None:
+def build_demo_db(path: Path, household: bool = False, live: bool = False) -> None:
     """Fill `path` with the synthetic statements, extra statements and made-up rates. With
     `household`, also the household accounts (household recurring charges), which shift the
     totals: they run in their own test server (household flag) so the other tests' figures stay
-    the same."""
+    the same. With `live`, also made-up provisional purchases (`tests.e2e_live`), likewise in
+    their own server."""
     with closing(db.connect(path)) as conn:
         seed(conn)
         _store_extra(conn, household)
@@ -574,6 +584,8 @@ def build_demo_db(path: Path, household: bool = False) -> None:
         _cash_box(conn)
         if household:
             _mark_annual_tax(conn)
+        if live:
+            e2e_live.add_provisionals(conn)
 
 
 def main() -> None:
@@ -584,13 +596,20 @@ def main() -> None:
         action="store_true",
         help="include the household accounts and their providers",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="add made-up provisional purchases and the live-sync test routes",
+    )
     args = parser.parse_args()
     if args.household:
         use_demo_providers()
     with tempfile.TemporaryDirectory(prefix="michelito-e2e-") as directory:
         path = Path(directory) / "michelito.db"
-        build_demo_db(path, household=args.household)
+        build_demo_db(path, household=args.household, live=args.live)
         app = create_app(path, cli.STATIC_DIR, today=lambda: DEMO_TODAY)
+        if args.live:
+            e2e_live.register(app, path, lambda target: build_demo_db(target, live=True))
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

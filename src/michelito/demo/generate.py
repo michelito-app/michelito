@@ -7,8 +7,9 @@ card on day 10, the banks at the end of the month and the current month up to ye
 each one **goes through the real validation and ingestion** (`importer.register_generated` +
 `ingest.ingest_statement`): one that does not balance does not enter and the generation fails.
 On top go, with the same functions the API uses, the links the person would make (shared
-dinners and reimbursements, an investment, the cash box, the dollar rates and the Crypto
-keyword). The budget and the reserves are left **not activated**.
+groups with people, expenses paid by others and reconciled and unlinked payments, an
+investment, the cash box, the dollar rates and the Crypto keyword). The budget and the reserves
+are left **not activated**.
 
 Nothing here belongs to anyone: "FICTICIO"/"INVENTADO" names, made-up accounts and amounts. The
 names the person types (providers, people, a loan) are Spanish data in `spanish-data` blocks.
@@ -33,7 +34,10 @@ from michelito.analysis import (
     cash_box_store,
     catalog,
     categories,
+    ledger,
+    ledger_store,
     links,
+    live_store,
     providers,
     rates,
     spending,
@@ -55,8 +59,21 @@ PROVIDERS = (
 )
 # Names the person gave to their links.
 _FRIEND = "Amiga Ficticia"
+_FRIEND_BANK = "AMIGA FICTICIA"
+_DINNERS = "Cenas con Amiga"
+_TRIP = "Viaje a la playa"
+_TRIP_PEOPLE = (("Luis Ficticio", "LUIS FICTICIO"), ("Rosa Inventada", "ROSA INVENTADA"))
+_HOTEL = "Hotel en la playa"
+_CAR = "Alquiler de carro"
 _INVESTOR = "Inversor Ficticio"
 _LOAN = "Préstamo FICTICIO"
+# Card purchases from this week that only bank alerts know about (live sync): (days before
+# today, merchant, RD$ amount). The statement that confirms them has not closed yet.
+PROVISIONALS = (
+    (1, "SUPERMERCADO FICTICIO", Decimal("2875.40")),
+    (2, "FARMACIA INVENTADA", Decimal("640.00")),
+    (4, "GASOLINERA FICTICIA", Decimal("1500.00")),
+)
 # spanish-data: end
 _OPENING = {
     (mv.CHECKING[3], "DOP"): Decimal("60000.00"),
@@ -124,6 +141,33 @@ def fill(path: Path, today: date) -> None:
             rent = catalog.resolve_ref(conn, categories.HOUSING)
             catalog.set_keywords(conn, rent, ["ALQUILER APARTAMENTO"])
         _link(conn, today)
+        _provisionals(conn, today)
+
+
+def _provisionals(conn, today: date) -> None:  # noqa: ANN001
+    """A few purchases of the current month still without a statement (from bank alerts):
+    after the card's last closing date, so no statement covers them yet."""
+    cuts = card_cuts(today)
+    last_cut = cuts[-1] if cuts else date.min
+    account = db.account_key(
+        Statement(PARSER, mv.CARD[0], mv.CARD[1], mv.CARD[2], mv.CARD[3], today, None, ())
+    )
+    now = datetime.combine(today, datetime.min.time(), UTC).isoformat()
+    with conn:
+        for back, merchant, amount in PROVISIONALS:
+            day = today - timedelta(days=back)
+            if day <= last_cut or day.month != today.month:
+                continue
+            made = live_store.Made(
+                message_id=f"demo-alert-{back}",
+                account=account,
+                last4=mv.CARD[3],
+                day=day,
+                amount_cents=int(amount * 100),
+                currency="DOP",
+                merchant=merchant,
+            )
+            live_store.add_made_up(conn, made, now)
 
 
 @dataclass(frozen=True)
@@ -300,19 +344,110 @@ def _transaction(row: mv.Row) -> Transaction:
     )
 
 
-def _link(conn, today: date) -> None:  # noqa: ANN001
-    """What the person already linked: shared dinners (the last one not paid back yet), the
-    investment with its returns and the cash box (opening balance and a withdrawal put away)."""
-    movements = spending.load_all(conn, ())
+def _dinners(conn, movements: Sequence[spending.Movement]) -> None:  # noqa: ANN001
+    """Dinners for two with a friend, each paid back by a transfer (reconciled); the last one is
+    still pending."""
     dinners = [m for m in movements if m.description == mv.SHARED_DINNER]
     refunds = [m for m in movements if m.description == mv.SHARED_REFUND]
+    if not dinners:
+        return
+    me = ledger_store.ensure_me(conn)
+    friend = ledger_store.contact_for(conn, _FRIEND, _FRIEND_BANK)
+    group = ledger_store.create_group(conn, _DINNERS, [friend])
+    for dinner in dinners:
+        ledger_store.add_entry(
+            conn,
+            group,
+            paid_by=me,
+            amount=dinner.amount,
+            currency=dinner.currency,
+            day=dinner.day,
+            description=dinner.merchant or dinner.description,
+            splits=ledger.equal_split(dinner.amount, [me, friend], me),
+            mode="equal",
+            fingerprint=dinner.fingerprint,
+        )
+    for refund in refunds[: len(dinners) - 1]:
+        ledger_store.add_payment(
+            conn,
+            group,
+            from_contact=friend,
+            to_contact=me,
+            amount=-refund.amount,
+            currency=refund.currency,
+            day=refund.day,
+            fingerprint=refund.fingerprint,
+        )
+
+
+def _beach_trip(conn, movements: Sequence[spending.Movement]) -> None:  # noqa: ANN001
+    """A trip with two friends: the hotel paid by one, the car by the other, a dinner the person
+    paid (linked), a payment the person made (reconciled with the bank) and another one written
+    down but not linked yet. The second friend's transfer is in the bank, unlinked: "To
+    review" proposes it."""
+    dinner = next((m for m in movements if m.description == mv.TRIP_DINNER), None)
+    sent = next((m for m in movements if m.description == mv.TRIP_SENT), None)
+    if dinner is None or sent is None:
+        return
+    me = ledger_store.ensure_me(conn)
+    luis, rosa = (ledger_store.contact_for(conn, name, raw) for name, raw in _TRIP_PEOPLE)
+    group = ledger_store.create_group(conn, _TRIP, [luis, rosa])
+    everyone = [me, luis, rosa]
+    for payer, what, amount, days in (
+        (luis, _HOTEL, Decimal("18000.00"), 1),
+        (rosa, _CAR, Decimal("6000.00"), 2),
+    ):
+        ledger_store.add_entry(
+            conn,
+            group,
+            paid_by=payer,
+            amount=amount,
+            currency="DOP",
+            day=dinner.day - timedelta(days=days),
+            description=what,
+            splits=ledger.equal_split(amount, everyone, payer),
+            mode="equal",
+        )
+    ledger_store.add_entry(
+        conn,
+        group,
+        paid_by=me,
+        amount=dinner.amount,
+        currency=dinner.currency,
+        day=dinner.day,
+        description=dinner.merchant or dinner.description,
+        splits=ledger.equal_split(dinner.amount, everyone, me),
+        mode="equal",
+        fingerprint=dinner.fingerprint,
+    )
+    ledger_store.add_payment(
+        conn,
+        group,
+        from_contact=me,
+        to_contact=luis,
+        amount=sent.amount,
+        currency=sent.currency,
+        day=sent.day,
+        fingerprint=sent.fingerprint,
+    )
+    ledger_store.add_payment(
+        conn,
+        group,
+        from_contact=me,
+        to_contact=rosa,
+        amount=Decimal("2000.00"),
+        currency="DOP",
+        day=sent.day,
+    )
+
+
+def _link(conn, today: date) -> None:  # noqa: ANN001
+    """What the person already linked: shared groups (see `_dinners` and `_beach_trip`), the
+    investment with its returns and the cash box (opening balance and a withdrawal put away)."""
+    movements = spending.load_all(conn, ())
     with conn:
-        for number, dinner in enumerate(dinners):
-            group = links.set_shared(
-                conn, dinner.fingerprint, dinner.amount, people=2, with_whom=_FRIEND
-            )
-            if number < len(dinners) - 1 and number < len(refunds):
-                links.add_reimbursement(conn, group, refunds[number].fingerprint)
+        _dinners(conn, movements)
+        _beach_trip(conn, movements)
         sent = next((m for m in movements if m.description == mv.INVEST_SENT), None)
         if sent is not None:
             investment = links.create_investment(

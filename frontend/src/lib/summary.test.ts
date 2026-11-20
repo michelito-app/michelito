@@ -4,6 +4,7 @@ import { THIRD_PARTY } from './categories'
 import type { AccountTotal, CategoryLine, Change, MonthTotal, Rate } from './api'
 import { longDay, monthName, monthPhrase, shortDay } from './months'
 import {
+  provisionalNote,
   accountNote,
   barWidth,
   byMovement,
@@ -482,5 +483,12 @@ describe('byMovement', () => {
     ]
     expect(byMovement(list).map((a) => a.key)).toEqual(['b', 'a'])
     expect(list[0].key).toBe('a')
+  })
+})
+
+describe('provisionalNote', () => {
+  it('says how much of the month is still without a statement, only when there is some', () => {
+    expect(provisionalNote(0)).toBeNull()
+    expect(provisionalNote(175000)).toBe('RD$ 1,750 aún sin estado') // spanish-ui
   })
 })

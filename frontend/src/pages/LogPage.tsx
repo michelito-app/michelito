@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
+import { isHosted, useMode } from '@/lib/demo'
 import { LoadError } from '@/components/LoadError'
 import { LogEntryRow } from '@/components/log/LogEntryRow'
 import { FOCUS, PANEL } from '@/components/summary/styles'
@@ -92,6 +94,8 @@ export function LogPage() {
 }
 
 function Empty({ filtered }: { filtered: boolean }) {
+  const hosted = isHosted(useMode())
+  if (hosted && !filtered) return <HostedEmpty view="log" />
   return (
     <section className={cn(PANEL, 'flex flex-col gap-2 px-5 py-5 text-[13px] text-ink-2 sm:px-6')}>
       {filtered ? (

@@ -10,6 +10,7 @@ import pytest
 
 from michelito import db, legacy
 from michelito.analysis import links, review_marks, spending
+from tests.ledger_helpers import groups_summary
 from tests.test_spending import _add_bank_rows, seed
 
 D = Decimal
@@ -142,7 +143,11 @@ def test_v12_links_and_marks_survive_and_investments_fit(tmp_path: Path) -> None
         assert "'investment'" in _sql(conn, "links")
         assert "'mixed'" in _sql(conn, "link_members")
         assert "'possible_contribution'" in _sql(conn, "review_marks")
-        # No row was lost or changed (the rebuilt tables have the same columns).
+        # No row was lost or changed (the rebuilt tables have the same columns), except the
+        # shared group: schema 19 moves it to the ledger.
+        before["links"] = [r for r in before["links"] if r[1] != "shared"]
+        before["link_members"] = [r for r in before["link_members"] if r[0] != 1]
+        before["link_manual"] = []
         for table, rows in before.items():
             columns = [c[1] for c in conn.execute(f"PRAGMA table_info({table})")]
             added = {"capital_cents", "account_key", "box_currency", "box_amount_cents"}
@@ -153,11 +158,12 @@ def test_v12_links_and_marks_survive_and_investments_fit(tmp_path: Path) -> None
                 rows = [(fp, legacy.REVIEW_KINDS[kind], at) for fp, kind, at in rows]
             assert [tuple(r) for r in found] == rows, table
         found = links.load(conn)
-        [group] = found.shared
-        assert (group.with_whom, group.reimbursements, len(group.manual)) == (
-            "Ana",
-            (fps["toke"],),
-            1,
+        [group] = groups_summary(conn)
+        # "We were 3" with one name: a made-up person to review ("Review your people").
+        people = ["Ana", "Persona 3"]  # spanish-ui
+        assert (group["name"], group["people"], group["entries"]) == ("Ana", people, [fps["cafe"]])
+        assert sorted(group["payments"], key=str) == sorted(
+            [(fps["toke"], D(50)), ("manual", D(25))], key=str
         )
         assert found.exchanges[0].agreed_rate == D(60)
         assert review_marks.load(conn) == {(fps["sent"], "large_third_party")}
@@ -175,10 +181,9 @@ def test_v12_links_and_marks_survive_and_investments_fit(tmp_path: Path) -> None
         ]
         # Foreign keys still hold: deleting the link deletes its members.
         with conn:
-            conn.execute("DELETE FROM links WHERE id = 1")
-        left = conn.execute("SELECT COUNT(*) FROM link_members WHERE link_id = 1").fetchone()[0]
+            conn.execute("DELETE FROM links WHERE id = 2")
+        left = conn.execute("SELECT COUNT(*) FROM link_members WHERE link_id = 2").fetchone()[0]
         assert left == 0
-        assert conn.execute("SELECT COUNT(*) FROM link_manual").fetchone()[0] == 0
     with closing(db.connect(path)) as again:  # idempotent
         assert len(links.load(again).investments) == 1
 
@@ -224,4 +229,4 @@ def test_an_unrelated_orphan_does_not_stop_opening_the_database(tmp_path: Path) 
         assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     with closing(db.connect(path)) as again:
-        assert len(links.load(again).shared) == 1
+        assert len(groups_summary(again)) == 1

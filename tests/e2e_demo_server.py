@@ -59,6 +59,7 @@ def _clean_orphans() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8600)
+    parser.add_argument("--return-url", default="", help="the hosted app (the gate's demo exit)")
     args = parser.parse_args()
     _clean_orphans()
     with tempfile.TemporaryDirectory(prefix=PREFIX) as directory:
@@ -68,6 +69,7 @@ def main() -> None:
             public_host="demo.example",
             secure_cookie=False,
             repo="https://example.com/michelito",
+            return_url=args.return_url,
             limits=Limits(per_ip=500, max_live=500, per_minute_new=500, per_minute=10_000),
         )
         app = create_demo_app(settings, cli.STATIC_DIR)

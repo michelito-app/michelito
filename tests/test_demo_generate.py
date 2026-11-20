@@ -99,6 +99,28 @@ def test_screens_show_the_stories(api: TestClient) -> None:
     assert {"DOP", "USD"} <= set(accounts[0]["currencies"])
 
 
+def test_shared_has_people_expenses_paid_by_others_and_both_kinds_of_payments(
+    api: TestClient,
+) -> None:
+    home = api.get("/api/shared").json()
+    assert len(home["groups"]) == 2 and len(home["people"]) == 3
+    trip = next(g for g in home["groups"] if len(g["people"]) == 2)
+    group = api.get(f"/api/shared/groups/{trip['id']}").json()
+    entries = [i for i in group["timeline"] if i["kind"] == "entry"]
+    payments = [i for i in group["timeline"] if i["kind"] == "payment"]
+    assert any(not e["paid_by_me"] for e in entries)  # paid by others
+    assert any(e["transaction"] for e in entries)  # the user's dinner, linked
+    assert {p["transaction"] is None for p in payments} == {True, False}  # unlinked and linked
+    review = api.get("/api/review", params={"month": "2026-10"}).json()
+    assert "possible_payment" in {r["kind"] for r in review}  # the friend's transfer
+    group_moves = [
+        i
+        for i in api.get("/api/transactions", params={"month": "2026-10"}).json()["items"]
+        if i["link"] == "group"
+    ]
+    assert len(group_moves) == 2  # the user's share of the hotel and the car
+
+
 def test_budget_and_reserves_start_off_with_suggestions(api: TestClient) -> None:
     assert api.get("/api/budget").json()["active"] is False
     reserves = api.get("/api/reserves").json()
@@ -143,3 +165,15 @@ def test_nothing_looks_real(template: generate.Template) -> None:
             )
         )
     assert not list(check.scan_text("template", dump))
+
+
+def test_the_current_month_has_provisional_purchases(api: TestClient) -> None:
+    month = TODAY.strftime("%Y-%m")
+    rows = api.get("/api/transactions", params={"month": month, "provisional": "true"}).json()
+    merchants = {r["merchant"] for r in rows["items"]}
+    expected = {m for back, m, _ in generate.PROVISIONALS if TODAY.day > back}
+    assert merchants == expected and merchants
+    summary = api.get("/api/summary", params={"month": month}).json()
+    assert summary["provisional_cents"] > 0
+    review = api.get("/api/review", params={"month": month}).json()
+    assert not [i for i in review if i["kind"] == "unconfirmed"]

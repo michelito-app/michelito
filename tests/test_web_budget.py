@@ -11,11 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from michelito import db
-from michelito.analysis import categories, links
+from michelito.analysis import categories
 from michelito.parsers.common import Statement
 from michelito.web.app import create_app
 from tests.e2e_server import _purchase, _section
 from tests.helpers import store
+from tests.ledger_helpers import share
 
 WRITE = {"X-Michelito": "1"}
 TODAY = date(2026, 2, 20)
@@ -192,7 +193,7 @@ def test_shared_counts_only_my_part(client: TestClient, path: Path) -> None:
     _activate(client)
     fp = _fp(client, "SUPERMERCADO FICTICIO")
     with closing(db.connect(path)) as conn, conn:
-        links.set_shared(conn, fp, Decimal("10000.00"), people=2)
+        share(conn, fp, Decimal("10000.00"), people=2)
     assert _line(_budget(client), categories.GROCERIES)["spent_cents"] == 500_000
 
 
@@ -284,7 +285,7 @@ def test_a_reserve_with_several_expenses_and_the_batch(client: TestClient, path:
     ]
     shared = _fp(client, "SUPERMERCADO FICTICIO", "2025-12")
     with closing(db.connect(path)) as conn, conn:
-        links.set_shared(conn, shared, Decimal("10000.00"), people=2)
+        share(conn, shared, Decimal("10000.00"), people=2)
     body = {"fingerprints": [*gifts, shared, "missing-fp"]}
     found = client.post(f"/api/reserves/{christmas}/members", json=body, headers=WRITE).json()
     assert found["applied"] == gifts

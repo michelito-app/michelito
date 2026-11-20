@@ -307,6 +307,11 @@ def test_orphan_marks_can_be_undone(client: TestClient, tmp_path: Path) -> None:
 def test_a_shared_exit_says_its_group(client: TestClient) -> None:
     box = _entry(client, kind="expense", day="2026-01-20", amount_cents=90_000, currency="DOP")
     assert box.json()["lines"][0]["group"] is None
-    shared = {"shared": {"people": 3, "with_whom": "Ana"}}
-    assert client.patch("/api/transactions/cash-1", json=shared, headers=WRITE).status_code == 200
+    group = client.post(
+        "/api/shared/groups", json={"name": "Ana", "people": [{"name": "Ana"}]}, headers=WRITE
+    ).json()
+    people = [m["id"] for m in group["members"]]
+    shared = {"fingerprint": "cash-1", "split": "equal", "people": people}
+    made = client.post(f"/api/shared/groups/{group['id']}/entries", json=shared, headers=WRITE)
+    assert made.status_code == 201
     assert client.get("/api/cash-box").json()["lines"][0]["group"] == "Ana"

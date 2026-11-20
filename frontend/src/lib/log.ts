@@ -75,6 +75,18 @@ const KINDS = [
   'note',
   'one_off',
   'shared',
+  'group_new',
+  'group',
+  'group_member',
+  'write_off',
+  'group_entry',
+  'group_entry_delete',
+  'group_payment',
+  'group_payment_delete',
+  'contact',
+  'contact_rename',
+  'contact_alias',
+  'contact_merge',
   'exchange',
   'investment',
   'cash_box',
@@ -90,6 +102,7 @@ const KINDS = [
   'reserve',
   'reserve_expense',
   'reserve_dismissal',
+  'onboarding',
 ] as const
 
 /** Name of each kind (in the filter's order). */
@@ -212,6 +225,8 @@ export function entryHref(entry: LogEntry): string | null {
   if (entry.target_type === 'merchant' && entry.month) {
     return transactionsHref({ month: entry.month, q: entry.target }, null)
   }
+  const group = entry.target_type === 'link' ? /^group-(\d+)$/.exec(entry.target) : null
+  if (group) return `/shared/${group[1]}`
   if (!entry.fingerprint || !entry.month) return null
   return transactionsHref({ month: entry.month, tx: entry.fingerprint }, null)
 }

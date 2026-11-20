@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 
-from michelito.analysis import catalog, changelog, changelog_rules
+from michelito.analysis import catalog, changelog, changelog_rules, live_match
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.web.log_schemas import EntryOut, HistoryOut, LogOut, ReasonBody, RuleHintOut
@@ -139,6 +139,11 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
                 raise HTTPException(404, t("web.log.unknown_entry")) from None
             except changelog.UndoBlocked as exc:
                 raise HTTPException(409, str(exc)) from None
+            if _touches_provisional(changelog.get(conn, made)):
+                # A Discard or void undone may make a provisional visible again whose statement
+                # already arrived: reconciling now confirms it instead of counting it twice.
+                with conn:
+                    live_match.reconcile(conn, changelog.now().isoformat())
             return entry_views(conn, [changelog.get(conn, made)], None, load_flow(conn))[0]
 
     @app.get("/api/transactions/{fingerprint}/history")
@@ -174,3 +179,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
                 count=found.count,
             )
         return None
+
+
+def _touches_provisional(entry: changelog.Entry) -> bool:
+    return any(change.table == "provisional_decisions" for change in entry.changes)

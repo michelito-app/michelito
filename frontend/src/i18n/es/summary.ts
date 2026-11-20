@@ -2,6 +2,7 @@
 import type { Catalog } from '../index'
 
 export const summary = {
+  'summary.provisional': '{amount} aún sin estado',
   // lib/summary.ts
   'summary.diff.same': 'igual',
   'summary.diff.new': 'nuevo',
@@ -154,6 +155,9 @@ export const summary = {
   'summary.review.return': 'Rendimiento',
   'summary.review.capitalLabel': 'Es capital: {merchant}',
   'summary.review.capital': 'Capital',
+  'summary.review.paymentLabel': 'Sí, registrar y enlazar el pago: {merchant}',
+  'summary.review.payment': 'Sí, registrar',
+  'summary.review.notPaymentLabel': 'No es un pago: {merchant}',
   'summary.review.notInvestmentLabel': 'No es de la inversión: {merchant}',
   // components/summary/TrendBars.tsx
   'summary.trendBars.monthInProgress': '{month} (en curso)',

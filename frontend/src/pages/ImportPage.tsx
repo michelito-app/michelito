@@ -2,16 +2,36 @@ import { useQueryClient } from '@tanstack/react-query'
 import { FileUp } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Link } from 'react-router'
+import { UploadFlow } from '@/components/onboarding/UploadFlow'
 import { PANEL, WIDGET_ACTION } from '@/components/summary/styles'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
-import { type SampleResult, importSample, isDemo, useMode } from '@/lib/demo'
+import { type SampleResult, importSample, isDemo, isHosted, useMode } from '@/lib/demo'
 import { cn } from '@/lib/utils'
 
 /** Import statements. In the demo the file input is disabled (real statements are never
  * uploaded) and a sample statement is tried instead; locally statements are imported with
  * `michelito import`, and uploading from here is left for later. */
 export function ImportPage() {
+  const mode = useMode()
+  if (isHosted(mode)) return <HostedImport demoUrl={mode.demo_url} />
+  return <LocalImport />
+}
+
+/** Hosted mode after the gate: the same upload and processing screen as the gate. */
+function HostedImport({ demoUrl }: { demoUrl?: string }) {
+  return (
+    <div className="flex max-w-[720px] flex-col gap-4">
+      <h1 className="text-[26px] font-bold tracking-[-0.02em] sm:text-[30px]">
+        {t('onboarding.upload.title')}
+      </h1>
+      <p className="text-sm text-ink-2">{t('onboarding.upload.lead')}</p>
+      <UploadFlow demoUrl={demoUrl} />
+    </div>
+  )
+}
+
+function LocalImport() {
   const mode = useMode()
   const demo = isDemo(mode)
   const hint = useId()

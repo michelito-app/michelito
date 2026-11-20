@@ -19,7 +19,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 
 from michelito.analysis import accounts as account_data
-from michelito.analysis import cash_box, cash_box_store, catalog, changelog, links, rates, shared
+from michelito.analysis import (
+    cash_box,
+    cash_box_store,
+    catalog,
+    changelog,
+    ledger_store,
+    links,
+    rates,
+)
 from michelito.analysis.accounts import BANK_KINDS, CASH_BOX_KEY
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
@@ -64,11 +72,11 @@ def register(
         state = cash_box.state_of(box, cash_box_store.load_entries(conn), flow, by_month)
         labels = {a.key: a.label for a in account_data.account_infos(conn)}
         ids = {c.ref: c.id for c in catalog.load(conn).items}
-        states = shared.states(flow, found, by_month)
+        book = ledger_store.load(conn)
         groups = {
-            line.fingerprint: states[owner.id].title
+            line.fingerprint: held[0].name
             for line in state.lines
-            if (owner := found.shared_for(line.fingerprint)) is not None and owner.id in states
+            if (held := book.entry_for(line.fingerprint)) is not None
         }
         return CashBoxOut.of(state, box is not None, labels, ids, groups)
 

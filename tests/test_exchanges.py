@@ -8,7 +8,7 @@ import pytest
 from michelito import db
 from michelito.analysis import catalog, exchanges, spending
 from michelito.analysis import categories as cat
-from michelito.analysis.links import Exchange, LinkError, Links, Shared
+from michelito.analysis.links import Exchange, LinkError, Links
 from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
 
@@ -173,7 +173,7 @@ class TestSuggestions:
         own = _leg("2026-02-12", "-63700", "DOP", "own", category=cat.OWN_TRANSFER)
         assert exchanges.suggestions([sent, salary, own], Links(), BANKS, _rate) == {}
         deposit = _leg("2026-02-12", "-63700", "DOP", "dep", category=cat.OTHER_INCOME)
-        busy = Links(shared=(Shared.one(1, "other", people=2, reimbursements=("dep",)),))
+        busy = Links(ledger={"dep": (1, "payment")})  # a payment of a shared group
         assert exchanges.suggestions([sent, deposit], busy, BANKS, _rate) == {}
 
     def test_same_direction_or_currency_is_not_an_exchange(self) -> None:

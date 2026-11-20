@@ -1,5 +1,6 @@
 // Types of the local API (src/michelito/web/schemas.py): money in whole cents, ISO dates and
 // the rate as text with 4 decimals.
+import type { LedgerRef } from './sharedApi'
 
 export interface MonthOption {
   month: string
@@ -149,6 +150,7 @@ export interface Summary {
   invested_cents: number // contributions to investments in the month (RD$): they do not reduce what was left over
   cash_box_cents: number // withdrawals of the month stored in the cash box (RD$): they do not reduce it either
   incomes: IncomeLine[] // income of the month per category (crypto apart), largest first
+  provisional_cents: number // of the month's spending, what is still without a statement (RD$)
 }
 
 /** A category's income of the month, in RD$ (positive). */
@@ -179,68 +181,6 @@ export interface Candidate extends LinkedTx {
   primary: boolean
 }
 
-/** Reimbursement recorded by hand: in cash (empty `place`) or in another account. */
-export interface ManualEntry {
-  id: number
-  amount_cents: number
-  day: string
-  person: string
-  place: string
-  currency: string // the money's
-}
-
-/** Split of an expense: exactly one form. */
-export interface Split {
-  people: number | null
-  my_share_cents: number | null
-  for_other: boolean
-}
-
-/** An expense of a shared group: its split and its status (in its currency). */
-export interface GroupExpense extends LinkedTx, Split {
-  share_cents: number
-  counted_cents: number
-  reimbursed_cents: number // what was applied, from the oldest expense to the newest
-  pending_cents: number
-  written_off_cents: number
-}
-
-/** The figures of the group's expenses in one currency. */
-export interface SharedTotal {
-  currency: 'DOP' | 'USD'
-  share_cents: number
-  reimbursed_cents: number
-  pending_cents: number
-  written_off_cents: number
-}
-
-/** A group in a list: title (name, "With whom" or merchant) and what is pending per currency. */
-export interface GroupRef {
-  id: number
-  title: string
-  name: string
-  with_whom: string
-  first_fingerprint: string // the first expense: opens the group's screen
-  expense_count: number
-  pending: CurrencyCents[]
-  last_split: Split // that of the last expense added: proposed when adding another
-}
-
-export interface GroupCandidate extends GroupRef {
-  primary: boolean
-}
-
-/** A shared group: one or more expenses, each with its split, and its reimbursements. */
-export interface SharedInfo extends GroupRef {
-  written_off: boolean
-  expenses: GroupExpense[] // oldest to newest
-  totals: SharedTotal[]
-  excess: CurrencyCents[] // paid back in excess after everything was settled
-  unconverted: string[] // reimbursements that did not count for lack of a rate
-  reimbursements: LinkedTx[]
-  manual: ManualEntry[]
-}
-
 export interface ExchangeInfo {
   id: number
   rate: string // RD$ per US$ in use, 4 decimals
@@ -260,6 +200,7 @@ export type LinkKind =
   | ''
   | 'shared'
   | 'reimbursement'
+  | 'group'
   | 'exchange'
   | 'investment'
   | 'cash_box'
@@ -341,40 +282,6 @@ export interface RoleBody {
   capital_cents?: number
 }
 
-/** How to split an expense: exactly one way. */
-export interface SplitBody {
-  people?: number
-  my_share_cents?: number
-  for_other?: boolean
-}
-
-/** The expense's split; if it is not in a group, `link_id` adds it to that group and, without it,
- * a new one is created with "With whom" (`with_whom`, optional). */
-export interface SharedBody extends SplitBody {
-  link_id?: number
-  with_whom?: string | null
-}
-
-export interface GroupPatch {
-  name?: string | null
-  with_whom?: string | null
-  written_off?: boolean
-}
-
-export interface ManualBody {
-  amount_cents: number
-  day: string
-  person?: string | null
-  place?: string | null
-  currency?: 'DOP' | 'USD' | null // null: that of the group's oldest expense
-}
-
-export interface ReimbursementCandidates {
-  credits: Candidate[] // credits that can reimburse the group
-  groups: GroupCandidate[] // groups this credit can reimburse
-  places: string[]
-}
-
 export interface Tx {
   fingerprint: string
   day: string
@@ -396,18 +303,17 @@ export interface Tx {
   one_off_reasons: string[]
   one_off_dismissed: boolean // the user said "Not one-off"; it can be suggested again
   note: string
-  // Links: "shared" (amount_cents is your share; gross_cents, the statement amount),
-  // "reimbursement", "exchange" or "".
+  // Links: "shared" (a group entry: amount_cents is your share; gross_cents, the statement
+  // amount), "reimbursement" (a group payment), "group" (your share of an expense someone else
+  // paid: no bank), "exchange", "investment", "cash_box", "reserve" or "".
   link: LinkKind // also when the link is dormant (its expense or a leg no longer appears)
   link_id: number | null
-  can_share: boolean // server rules: it can be marked shared
-  can_reimburse: boolean // it can be the reimbursement of a shared expense
+  can_share: boolean // server rules: it can be added to a group ("I paid it")
+  can_reimburse: boolean // a credit that can be a payment received in a group
   can_exchange: boolean // it can be a leg of a currency exchange
   gross_cents: number | null
   pending_cents: number // owed to you from this expense
-  shared: SharedInfo | null // the row's group, as expense or as reimbursement
-  reimbursement_of: LinkedTx | null // the first expense of the group it reimburses
-  suggested_group: GroupRef | null // "Reimbursement of <group>?"
+  ledger: LedgerRef | null // the row's place in a shared group
   exchange: ExchangeInfo | null
   suggested_exchange_with: LinkedTx | null
   can_invest: boolean // a bank debit that can be a contribution ("It is an investment…")
@@ -423,6 +329,7 @@ export interface Tx {
   cash_box_currency: string | null
   cash_box_amount_cents: number | null
   cash_entry_id: number | null // recorded by hand in the box (it can be edited and deleted)
+  provisional: boolean // from a bank alert: its statement has not arrived yet (badge)
 }
 
 export type CashBoxRole = 'stored' | 'deposit'
@@ -528,6 +435,9 @@ export interface Comparison {
   incomes: CompareRow[] // income per category (key `income:<name>`)
 }
 
+/** What the user decides about a provisional missing from its statement (PUT /api/provisional). */
+export type ProvisionalDecision = 'discard' | 'keep' | null
+
 /** "To review" kinds (src/michelito/analysis/review.py). */
 export type ReviewKind =
   | 'one_off'
@@ -539,6 +449,9 @@ export type ReviewKind =
   | 'possible_return'
   | 'possible_rule'
   | 'possible_reserve'
+  | 'possible_payment'
+  | 'unconfirmed'
+  | 'reversal'
 
 /** A transaction to review (GET /api/review and /api/review/history). */
 export interface ReviewItem {
@@ -557,6 +470,10 @@ export interface ReviewItem {
   investment_id?: number | null // possible contribution or payment: the proposed investment
   category_id?: number | null // possible rule: the proposed category
   reserve_id?: number | null // possible reserve: the proposed reserve
+  group_id?: number | null // possible payment: the group
+  contact_id?: number | null // possible payment: who pays (null: unattributed)
+  payment_id?: number | null // possible payment: the unlinked payment it reconciles
+  provisional?: boolean // still provisional (from a bank alert): it can be discarded
 }
 
 export interface ReviewMark {
@@ -659,6 +576,7 @@ export interface PendingItem {
   rate: string | null // RD$ per US$ of `pending_dop_cents`: the exchange's or the most recent one
   expense_count: number // expenses of the group (1 for an exchange)
   parts: CurrencyCents[] // what is pending per currency
+  link_id?: number | null // a group: its id (opens /shared/<id>)
 }
 
 /** Who owes you and whom you owe, across all months. In RD$, each exchange at its own rate and
@@ -674,73 +592,12 @@ export interface Pending {
   i_owe: PendingItem[]
 }
 
-export type SharedStatus = 'pending' | 'settled' | 'written_off'
-
-/** An expense of a group in Shared: its split and whether it is settled (in its currency). */
-export interface SharedListExpense extends Split {
-  fingerprint: string
-  day: string
-  merchant: string
-  account_label: string
-  amount_cents: number // the whole expense (before splitting)
-  currency: string
-  share_cents: number
-  reimbursed_cents: number
-  pending_cents: number
-  written_off_cents: number
-}
-
-/** A reimbursement of a group: a linked credit or one recorded by hand. */
-export interface SharedListRefund {
-  key: string // the credit's fingerprint or "manual:<id>"
-  manual: boolean
-  day: string
-  description: string // credit: merchant; by hand: the person (may be empty)
-  account_label: string // credit: its account; by hand: the "where" ("" = cash)
-  amount_cents: number // positive
-  currency: string
-}
-
-/** A group in Shared (`GET /api/shared`). */
-export interface SharedListGroup {
-  id: number
-  title: string // name, otherwise "With whom", otherwise the first expense's merchant
-  name: string
-  with_whom: string
-  status: SharedStatus
-  first_fingerprint: string // the first expense: opens the group's screen
-  first_day: string
-  last_day: string
-  last_activity: string // the most recent expense or reimbursement
-  expenses: SharedListExpense[] // oldest to newest
-  refunds: SharedListRefund[]
-  paid: CurrencyCents[] // Σ amounts of the expenses
-  reimbursed: CurrencyCents[] // Σ reimbursements, by their currency
-  pending: CurrencyCents[] // owed to you (empty if nothing)
-  pending_dop_cents: number | null // ≈ RD$ of what is pending; null without pending or without a rate
-  unconverted_usd_cents: number
-  excess: CurrencyCents[] // paid back to you in excess
-}
-
-/** Every shared group, across all months, and its totals. */
-export interface SharedList {
-  owed_dop_cents: number
-  reimbursed_year_dop_cents: number
-  year: number
-  open_count: number
-  unconverted: { owed_usd_cents: number; reimbursed_usd_cents: number } // US$ without a rate
-  rate: Rate | null
-  groups: SharedListGroup[] // latest activity first
-}
-
 export interface EditBody {
   category?: string | null
   category_id?: number
   one_off?: boolean | null
   scope?: 'transaction' | 'merchant'
   note?: string
-  shared?: SharedBody | null // null: no longer shared
-  written_off?: boolean
 }
 
 /** PATCH /api/transactions: the category ("only this one") of several at once, with a reason. */
@@ -875,25 +732,39 @@ export interface MarkBody {
 
 export class ApiError extends Error {
   readonly status: number
+  /** The server's machine-readable reason (`X-Michelito-Error`), when it gives one. */
+  readonly code: string | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
+
+const ERROR_HEADER = 'X-Michelito-Error'
 
 const WRITE_METHODS = new Set(['PATCH', 'PUT', 'POST', 'DELETE'])
 const NO_CONTENT = 204
 
 /** Requests `path` from the API; writes carry `X-Michelito: 1` and a JSON body. A 204 (no body)
  * returns `undefined`. */
+/** Dispatched on every 401: in hosted mode the session ended (expired or signed out elsewhere)
+ * and the mode gate goes back to the sign-in screen. */
+export const SIGNED_OUT_EVENT = 'michelito:signed-out'
+const UNAUTHORIZED = 401
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
   headers.set('X-Michelito', '1')
   if (WRITE_METHODS.has(method)) headers.set('Content-Type', 'application/json')
   const response = await fetch(path, { ...init, method, headers })
-  if (!response.ok) throw new ApiError(response.status, await errorDetail(response))
+  if (response.status === UNAUTHORIZED) window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
+  if (!response.ok) {
+    const code = response.headers.get(ERROR_HEADER)
+    throw new ApiError(response.status, await errorDetail(response), code)
+  }
   if (response.status === NO_CONTENT) return undefined as T
   return (await response.json()) as T
 }

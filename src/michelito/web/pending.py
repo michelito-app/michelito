@@ -1,11 +1,12 @@
 """Pending: who owes you and whom you owe, across all months.
 
-- **Owed to you**: the shared groups with something pending, one row per group
-  (`shared.states`: they already apply the reimbursements, converted, from the oldest expense to
-  the newest) and the currency exchanges with something pending whose base side left your
-  accounts (you gave first: the oldest leg is a debit).
-- **You owe**: the exchanges with something pending whose base side came in (they gave first
-  and the other currency is still to be returned).
+- **Owed to you**: the shared groups where someone owes you (`ledger.GroupState.owed_to_me`:
+  payments already applied, converted, from the oldest entry to the newest; each person apart,
+  never netted against another), one row per group, and the currency exchanges with something
+  pending whose base side left your accounts (you gave first: the oldest leg is a debit).
+- **You owe**: the groups where you owe someone (`GroupState.i_owe`), and the exchanges with
+  something pending whose base side came in (they gave first and the other currency is still to
+  be returned).
 - Left out: what was marked "They won't pay me back" and complete exchanges or ones with nothing
   pending (the states already leave them at 0).
 
@@ -13,8 +14,8 @@ In RD$: an exchange is valued at its own rate (the agreed or the implied one,
 `ExchangeState.pending_dop`: it is the price at which the debt was agreed, so it never lacks a
 rate); what a group has pending in US$, at the most recent saved rate (the one for the month of
 `today` or the closest earlier month) and, with none, apart, without making one up. With chosen
-accounts, a group counts if any of its expenses is from them (its row opens the group's first
-expense and shows the account of the first one from those accounts); an exchange, if any of its
+accounts, a group counts if any of its linked transactions is from them (its row opens the
+group and shows the account of the first one from those accounts); an exchange, if any of its
 legs is, and its row is the first of those legs (the one that opens its screen and gives the
 account). A group's date and age are those of its oldest pending expense; an exchange's, those
 of its first leg. Each list goes from oldest to newest.
@@ -28,9 +29,10 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
+from michelito.analysis import ledger
+from michelito.analysis.accounts import GROUP_ACCOUNT_NAME
 from michelito.analysis.exchanges import ExchangeState
 from michelito.analysis.rates import Rate, rate_for, to_dop
-from michelito.analysis.shared import SharedState
 from michelito.analysis.spending import Movement
 
 WHO_CHARS = 40  # a longer note is trimmed for the row
@@ -43,11 +45,11 @@ Kind = Literal["shared", "exchange"]
 @dataclass(frozen=True)
 class PendingItem:
     kind: Kind
-    fingerprint: str  # the group's first expense, or the exchange's first leg
+    fingerprint: str  # the group's first linked transaction (or ""), or the exchange's first leg
     day: date
-    merchant: str  # the group title (name, "With whom" or merchant) or the exchange's
+    merchant: str  # the group's name or the exchange's merchant
     account_label: str
-    who: str  # the group's "With whom" or else the note (trimmed); may be empty
+    who: str  # the group's people or else the note (trimmed); may be empty
     pending: Decimal  # in `currency`
     currency: str
     pending_dop: Decimal | None  # None: in US$ with no rate at all
@@ -89,7 +91,8 @@ class Pending:
 
 def build_pending(
     movements: Sequence[Movement],
-    groups: Mapping[int, SharedState],
+    book: ledger.Ledger,
+    groups: Mapping[int, ledger.GroupState],
     exchange_states: Mapping[int, ExchangeState],
     labels: Mapping[str, str],
     rates: Mapping[str, Rate],
@@ -100,12 +103,25 @@ def build_pending(
     rate = rate_for(rates, today.strftime("%Y-%m"))
     owed: list[PendingItem] = []
     owing: list[PendingItem] = []
+    by_fp = {m.fingerprint: m for m in movements}
     for state in groups.values():
-        moves = [e.move for e in state.expenses]
-        if not state.has_pending or not _picked(moves, chosen):
+        if state.group.archived:
             continue
-        first = next(m for m in moves if chosen is None or m.account in chosen)
-        owed.append(_shared_item(state, first, labels, rate, today))
+        moves = [
+            by_fp[fp]
+            for e in state.entries
+            if (fp := e.entry.fingerprint) is not None and fp in by_fp
+        ]
+        if chosen is not None and not _picked(moves, chosen):
+            continue
+        shown = next((m for m in moves if chosen is None or m.account in chosen), None)
+        # Each side apart (people never cancel each other; see `GroupState.owed_to_me`).
+        positive = state.owed_to_me
+        negative = state.i_owe
+        if positive:
+            owed.append(_shared_item(book, state, positive, shown, labels, rate, today))
+        if negative:
+            owing.append(_shared_item(book, state, negative, shown, labels, rate, today))
     for exchange in exchange_states.values():
         shown = _shown_leg(exchange, chosen)
         if exchange.pending <= 0 or shown is None:
@@ -118,27 +134,39 @@ def build_pending(
 
 
 def _shared_item(
-    state: SharedState, shown: Movement, labels: Mapping[str, str], rate: Rate | None, today: date
+    book: ledger.Ledger,
+    state: ledger.GroupState,
+    values: Mapping[str, Decimal],
+    shown: Movement | None,
+    labels: Mapping[str, str],
+    rate: Rate | None,
+    today: date,
 ) -> PendingItem:
-    parts = tuple(sorted(state.pending.items()))
-    oldest = state.oldest_pending or state.first
+    parts = tuple(sorted(values.items()))
+    pending = [e for e in state.entries if e.pending > 0 or e.debt_pending > 0]
+    oldest = pending[0].day if pending else (state.last_activity or today)
     converted = [(to_dop(value, currency, rate), value, currency) for currency, value in parts]
     dop_parts = [dop for dop, _, _ in converted if dop is not None]
     unconverted = sum((v for dop, v, c in converted if dop is None and c == _USD), _ZERO)
     main_currency, main_value = parts[0]
+    people = ", ".join(
+        book.name(m.contact_id) for m in state.group.members if m.contact_id != book.me
+    )
     return PendingItem(
         kind="shared",
-        fingerprint=state.first.fingerprint,
-        day=oldest.day,
-        merchant=state.title,
-        account_label=labels.get(shown.account, shown.account),
-        who=_trim(state.link.with_whom or state.first.move.note),
+        fingerprint="" if shown is None else shown.fingerprint,
+        day=oldest,
+        merchant=state.group.name,
+        account_label=GROUP_ACCOUNT_NAME
+        if shown is None
+        else labels.get(shown.account, shown.account),
+        who=_trim(people),
         pending=main_value,
         currency=main_currency,
         pending_dop=sum(dop_parts, _ZERO) if dop_parts else None,
-        age_days=(today - oldest.day).days,
+        age_days=(today - oldest).days,
         rate=rate.value if rate is not None and any(c == _USD for c, _ in parts) else None,
-        expense_count=len(state.expenses),
+        expense_count=len(state.entries),
         link_id=state.id,
         parts=parts,
         unconverted_usd=unconverted if dop_parts else _ZERO,
