@@ -2,6 +2,7 @@
 
     uv run python -m tests.e2e_hosted_server --port 8636 --dir /tmp/michelito-hosted-e2e-8636
     uv run python -m tests.e2e_hosted_server expire-step-up --dir DIR --email EMAIL
+    uv run python -m tests.e2e_hosted_server deliver --dir DIR --port P --to ADDRESS --kind K
 
 The folder is wiped on start (it must be under the system's temporary folder and carry the
 `michelito-hosted-e2e-` prefix). Every email goes to `<dir>/outbox/` as a JSON file, which the
@@ -14,15 +15,23 @@ removed with it.
 
 `expire-step-up` makes every session's last verification older than the step-up window, so a
 spec can prove the step-up is demanded without waiting ten minutes. It never touches real data.
+
+`deliver` plays the Cloudflare Email Worker: it builds a synthetic email
+(`tests.forwarding_helpers`: Gmail's confirmation, a locked BHD statement, or a statement from an
+unknown sender), signs it with the throwaway inbound secret (`<dir>.inbound.key`, next to the
+folder, never inside it) and POSTs it to the server on 127.0.0.1.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import uvicorn
@@ -33,8 +42,10 @@ from michelito.hosted.keys import write_master
 from michelito.hosted.limits import Caps
 from michelito.hosted.mailer import OutboxMailer
 from michelito.hosted.store import FILENAME
+from tests import forwarding_helpers
 
 PREFIX = "michelito-hosted-e2e-"
+KINDS = ("confirmation", "locked", "stranger")
 PORT_ENV = "E2E_HOSTED_PORT"
 
 
@@ -52,6 +63,10 @@ def serve(port: int, directory: Path, demo_url: str) -> None:
     master = directory.with_name(f"{directory.name}.master.key")
     master.unlink(missing_ok=True)
     write_master(master)
+    inbound = _inbound_key(directory)
+    inbound.unlink(missing_ok=True)
+    inbound.write_bytes(forwarding_helpers.SECRET)
+    inbound.chmod(0o600)
     settings = Settings(
         data=directory,
         public_url=f"http://127.0.0.1:{port}",
@@ -60,6 +75,7 @@ def serve(port: int, directory: Path, demo_url: str) -> None:
         floor=0.05,
         caps=Caps(codes_per_ip=10_000, verifications_per_ip=10_000, emails_per_ip_day=10_000),
         master_key=master,
+        inbound_secret=inbound,
     )
     app = create_hosted_app(settings, OutboxMailer(directory / "outbox"), cli.STATIC_DIR)
     try:
@@ -68,6 +84,32 @@ def serve(port: int, directory: Path, demo_url: str) -> None:
         app.state.dispatcher.stop()
         shutil.rmtree(directory, ignore_errors=True)
         master.unlink(missing_ok=True)
+        inbound.unlink(missing_ok=True)
+
+
+def _inbound_key(directory: Path) -> Path:
+    return directory.with_name(f"{directory.name}.inbound.key")
+
+
+def deliver(directory: Path, port: int, to: str, kind: str) -> None:
+    """Sign and POST one synthetic forwarded email, as the Email Worker would."""
+    h = forwarding_helpers
+    if kind == "confirmation":
+        raw, domain = h.gmail_confirmation(), "google.com"
+    elif kind == "locked":
+        raw, domain = h.statement_email(h.BHD_STATEMENTS, h.bhd_card()), "bhd.com.do"
+    else:
+        raw, domain = h.statement_email(h.STRANGER, h.bhd_savings()), "unknown-sender.example"
+    secret = _inbound_key(directory).read_bytes()
+    body, headers = h.signed(to, raw, h.worker_auth(domain), secret=secret)
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/inbound-email", data=body, headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as answer:  # noqa: S310 - loopback only
+            print(json.loads(answer.read())["status"])
+    except urllib.error.HTTPError as error:
+        raise SystemExit(f"the server answered {error.code}") from None
 
 
 def expire_step_up(directory: Path, email: str) -> None:
@@ -82,17 +124,25 @@ def expire_step_up(directory: Path, email: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", nargs="?", choices=("serve", "expire-step-up"), default="serve")
+    parser.add_argument(
+        "action", nargs="?", choices=("serve", "expire-step-up", "deliver"), default="serve"
+    )
     parser.add_argument("--port", type=int, default=int(os.environ.get(PORT_ENV, "8636")))
     parser.add_argument("--dir", required=True)
     parser.add_argument("--email", help="expire-step-up: whose sessions")
     parser.add_argument("--demo-url", default="https://demo.example", help="the demo to link")
+    parser.add_argument("--to", help="deliver: the forwarding address")
+    parser.add_argument("--kind", choices=KINDS, help="deliver: which synthetic email")
     args = parser.parse_args()
     directory = _checked(args.dir)
     if args.action == "expire-step-up":
         if not args.email:
             parser.error("expire-step-up needs --email")
         expire_step_up(directory, args.email)
+    elif args.action == "deliver":
+        if not args.to or not args.kind:
+            parser.error("deliver needs --to and --kind")
+        deliver(directory, args.port, args.to, args.kind)
     else:
         serve(args.port, directory, args.demo_url)
 

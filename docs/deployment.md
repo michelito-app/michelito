@@ -87,10 +87,20 @@ On the daemon side nothing is needed with Docker 27 or newer: `ip6tables` is ena
 sudo cat /etc/docker/daemon.json 2>/dev/null   # it must not say "ip6tables": false
 ```
 
-Optional: `"userland-proxy": false` in `/etc/docker/daemon.json` (and
-`sudo systemctl restart docker`) removes `docker-proxy` entirely; if something were misconfigured,
-IPv6 connections would fail instead of arriving with the wrong IP. It is not needed with the
-compose file's IPv6 network.
+Optional: `"userland-proxy": false` removes `docker-proxy` entirely; if something were
+misconfigured, IPv6 connections would fail instead of arriving with the wrong IP. It is not needed
+with the compose file's IPv6 network. The file must be a whole JSON object, and a broken file
+stops Docker (and every container) from starting, so validate it before restarting:
+
+```bash
+# only if the file does not exist yet; otherwise add the key inside its existing { … }
+echo '{ "userland-proxy": false }' | sudo tee /etc/docker/daemon.json
+sudo dockerd --validate --config-file /etc/docker/daemon.json   # must print "configuration OK"
+sudo systemctl restart docker
+```
+
+If Docker does not come back: `sudo journalctl -xeu docker.service --no-pager | tail -20`, then
+move the file aside (`sudo mv /etc/docker/daemon.json /etc/docker/daemon.json.bak`) and restart.
 
 Verification, after the first deploy:
 
@@ -429,6 +439,8 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
    sudo install -o 10001 -g 10001 -m 400 /dev/stdin resend-api.key
    sudo install -o 10001 -g 10001 -m 400 /dev/stdin r2-access-key-id
    sudo install -o 10001 -g 10001 -m 400 /dev/stdin r2-secret-access-key
+   # email forwarding (needed by compose even before the Worker exists; see below)
+   openssl rand -hex 32 | sudo install -o 10001 -g 10001 -m 400 /dev/stdin inbound-secret.key
    ```
    Keep an **offline copy of `master.key`** in your password manager: without it no backup can
    be restored, and with it (plus a backup) everything can be read.
@@ -457,6 +469,101 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
    from outside.
 5. Invite yourself: `sudo -u deploy docker compose --project-directory /opt/michelito exec hosted michelito invite you@example.com`.
 
+### Email forwarding (Email Routing and the Worker)
+
+Statements and purchase alerts reach the hosted app by email: each account has an address
+`<prefix>.<token>@michelito.app` (prefix `forwarding.PREFIX`), Cloudflare Email Routing hands
+every message for the domain to an Email Worker (`deploy/email-worker/`), and the Worker POSTs
+it, signed, to `https://michelito.app/api/inbound-email`. Nothing here is automated: the owner
+does it once, by hand. Upgrading a server that already runs the hosted app: create
+`secrets/inbound-secret.key` first (step 2 above), or compose refuses to start the container.
+
+1. **The shared secret.** `secrets/inbound-secret.key` (step 2 above) is the HMAC key on both
+   sides: the server reads it from `MICHELITO_INBOUND_SECRET_FILE` (compose mounts it); the
+   Worker gets the same text as its `INBOUND_SECRET`. It must differ from the master key and
+   the code-hash secret (the server refuses to start otherwise). To rotate it: write a new file,
+   `wrangler secret put` the same value, restart the hosted container (messages in between are
+   retried by the sending server).
+2. **Email Routing** (Cloudflare dashboard → michelito.app → Email → Email Routing): enable it
+   (it adds its MX and SPF records; `auth.michelito.app`'s Resend records stay as they are). In
+   "Routing rules", set the **catch-all** to "Send to a Worker" → `michelito-email` (after step
+   3). Do not add per-address rules: the Worker checks the recipient's shape and the app checks
+   the token.
+3. **The Worker** (from a machine with Node, logged in with `npx wrangler@4 login`):
+   ```bash
+   cd deploy/email-worker
+   node --test                                  # its own tests, no dependencies
+   npx wrangler@4 secret put INBOUND_SECRET     # paste the content of inbound-secret.key
+   npx wrangler@4 deploy
+   ```
+   `wrangler.toml` sets `INBOUND_URL`, `DOMAIN`, `PREFIX`, `MAX_BYTES` (10 MB; the app's own
+   limit is the same), whose ARC set carries the verdict (`AUTH_SERV`, `mx.cloudflare.net`),
+   who must have sealed it (`SEAL_DOMAIN`, `cloudflare.net`), whether that seal's signature is
+   checked (`ARC_VERIFY`, keep `"1"`) and the DNS-over-HTTPS resolver used to read the seal's
+   public key (`DOH_URL`).
+4. **Check the verdict once (before inviting anyone).** The Worker passes on Cloudflare's
+   verdict only if exactly one `ARC-Authentication-Results` names `AUTH_SERV`, its instance is
+   the newest ARC set, that set's `ARC-Seal` has `d=SEAL_DOMAIN` and its signature verifies
+   with the key in DNS (`<s>._domainkey.<d>`, rsa-sha256 or ed25519-sha256); anything else
+   means no verdict, and the app quarantines the message (it fails closed). Set
+   `DIAGNOSE = "1"` in `wrangler.toml`, deploy, run `npx wrangler@4 tail`, and forward one real
+   bank email to your address: the log shows only the **names** of the first headers and
+   `verdict: ok` or why not (`no cloudflare verdict`, `seal does not verify`…, never a value).
+   If it is not `ok`, every message lands in quarantine: stop and revisit (for example
+   `SEAL_DOMAIN`, if Cloudflare seals under another domain) before relying on it. Then send a
+   message **from an unrelated address with a forged
+   `ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=popularenlinea.com`
+   header** (and, if you can, a whole forged ARC set) to your address and confirm it lands in
+   quarantine. Put `DIAGNOSE = "0"` back.
+5. **Gmail**: follow the in-app guide (Settings → "how to set up forwarding in Gmail"). Gmail's
+   confirmation email arrives at the address; its code, its link and the Gmail address that
+   asked show up in Settings; type the code in Gmail yourself (the app never confirms
+   anything), and only if that Gmail address is yours.
+6. **Optional hardening**, outside the app:
+   - a Cloudflare **rate limiting rule** (Security → WAF → Rate limiting rules) on
+     `michelito.app/api/inbound-email`, e.g. 600 requests a minute per IP, blocking for a
+     minute. It cannot tell the Worker's requests from junk on the same (shared) egress, so
+     keep it well above your real mail volume, or skip it: the app itself limits only requests
+     whose signature fails (300 a minute per network, 1,000 in all), never validly signed ones;
+   - a Caddy rule that answers 403 to `/api/inbound-email` unless the request comes from
+     Cloudflare's published egress ranges (`https://www.cloudflare.com/ips/`), in the
+     `{$MICHELITO_APP_HOST}` block:
+     ```
+     @inbound_outside {
+         path /api/inbound-email
+         not remote_ip <every range from https://www.cloudflare.com/ips/>
+     }
+     respond @inbound_outside 403
+     ```
+     Keep the list current (it changes rarely); a stale list rejects the Worker's requests
+     (Email Routing retries for a while, then bounces): check `wrangler tail` after changing
+     it.
+
+The address is the secret: whoever learns it could forward genuine bank emails of their own.
+That is why the first alert of a card and the first statement of an account the person does not
+have yet wait for their explicit approval, and why rotating the address (Settings, with a fresh
+verification) is one click.
+
+What answers what: 2xx accepted; 404 (unknown address, or forwarding off), 413 (too large) and
+422 (malformed) make the Worker reject the message for good (the sender gets a bounce); 401
+(bad signature or time), 409 (replayed nonce), 429 (rate limits: failed signatures per network, 60/hour and
+300/day per account, 1,000/hour in all) and 5xx (including 503 when the 4 body-read slots are
+busy) make the Worker throw, so Email Routing reports a temporary failure and the sending
+server retries. Unknown addresses have a budget of their own and never use the real accounts'
+one. Neither side logs a body, an address beyond the domain, an attachment name, the token or
+the secret.
+
+Before any of the body is read, the app checks the headers, the time window and the
+`X-Michelito-Preauth` tag (an HMAC over timestamp, nonce and Content-Length that only the
+Worker can make): without a valid one a request never takes one of the 4 read slots. A body
+must arrive with exactly its declared length within 30 seconds (10 between chunks), or 408;
+the full-body HMAC is still the real authentication. Residual risk: a captured genuine request
+replayed within its 5-minute window takes a slot until it is read and its nonce found already
+used, and a stalled connection holds one for up to 30 seconds; genuine mail then waits (503,
+retried by the sender) rather than being lost. The failed-check buckets never refuse a request
+before its tag is checked, so they cannot be used to block signed mail. If it ever matters,
+the Cloudflare rate rule and the Caddy egress-range rule above narrow who can reach the route.
+
 ### Nightly jobs (cron on the host)
 
 `/etc/cron.d/michelito` (times in UTC):
@@ -464,6 +571,7 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
 ```
 30 3 * * * deploy cd /opt/michelito && docker compose run --rm -T backup >/dev/null 2>>/opt/michelito/ops.log
 0 9 * * *  deploy cd /opt/michelito && docker compose exec -T hosted michelito ops-check >/dev/null 2>>/opt/michelito/ops.log
+0 13 * * * deploy cd /opt/michelito && docker compose exec -T hosted michelito forwarding-check >/dev/null 2>>/opt/michelito/ops.log
 ```
 
 - `backup` (the `backup` service: the only container with the R2 credentials) uploads to R2
@@ -474,7 +582,9 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
 - `ops-check` emails `MICHELITO_OPS_EMAIL` **only when something failed**: the last backup failed
   or is older than 26 hours, sign-in emails could not be sent in the last day, or statements
   failed to parse (counts and short fingerprints only). Nothing failed: no email.
-- Neither prints a key, a credential or a figure; `ops.log` only gets error messages.
+- `forwarding-check` emails each person whose forwarded statement is later than usual (once per
+  late statement, data-free; see "Email forwarding" below).
+- None prints a key, a credential or a figure; `ops.log` only gets error messages.
 
 ### Monitoring
 

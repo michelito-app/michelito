@@ -58,6 +58,8 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
         "data_keys",
         "deleted_folders",
         "bank_requests",
+        "forwarding_addresses",
+        "inbound_nonces",
     }
     # "Notify me when it is supported": demand per bank name, tied to no account, email or date.
     assert columns.pop("bank_requests") == {"bank", "requests"}
@@ -67,6 +69,9 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
     assert columns["accounts"] == {"id", "email", "created_at", "status", "folder"}
     assert columns["data_keys"] == {"account_id", "wrapped", "master_id", "created_at"}
     assert columns["deleted_folders"] == {"folder", "deleted_at"}
+    # Email forwarding: only the token's hash (the address lives in the encrypted database).
+    assert columns["forwarding_addresses"] == {"account_id", "token_hash", "created_at"}
+    assert columns["inbound_nonces"] == {"nonce", "expires_at"}
 
 
 def test_migrations_are_forward_and_idempotent(tmp_path: Path) -> None:

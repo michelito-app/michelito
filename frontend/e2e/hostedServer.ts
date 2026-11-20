@@ -85,6 +85,30 @@ export function expireStepUp(email: string): void {
   )
 }
 
+/** Play the Email Worker: sign and POST one synthetic forwarded email to `to`
+ * (tests/e2e_hosted_server.py `deliver`). */
+export function deliverEmail(to: string, kind: 'confirmation' | 'locked' | 'stranger'): void {
+  execFileSync(
+    'uv',
+    [
+      'run',
+      'python',
+      '-m',
+      'tests.e2e_hosted_server',
+      'deliver',
+      '--dir',
+      HOSTED_DIR,
+      '--port',
+      String(HOSTED_PORT),
+      '--to',
+      to,
+      '--kind',
+      kind,
+    ],
+    { cwd: REPO, env: ENV, stdio: 'pipe' },
+  )
+}
+
 /** Write the synthetic statements (made up, from tests/samples.py) and return their paths. */
 export function syntheticPdfs(): Record<string, string> {
   execFileSync('uv', ['run', 'python', '-m', 'tests.synthetic_pdf', '--out', PDF_DIR], {

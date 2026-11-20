@@ -1,0 +1,21 @@
+# The Email Worker (see docs/deployment.md, "Email forwarding"). Deploy with
+# `npx wrangler@4 deploy` from this folder; the secret goes in with
+# `npx wrangler@4 secret put INBOUND_SECRET` (the same text as the server's inbound secret file).
+name = "michelito-email"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+[vars]
+INBOUND_URL = "https://michelito.app/api/inbound-email"
+DOMAIN = "michelito.app"
+PREFIX = "estados"  # spanish-data: the forwarding addresses' fixed part
+MAX_BYTES = "10485760"
+# Whose ARC set carries the verdict, who must have sealed it, and whether the seal's signature
+# is checked against the key in DNS (keep "1": with "0" a forged set naming Cloudflare would be
+# trusted if it is the newest). DIAGNOSE = "1" logs header *names* and why a verdict was not
+# passed on, never a value.
+AUTH_SERV = "mx.cloudflare.net"
+SEAL_DOMAIN = "cloudflare.net"
+ARC_VERIFY = "1"
+DOH_URL = "https://cloudflare-dns.com/dns-query"
+DIAGNOSE = "0"

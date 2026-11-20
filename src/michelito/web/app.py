@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, closing, contextmanager
+from dataclasses import replace as dc_replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -33,6 +34,7 @@ from michelito.analysis import one_off_dismissals as dismissals
 from michelito.analysis import recurring_marks as marks
 from michelito.analysis.categories import KIND_LABELS, Kind
 from michelito.analysis.spending import Movement
+from michelito.hosted import inbox_store
 from michelito.i18n import t
 from michelito.web import accounts as accounts_view
 from michelito.web import (
@@ -379,7 +381,7 @@ def create_app(
             reviewed=review_marks.load(conn),
             book=ledger_store.load(conn),
         )
-        return transactions.list_transactions(
+        views = transactions.list_transactions(
             movements,
             infos,
             by_month,
@@ -391,6 +393,11 @@ def create_app(
             known,
             lambda fingerprints: links_view.row_links(ctx, fingerprints),
         )
+        # Hosted email forwarding: what entered because the person approved it is marked.
+        approved = inbox_store.approved_fingerprints(conn)
+        if not approved:
+            return views
+        return [dc_replace(v, approved=v.fingerprint in approved) for v in views]
 
     def tx_out(conn: sqlite3.Connection, fingerprint: str, month: str) -> TxOut:
         """The up-to-date row after a change."""

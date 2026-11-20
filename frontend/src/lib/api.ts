@@ -330,6 +330,7 @@ export interface Tx {
   cash_box_amount_cents: number | null
   cash_entry_id: number | null // recorded by hand in the box (it can be edited and deleted)
   provisional: boolean // from a bank alert: its statement has not arrived yet (badge)
+  approved?: boolean // hosted: it entered because the person approved an unverified email
 }
 
 export type CashBoxRole = 'stored' | 'deposit'

@@ -89,6 +89,8 @@ ALLOWED_EMAIL_DOMAINS: frozenset[str] = frozenset(
         "gnu.org",
         "fsf.org",
         "auth.michelito.app",  # the project's own sender for sign-in codes (hosted mode)
+        "michelito.app",  # the forwarding addresses' domain (hosted mode, random tokens)
+        "google.com",  # Gmail's public sender of forwarding confirmations
     }
 )
 

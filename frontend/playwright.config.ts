@@ -14,7 +14,7 @@ const DEMO_SPECS = /demo\.spec\.ts$/
 // Hosted mode (tests/e2e_hosted_server.py, accounts and email sign-in with an outbox folder): its
 // own server outside the e2e range of the others (E2E_HOSTED_PORT, 8636 by default).
 // The gate's demo exit: a demo of its own on E2E_HOSTED_PORT + 1 that links back to it.
-const HOSTED_SPECS = /hosted(-gate)?\.spec\.ts$/
+const HOSTED_SPECS = /hosted(-gate|-forwarding)?\.spec\.ts$/
 // The phone layout and the installable app: the main server, with a phone viewport and touch.
 const MOBILE_SPECS = /(mobile|pwa)\.spec\.ts$/
 const PHONE = { ...devices['Desktop Chrome'], isMobile: true, hasTouch: true }

@@ -6,6 +6,7 @@
     michelito backup [--to DIR --keep N]                    (R2 by default)
     michelito restore (--from-r2 | --from-dir DIR) --date D --data EMPTY_DIR
     michelito ops-check [--to EMAIL]
+    michelito forwarding-check                              (late statements, daily)
     michelito pdf-worker --socket PATH                      (the `pdfworker` container)
 
 `export-account` reads the local data folder; the rest work on the hosted folder and, except
@@ -126,6 +127,26 @@ def add_commands(commands: Any) -> None:
     )
     _hosted_options(check)
     check.set_defaults(handler=cmd_ops_check, server=True)
+
+    late = commands.add_parser(
+        "forwarding-check", help="email people whose forwarded statements are late"
+    )
+    late.add_argument(
+        "--mailer",
+        choices=("resend", "outbox"),
+        default=os.environ.get(cli_hosted.MAILER_ENV, "resend"),
+    )
+    late.add_argument(
+        "--mail-from", default=os.environ.get(cli_hosted.FROM_ENV, cli_hosted.DEFAULT_FROM)
+    )
+    late.add_argument(
+        "--public-url",
+        default=os.environ.get(cli_hosted.URL_ENV, ""),
+        help="the app's address in the emails (https://<host> by default)",
+    )
+    late.add_argument("--today", type=date.fromisoformat, default=None, help=argparse.SUPPRESS)
+    _hosted_options(late)
+    late.set_defaults(handler=cmd_forwarding_check, server=True)
 
 
 def _error(message: str, code: int = 1) -> int:
@@ -381,6 +402,39 @@ def cmd_ops_check(args: argparse.Namespace, paths: config.Paths) -> int:
         return _error(f"the alert email could not be sent: {error}")
     print("The owner was emailed.")
     return 1
+
+
+# forwarding-check
+
+
+def cmd_forwarding_check(args: argparse.Namespace, paths: config.Paths) -> int:
+    from michelito.hosted import app as hosted_app
+    from michelito.hosted.keys import MasterKeyError
+    from michelito.hosted.notices import Notices, send_overdue
+
+    directory = _hosted_dir(args, paths)
+    if directory is None:
+        return 2
+    mailer = cli_hosted._mailer(args, directory)
+    if mailer is None:
+        return 2
+    settings = hosted_app.Settings(
+        data=directory,
+        public_url=args.public_url,
+        master_key=hosted_app.master_key_path(args.master_key),
+        background_mail=False,
+    )
+    try:
+        service = hosted_app.build_service(settings, mailer)
+    except (MasterKeyError, hosted_app.HostedStateError) as error:
+        return _error(str(error), 2)
+    sent, failed = send_overdue(
+        service, Notices(service.dispatcher, settings.url), args.today or date.today()
+    )
+    print(f"Late-statement emails sent: {sent}.")
+    if failed:
+        return _error(f"{failed} account(s) could not be checked")
+    return 0
 
 
 # pdf-worker

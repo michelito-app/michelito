@@ -43,6 +43,11 @@ IMPORTING = ".importing"
 SECRET_NAMES = re.compile(r"password|passwd|token|secret|credential|api_?key", re.IGNORECASE)
 # Shorter keyring values are not searched for in the file (they would match by chance).
 MIN_SECRET = 6
+# Columns that hold text printed by the bank (a description can quote the holder's ID number, which
+# is often also the PDF password). A secret found only there is the bank's data, not a leak.
+BANK_TEXT = frozenset(
+    {"transactions.description", "transactions.raw_line", "transactions.reference"}
+)
 _CHUNK = 1 << 20
 
 
@@ -163,6 +168,18 @@ def _secret_values(secrets_found: Iterable[str]) -> list[bytes]:
     return values
 
 
+def _only_in_bank_text(conn: sqlite3.Connection, value: str) -> bool:
+    """Whether `value` appears in the database, and only inside columns of `BANK_TEXT`."""
+    places: set[str] = set()
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    for table in tables:
+        for column in [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]:
+            query = f'SELECT 1 FROM "{table}" WHERE instr(CAST("{column}" AS TEXT), ?) > 0 LIMIT 1'
+            if conn.execute(query, (value,)).fetchone():
+                places.add(f"{table}.{column}")
+    return bool(places) and places <= BANK_TEXT
+
+
 def _fsync(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY)
     try:
@@ -215,8 +232,10 @@ def export_account(
                 dst.execute(f"CREATE TABLE {MANIFEST} (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
                 dst.executemany(f"INSERT INTO {MANIFEST} VALUES (?, ?)", meta.items())
             dst.execute("VACUUM")  # no freed page keeps anything
+            values = _secret_values(keyring_secrets)
+            in_bank_text = {v for v in values if _only_in_bank_text(dst, v.decode())}
         content = partial.read_bytes()
-        if any(value in content for value in _secret_values(keyring_secrets)):
+        if any(value in content for value in values if value not in in_bank_text):
             raise TransferError("a keyring secret appears in the export: not writing it")
         partial.chmod(0o600)
         _fsync(partial)

@@ -448,8 +448,14 @@ class SignIn:
     def workspace(self, session: Session) -> Workspace:
         """The session's own database (only its account's folder), with its data key just
         unwrapped (it lives as long as the request)."""
-        place = self._place(session.account.folder)
-        key = self._data_key(session.account)
+        return self.workspace_of(session.account)
+
+    def workspace_of(self, account: Account) -> Workspace:
+        """That account's database, for work that has no session: a forwarded email whose
+        signed recipient named the account (`hosted.forwarding_routes`), or the daily notices.
+        Never call it with an account the caller did not resolve from such a proof."""
+        place = self._place(account.folder)
+        key = self._data_key(account)
         if not place.is_dir():
             # The account was committed but the server stopped before making its folder: the
             # key exists, so make it now (the database is created encrypted on first use).

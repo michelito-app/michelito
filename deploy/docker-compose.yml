@@ -76,6 +76,8 @@ services:
       MICHELITO_MASTER_KEY_FILE: /run/secrets/master_key
       MICHELITO_HOSTED_SECRET_FILE: /run/secrets/hosted_secret
       RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      # The Email Worker's HMAC secret (email forwarding, POST /api/inbound-email).
+      MICHELITO_INBOUND_SECRET_FILE: /run/secrets/inbound_secret
       MICHELITO_OPS_EMAIL: ${MICHELITO_OPS_EMAIL:-}
       # Uploaded PDFs are opened by the pdfworker container, never in this one.
       MICHELITO_PDF_WORKER_SOCKET: /run/michelito-pdf/worker.sock
@@ -85,6 +87,7 @@ services:
       - master_key
       - hosted_secret
       - resend_api_key
+      - inbound_secret
     volumes:
       - hosted_data:/data
       - pdf_socket:/run/michelito-pdf
@@ -285,6 +288,8 @@ secrets:
     file: ./secrets/hosted-secret.key
   resend_api_key:
     file: ./secrets/resend-api.key
+  inbound_secret:
+    file: ./secrets/inbound-secret.key
   r2_access_key_id:
     file: ./secrets/r2-access-key-id
   r2_secret_access_key:

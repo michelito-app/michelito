@@ -10,7 +10,11 @@ sign-in service (`hosted.auth`) and the hosted `Mode` for `create_app`:
 - bodies up to `max_body`; system routes (sync, Gmail, secrets, file import) answer 403;
 - its own routes (`hosted.routes`) and the upload and onboarding ones (`hosted.onboarding_routes`):
   `POST /api/uploads` may carry up to `uploads.body_limit` bytes, and the installed app's share
-  target (`/share-target`, which opens no database) needs no `X-Michelito`.
+  target (`/share-target`, which opens no database) needs no `X-Michelito`;
+- email forwarding (`hosted.forwarding_routes`): `POST /api/inbound-email` needs no session (it
+  is signed by the Email Worker with the inbound secret, `Settings.inbound_secret` /
+  `MICHELITO_INBOUND_SECRET_FILE`; without one it answers 404) and may carry up to
+  `forwarding.body_limit` bytes.
 
 Folder layout (`settings.data`): `accounts.db`, `secret.key` (unless `MICHELITO_HOSTED_SECRET_FILE`
 names another file) and `users/<folder>/michelito.db`, one per account, **encrypted** with the
@@ -40,11 +44,20 @@ from starlette.requests import Request
 
 from michelito import config
 from michelito.demo import network
-from michelito.hosted import holders_files, onboarding_routes, pdf_worker, routes
+from michelito.hosted import (
+    forwarding,
+    forwarding_routes,
+    holders_files,
+    inbox,
+    onboarding_routes,
+    pdf_worker,
+    routes,
+)
 from michelito.hosted.auth import USERS, Policy, SignIn
 from michelito.hosted.keys import MASTER_FILE_ENV, MasterKeyError, load_master
 from michelito.hosted.limits import Caps
 from michelito.hosted.mailer import Dispatcher, Mailer
+from michelito.hosted.notices import Notices
 from michelito.hosted.store import FILENAME, Session, Store
 from michelito.i18n import t
 from michelito.web.app import create_app
@@ -64,6 +77,7 @@ OPEN = frozenset(
         "/api/auth/verify",
         "/api/auth/link",
         "/api/auth/link/peek",
+        forwarding_routes.INBOUND_PATH,  # signed by the Email Worker instead
     }
 )
 # `__Host-`: the browser keeps it only with `Secure`, `Path=/` and no `Domain`, so no subdomain
@@ -96,6 +110,13 @@ class Settings:
     sweep: bool = True  # drop expired upload jobs and shares every minute (tests: by hand)
     uploads: onboarding_routes.UploadCaps = field(default_factory=onboarding_routes.UploadCaps)
     master_key: Path | None = None  # the master key file (never inside `data`)
+    inbound_secret: Path | None = None  # the Email Worker's HMAC secret (else the environment)
+    inbound_domain: str = forwarding.DOMAIN  # the forwarding addresses' domain
+    inbound_authserv: tuple[str, ...] = inbox.TRUSTED_AUTHSERV  # whose verdict the Worker passes
+    forwarding: forwarding_routes.ForwardingCaps = field(
+        default_factory=forwarding_routes.ForwardingCaps
+    )
+    inbox_background: bool = True  # read forwarded PDFs in a thread (tests: inline)
 
     @property
     def url(self) -> str:
@@ -239,6 +260,12 @@ def create_hosted_app(
     store = service.store
     dispatcher = service.dispatcher
     service.check_keys()  # first: nothing is unwrapped under the wrong master key
+    inbound = forwarding.load_secret(settings.inbound_secret)
+    if inbound is not None and (
+        _same_key(service._require_master().secret, inbound)
+        or _same_key(load_secret(data), inbound)
+    ):
+        raise MasterKeyError("the inbound secret must not be another server key")
     service.seal_placeholders()
     holders_files.absorb(store, service._require_master(), data)  # no plaintext holders
     service.remove_deleted()
@@ -267,9 +294,23 @@ def create_hosted_app(
     hooks = replace(hooks, on_leave=leave)
     pdf_worker.configure(settings.uploads.worker_slots)
 
+    mail = forwarding_routes.Hooks(
+        service=service,
+        secret=inbound,
+        notices=Notices(dispatcher, settings.url),
+        domain=settings.inbound_domain,
+        trusted=settings.inbound_authserv,
+        caps=settings.forwarding,
+        limits=settings.uploads.worker,
+        background=settings.inbox_background,
+        proxies=proxies,
+        clock=clock,
+    )
+
     def register(app: FastAPI, connection, load_flow) -> None:  # noqa: ANN001
         routes.register(app, hooks)
         onboarding_routes.register(app, gate, connection, load_flow)
+        forwarding_routes.register(app, mail, connection)
 
     mode = Mode(
         name="hosted",
@@ -283,6 +324,7 @@ def create_hosted_app(
         body_limits=(
             ("/api/uploads", settings.uploads.body_limit),
             (onboarding_routes.SHARE_PATH, settings.uploads.body_limit),
+            (forwarding_routes.INBOUND_PATH, settings.forwarding.body_limit),
         ),
         open_writes=frozenset({onboarding_routes.SHARE_PATH}),
         guard=onboarding_routes.gate_guard(gate),
@@ -292,6 +334,7 @@ def create_hosted_app(
     app.state.service = service
     app.state.dispatcher = dispatcher
     app.state.uploads = gate
+    app.state.forwarding = mail
     if settings.sweep:
         app.state.sweeper = Sweeper(gate)
 

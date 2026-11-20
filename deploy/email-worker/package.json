@@ -1,0 +1,9 @@
+{
+  "name": "michelito-email-worker",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Email Worker that hands forwarded statements to the hosted app (no build step, no dependencies)",
+  "scripts": {
+    "test": "node --test"
+  }
+}

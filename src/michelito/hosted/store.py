@@ -17,7 +17,12 @@ migrations (`MIGRATIONS`, applied in order and recorded in `PRAGMA user_version`
 - `deleted_folders`: tombstones of deleted accounts' data folders, until their files are gone
   (the only folders the cleanup ever removes);
 - `bank_requests`: "notify me when it is supported" as one counter per bank name (from a fixed
-  list): no account, no email, no date of who asked.
+  list): no account, no email, no date of who asked;
+- `forwarding_addresses`: the **SHA-256** of each account's forwarding token (the address
+  itself is shown from the account's encrypted database); replacing the row makes the old
+  address stop working at once;
+- `inbound_nonces`: the nonces of signed inbound-email requests, until their time window passes
+  (replay protection).
 
 `secure_delete` is on: deleted rows (a wrapped key, an email) are overwritten with zeros, and
 after a deletion or a re-wrap the write-ahead log is checkpointed and truncated, so the old
@@ -158,6 +163,20 @@ MIGRATIONS: tuple[str, ...] = (
         bank TEXT PRIMARY KEY CHECK (length(bank) BETWEEN 1 AND 40),
         requests INTEGER NOT NULL DEFAULT 0
     );
+    """,
+    # 8: email forwarding: the hash of each account's address token, and the nonces of signed
+    # inbound requests (replay protection).
+    """
+    CREATE TABLE forwarding_addresses (
+        account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE inbound_nonces (
+        nonce TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX inbound_nonces_expiry ON inbound_nonces(expires_at);
     """,
 )
 
@@ -594,6 +613,57 @@ class Store:
         with self.connect() as conn:
             rows = conn.execute("SELECT bank, requests FROM bank_requests ORDER BY bank")
             return {str(row["bank"]): int(row["requests"]) for row in rows}
+
+    # Email forwarding.
+
+    def set_forwarding(self, account_id: int, token_hash: str, now: int) -> None:
+        """The account's forwarding token is now this one (hash only): an older one, if any, is
+        replaced in the same statement, so it stops working at once."""
+        with self.connect() as conn, conn:
+            conn.execute(
+                "INSERT INTO forwarding_addresses (account_id, token_hash, created_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET "
+                "token_hash = excluded.token_hash, created_at = excluded.created_at",
+                (account_id, token_hash, now),
+            )
+        self._flush()  # the old hash does not linger in the WAL
+
+    def forwarding_hash(self, account_id: int) -> str | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT token_hash FROM forwarding_addresses WHERE account_id = ?", (account_id,)
+            ).fetchone()
+        return str(row["token_hash"]) if row else None
+
+    def account_by_forwarding(self, token_hash: str) -> Account | None:
+        """The active account whose forwarding token has this hash."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT a.* FROM forwarding_addresses f JOIN accounts a ON a.id = f.account_id "
+                "WHERE f.token_hash = ? AND a.status = 'active'",
+                (token_hash,),
+            ).fetchone()
+        return _account(row) if row else None
+
+    def forwarding_accounts(self) -> list[Account]:
+        """Every active account with a forwarding address (the daily notices walk them)."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT a.* FROM forwarding_addresses f JOIN accounts a ON a.id = f.account_id "
+                "WHERE a.status = 'active' ORDER BY a.id"
+            ).fetchall()
+        return [_account(row) for row in rows]
+
+    def take_nonce(self, nonce: str, now: int, expires_at: int) -> bool:
+        """Record a signed request's nonce; False if it was already seen (a replay). Nonces
+        whose window has passed are forgotten first."""
+        with self.connect() as conn, conn:
+            conn.execute("DELETE FROM inbound_nonces WHERE expires_at <= ?", (now,))
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO inbound_nonces (nonce, expires_at) VALUES (?, ?)",
+                (nonce, expires_at),
+            )
+        return cursor.rowcount == 1
 
     # Sessions.
 

@@ -17,7 +17,7 @@ interface ItemProps {
   done: boolean
   label: string
   detail?: string
-  action: 'upload' | 'soon'
+  action: 'upload' | 'automate'
 }
 
 function Item({ done, label, detail, action }: ItemProps) {
@@ -36,10 +36,10 @@ function Item({ done, label, detail, action }: ItemProps) {
       </div>
       {done ? (
         <span className="text-[13px] text-muted-foreground">{t('onboarding.checklist.done')}</span>
-      ) : action === 'soon' ? (
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-semibold text-ink-2">
-          {t('onboarding.checklist.soon')}
-        </span>
+      ) : action === 'automate' ? (
+        <Link to="/settings#automate" className={UPLOAD}>
+          {t('onboarding.checklist.setUp')}
+        </Link>
       ) : (
         <Link to="/import" className={UPLOAD}>
           {t('onboarding.checklist.upload')}
@@ -50,7 +50,7 @@ function Item({ done, label, detail, action }: ItemProps) {
 }
 
 /** The Summary's setup checklist (hosted): more months, another account, automate the next
- * ones (not available yet) and each month missing per account. Visible until completed or
+ * ones (email forwarding, in Settings) and each month missing per account. Visible until completed or
  * hidden. */
 export function SetupChecklist({ checklist }: { checklist: Checklist }) {
   const queryClient = useQueryClient()
@@ -87,7 +87,11 @@ export function SetupChecklist({ checklist }: { checklist: Checklist }) {
           <Item key={`${missing.bank}-${missing.identifier}-${missing.month}`} done={false} label={missingLine(missing)} action="upload" />
         ))}
         <Item done={checklist.other_account_done} label={t('onboarding.checklist.account')} action="upload" />
-        <Item done={false} label={t('onboarding.checklist.automate')} action="soon" />
+        <Item
+          done={checklist.automate_done}
+          label={t('onboarding.checklist.automate')}
+          action="automate"
+        />
       </ul>
       {error && (
         <p role="alert" className="text-sm text-destructive">

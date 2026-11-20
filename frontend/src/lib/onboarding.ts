@@ -86,6 +86,7 @@ export interface Checklist {
   other_account_done: boolean
   missing: Missing[]
   visible: boolean
+  automate_done: boolean
 }
 
 export interface Onboarding {

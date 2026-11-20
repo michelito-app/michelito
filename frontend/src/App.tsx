@@ -9,6 +9,7 @@ import { useOnboarding } from '@/lib/onboarding'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { BudgetPage } from '@/pages/BudgetPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
+import { ForwardingGuidePage } from '@/pages/ForwardingGuidePage'
 import { ImportPage } from '@/pages/ImportPage'
 import { InvestmentsPage } from '@/pages/InvestmentsPage'
 import { LinkPage } from '@/pages/LinkPage'
@@ -74,6 +75,7 @@ function AppRoutes({ hosted }: { hosted: boolean }) {
         <Route path="log" element={<LogPage />} />
         <Route path="import" element={<ImportPage />} />
         {hosted && <Route path="settings" element={<SettingsPage />} />}
+        {hosted && <Route path="settings/forwarding-guide" element={<ForwardingGuidePage />} />}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

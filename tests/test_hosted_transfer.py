@@ -91,6 +91,36 @@ def test_export_refuses_a_file_where_a_secret_appears(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".*partial"))
 
 
+def test_a_secret_printed_by_the_bank_is_its_data(tmp_path: Path) -> None:
+    source = tmp_path / "michelito.db"
+    generate.fill(source, TODAY)
+    # A description can quote the holder's ID number, which is often also the PDF password.
+    with closing(sqlite3.connect(source)) as conn, conn:
+        conn.execute(
+            "UPDATE transactions SET description = description || ?"
+            " WHERE id = (SELECT MIN(id) FROM transactions)",
+            (f" REF {PDF_PASSWORD}",),
+        )
+    done = transfer.export_account(source, tmp_path / "e.db", None, [PDF_PASSWORD])
+    assert done.path.is_file()
+
+
+def test_a_secret_in_bank_text_and_elsewhere_is_still_refused(tmp_path: Path) -> None:
+    source = tmp_path / "michelito.db"
+    generate.fill(source, TODAY)
+    with closing(sqlite3.connect(source)) as conn, conn:
+        conn.execute(
+            "UPDATE transactions SET description = description || ?"
+            " WHERE id = (SELECT MIN(id) FROM transactions)",
+            (f" REF {PDF_PASSWORD}",),
+        )
+        conn.execute("CREATE TABLE extra (note TEXT)")
+        conn.execute("INSERT INTO extra VALUES (?)", (PDF_PASSWORD,))
+    with pytest.raises(transfer.TransferError, match="keyring secret"):
+        transfer.export_account(source, tmp_path / "e.db", None, [PDF_PASSWORD])
+    assert not (tmp_path / "e.db").exists()
+
+
 def test_export_refuses_a_secret_looking_column(tmp_path: Path) -> None:
     source = tmp_path / "michelito.db"
     with closing(db.connect(source)) as conn, conn:

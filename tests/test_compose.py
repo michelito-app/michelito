@@ -80,6 +80,7 @@ def test_the_hosted_app_gets_its_secrets_as_files() -> None:
         "master_key",
         "hosted_secret",
         "resend_api_key",
+        "inbound_secret",
     }
     env = hosted["environment"]
     assert not any(k.startswith("MICHELITO_R2") for k in env)  # no R2 credentials here
@@ -87,6 +88,7 @@ def test_the_hosted_app_gets_its_secrets_as_files() -> None:
     assert env["MICHELITO_MASTER_KEY_FILE"] == "/run/secrets/master_key"
     assert env["MICHELITO_HOSTED_SECRET_FILE"] == "/run/secrets/hosted_secret"
     assert env["RESEND_API_KEY_FILE"] == "/run/secrets/resend_api_key"
+    assert env["MICHELITO_INBOUND_SECRET_FILE"] == "/run/secrets/inbound_secret"
     assert env["MICHELITO_HOSTED_PROXIES"] == "172.30.54.2"
     assert env["MICHELITO_HOSTED_HOST"] == "michelito.app"
     assert "ports" not in hosted

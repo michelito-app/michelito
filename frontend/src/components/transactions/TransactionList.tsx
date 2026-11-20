@@ -409,6 +409,11 @@ function Badges({ tx }: { tx: Tx }) {
           {t('transactions.badge.provisional')}
         </Badge>
       )}
+      {tx.approved && (
+        <Badge data-testid="approved-badge" className="bg-[#FDECEC] text-[#8A1F1F] dark:bg-[#3A1414] dark:text-[#F5A3A3]">
+          {t('forwarding.badge.approved')}
+        </Badge>
+      )}
       {kind && (
         <Badge
           className={

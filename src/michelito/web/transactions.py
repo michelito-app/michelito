@@ -49,6 +49,7 @@ class TxView:
     gross: Decimal | None = None  # statement amount of a shared expense (amount: your share)
     links: RowLinks = RowLinks()
     provisional: bool = False  # from a bank alert, its statement has not arrived yet
+    approved: bool = False  # hosted: it entered because the person approved an email
 
     @property
     def suggested_one_off(self) -> bool:

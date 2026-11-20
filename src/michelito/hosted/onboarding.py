@@ -5,7 +5,8 @@ database (the request's connection, through the workspace seam) and is determini
 - **Gate**: open as soon as one statement is stored (only statements that square are).
 - **Landing**: the newest month with expenses (`summary.month_options`), else the newest closing.
 - **Checklist**: more months (done at `MONTHS_GOAL`), another account (done at two), automate the
-  next ones (not available yet) and the months missing per account, as `michelito report`
+  next ones (done once a forwarded email arrived, `hosted.inbox`) and the months missing per
+  account, as `michelito report`
   computes them (`report.missing_months`). Hidden once completed or dismissed.
 - **First review**: the top `TOP_MERCHANTS` merchants by total spend (in RD$, US$ at the month's
   rate), each with its category; "Correct" marks its transactions reviewed (the same
@@ -38,6 +39,7 @@ from michelito.analysis import catalog, rates
 from michelito.analysis.accounts import account_infos
 from michelito.analysis.spending import Movement
 from michelito.db import PRINTOUT_PARSERS
+from michelito.hosted import inbox_store
 from michelito.web import summary
 
 MONTHS_GOAL = 3
@@ -61,6 +63,7 @@ class Checklist:
     other_account_done: bool
     missing: tuple[Missing, ...]
     visible: bool
+    automate_done: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,8 +129,17 @@ def _checklist(conn: sqlite3.Connection, dismissed: bool) -> Checklist:
     missing = tuple(_missing(conn))
     more = months >= MONTHS_GOAL
     other = accounts >= 2
-    visible = not dismissed and not (more and other and not missing)
-    return Checklist(int(months), int(accounts), more, other, missing, visible)
+    automated = _automated(conn)
+    visible = not dismissed and not (more and other and automated and not missing)
+    return Checklist(int(months), int(accounts), more, other, missing, visible, automated)
+
+
+def _automated(conn: sqlite3.Connection) -> bool:
+    """A forwarded email arrived (the inbox's tables exist only once forwarding was used)."""
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'inbox_messages'"
+    ).fetchone()
+    return exists is not None and inbox_store.has_arrivals(conn)
 
 
 def _missing(conn: sqlite3.Connection) -> list[Missing]:

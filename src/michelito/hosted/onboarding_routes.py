@@ -188,6 +188,7 @@ class ChecklistOut(BaseModel):
     other_account_done: bool
     missing: list[MissingOut]
     visible: bool
+    automate_done: bool
 
 
 class OnboardingOut(BaseModel):
@@ -557,6 +558,7 @@ def register(app: FastAPI, hooks: Hooks, connection: Connect, load_flow: LoadFlo
                 other_account_done=checklist.other_account_done,
                 missing=[MissingOut(**vars(m)) for m in checklist.missing],
                 visible=checklist.visible,
+                automate_done=checklist.automate_done,
             ),
         )
 

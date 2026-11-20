@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Laptop, Smartphone } from 'lucide-react'
 import { useState } from 'react'
+import { ForwardingSettings } from '@/components/forwarding/ForwardingSettings'
 import { StepUpSheet } from '@/components/hosted/StepUpSheet'
 import { LoadError } from '@/components/LoadError'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +31,7 @@ function signedOut() {
   window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
 }
 
-/** Hosted mode only: the account and its devices (sign out this one, or everywhere after a
+/** Hosted mode only: the account, email forwarding and its devices (sign out this one, or everywhere after a
  * fresh verification). */
 export function SettingsPage() {
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: fetchMe })
@@ -73,6 +74,7 @@ export function SettingsPage() {
           </p>
         )}
       </section>
+      {me.data && <ForwardingSettings email={me.data.email} />}
       <section aria-labelledby="settings-devices" className="flex flex-col gap-3">
         <h2 id="settings-devices" className="text-lg font-semibold">
           {t('auth.devices.title')}

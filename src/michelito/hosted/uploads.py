@@ -18,6 +18,7 @@ in the caller's variables for the duration of the call.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Sequence
@@ -36,6 +37,8 @@ from michelito.parsers.common import (
     ParseError,
     Section,
     Statement,
+    Word,
+    group_lines,
     validate_statement,
 )
 
@@ -112,6 +115,31 @@ def examine(data: bytes, password: str, limits: pdf_worker.Limits | None = None)
     if parser is None:
         return Examined(UNSUPPORTED, pages, fingerprint=Fingerprint("detect", len(pages)))
     return _parse_all(parser, pages)
+
+
+def examine_pages(pages: tuple[Page, ...]) -> Examined:
+    """`examine`'s steps after reading: recognize, parse and validate pages already read."""
+    try:
+        parser = detect(pages)
+    except Exception:  # a failing `matches` counts as not recognized
+        parser = None
+    if parser is None:
+        return Examined(UNSUPPORTED, pages, fingerprint=Fingerprint("detect", len(pages)))
+    return _parse_all(parser, pages)
+
+
+def pages_json(pages: tuple[Page, ...]) -> bytes:
+    """The positioned words of read pages (the pdf worker's own format), to seal and keep."""
+    return json.dumps(
+        [[[w.text, w.x0, w.x1, w.top] for line in page for w in line.words] for page in pages]
+    ).encode("utf-8")
+
+
+def pages_of(data: bytes) -> tuple[Page, ...]:
+    return tuple(
+        group_lines(Word(str(w[0]), float(w[1]), float(w[2]), float(w[3])) for w in page)
+        for page in json.loads(data)
+    )
 
 
 def _parse_all(parser: StatementParser, pages: tuple[Page, ...]) -> Examined:

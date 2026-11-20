@@ -534,6 +534,33 @@ def _fingerprint(row: RowLike, occurrence: int) -> str:
     )
 
 
+def statement_fingerprints(
+    conn: sqlite3.Connection, statement_ids: Collection[int]
+) -> frozenset[str]:
+    """The fingerprints `load_all` gives the rows of these statements (the same rows, order,
+    occurrences and provisional aliases), e.g. to mark what one document brought."""
+    wanted = set(statement_ids)
+    if not wanted:
+        return frozenset()
+    cards = list(conn.execute(_CARD_TRANSACTIONS))
+    covered = coverage.bank_coverage(conn)
+    banks = [
+        row
+        for row in conn.execute(_BANK_TRANSACTIONS)
+        if covered.keeps(row["statement_id"], date.fromisoformat(row["transacted_on"]))
+    ]
+    aliases = live_store.load(conn).aliases
+    seen: Counter[tuple[object, ...]] = Counter()
+    found = set()
+    for row in (*cards, *banks):
+        identity = tuple(row[key] for key in _IDENTITY)
+        mark = _fingerprint(row, seen[identity])
+        seen[identity] += 1
+        if row["statement_id"] in wanted:
+            found.add(aliases.get(mark, mark))
+    return frozenset(found)
+
+
 def card_fingerprints(conn: sqlite3.Connection) -> list[tuple[sqlite3.Row, str]]:
     """Every card statement row with its content fingerprint, counted like `load_all` (the
     same order and occurrences), for matching alerts against statements (`live_match`)."""

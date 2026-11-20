@@ -489,6 +489,8 @@ class TxOut(BaseModel):
     cash_entry_id: int | None
     # From a bank alert, waiting for its statement ("Pending statement").
     provisional: bool = False
+    # Hosted email forwarding: it entered because the person approved an unverified email.
+    approved: bool = False
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
@@ -496,6 +498,7 @@ class TxOut(BaseModel):
         return cls(
             fingerprint=v.fingerprint,
             provisional=v.provisional,
+            approved=v.approved,
             day=v.day.isoformat(),
             merchant=v.merchant,
             description=v.description,

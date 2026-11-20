@@ -22,6 +22,7 @@ import { demo } from './demo'
 import { importing } from './importing'
 import { auth } from './auth'
 import { onboarding } from './onboarding'
+import { forwarding } from './forwarding'
 
 /** Each area's messages, by key prefix. */
 export const AREAS = {
@@ -47,6 +48,7 @@ export const AREAS = {
   import: importing,
   auth,
   onboarding,
+  forwarding,
 } as const
 
 export const es = {
@@ -72,4 +74,5 @@ export const es = {
   ...importing,
   ...auth,
   ...onboarding,
+  ...forwarding,
 } as const

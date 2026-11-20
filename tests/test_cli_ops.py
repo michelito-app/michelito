@@ -196,3 +196,26 @@ def test_the_hosted_api_is_never_cached(tmp_path: Path) -> None:
     signed = env.sign_in("a@example.com")
     assert signed.get("/api/categories").headers["cache-control"] == "no-store"
     assert "no-store" not in client.get("/").headers.get("cache-control", "")
+
+
+def test_forwarding_check_emails_late_statements_once(env, capsys) -> None:  # noqa: ANN001
+    from michelito.hosted import forwarding
+    from michelito.hosted.store import FILENAME, Store
+
+    _import(env, capsys)
+    store = Store(env["hosted"] / FILENAME)
+    account = store.account_by_email("owner@example.com")
+    assert account is not None
+    store.set_forwarding(account.id, forwarding.token_hash(forwarding.new_token()), 0)
+    data = ["--data", str(env["hosted"]), "--mailer", "outbox"]
+    assert cli.main(["forwarding-check", *data, "--today", TODAY.isoformat()]) == 0
+    assert "sent: 0" in capsys.readouterr().out
+    late = ["--today", "2027-03-01"]
+    assert cli.main(["forwarding-check", *data, *late]) == 0
+    assert "sent: 1" in capsys.readouterr().out  # one email a day, whatever the late accounts
+    outbox = list((env["hosted"] / "outbox").glob("*.json"))
+    assert len(outbox) == 1
+    text = outbox[0].read_text()
+    assert "owner@example.com" in text and "RD$" not in text
+    assert cli.main(["forwarding-check", *data, *late]) == 0
+    assert "sent: 0" in capsys.readouterr().out  # already told

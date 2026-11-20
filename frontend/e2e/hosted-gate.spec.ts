@@ -127,7 +127,10 @@ test('a locked statement asks for its bank password again when wrong, then the g
   await expect(review).toBeVisible()
   const checklist = page.getByRole('region', { name: t('onboarding.checklist.title') })
   await expect(checklist).toContainText(t('onboarding.checklist.months'))
-  await expect(checklist).toContainText(t('onboarding.checklist.soon'))
+  await expect(checklist.getByRole('link', { name: t('onboarding.checklist.setUp') })).toHaveAttribute(
+    'href',
+    '/settings#automate',
+  )
   await review.getByRole('button', { name: t('onboarding.review.correct') }).first().click()
   await expect(review.getByText(t('onboarding.review.reviewed')).first()).toBeVisible()
   await review.getByRole('button', { name: t('onboarding.review.later') }).click()

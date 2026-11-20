@@ -115,7 +115,7 @@ export const onboarding = {
   'onboarding.checklist.monthsProgress': '{count} de 3 meses',
   'onboarding.checklist.account': 'Agrega otra cuenta',
   'onboarding.checklist.automate': 'Automatiza los próximos',
-  'onboarding.checklist.soon': 'Próximamente',
+  'onboarding.checklist.setUp': 'Configurar',
   'onboarding.checklist.missing': 'Te falta {month} de {bank} {account}',
   'onboarding.checklist.done': 'Hecho',
   'onboarding.checklist.upload': 'Subir',

@@ -307,7 +307,8 @@ local board and the demo keep plain SQLite.
 - **After the gate**: the first Summary shows "adjust your main merchants" (the top 10
   merchants by spending: "correct" marks their transactions reviewed, "change" makes a
   merchant rule, "later" hides it) and a setup checklist (more months, another account, the
-  months missing per account as `michelito report` finds them, automation "coming soon").
+  months missing per account as `michelito report` finds them, and "automate the next ones",
+  done once a forwarded email arrived; see below).
   Every view without data shows a designed empty state with one action, or a suggestion from
   the person's own data; "Import" (in "More" on the phone) reuses the upload screen.
 - **Sample data**: "see sample data" goes to the public demo, a separate deployment with
@@ -329,6 +330,102 @@ local board and the demo keep plain SQLite.
 The e2e suite runs it with `tests/e2e_hosted_server.py` (port 8636, `E2E_HOSTED_PORT`), with a
 throwaway master key next to its temporary folder, and a demo that links back to it on the
 next port; the synthetic statement PDFs come from `tests/synthetic_pdf.py`.
+
+### Email forwarding: the next statements arrive by themselves
+
+After the gate, Settings → "automate the next ones" gives each account a **forwarding
+address** `<prefix>.<token>@michelito.app` (`forwarding.PREFIX`) (the token: 160 random bits, lowercase base32). The
+person creates a Gmail filter that forwards only the banks' senders to it (the in-app guide,
+`/settings/forwarding-guide`, lists them); statements and purchase alerts then reach the
+server without Gmail OAuth. The local install's `michelito sync` is not used in hosted mode.
+
+- **The address**: only its SHA-256 is in `accounts.db` (`forwarding_addresses`); the address
+  itself is shown from the account's encrypted database. Rotating it needs a fresh verification
+  (step-up) and the old one stops working at once (one statement replaces the hash). Deleting
+  the account deletes it with the account.
+- **Receiving**: Cloudflare Email Routing sends every `<prefix>.*@michelito.app` to an Email Worker
+  (`deploy/email-worker/`, plain JavaScript, `node --test` in that folder) that rejects other
+  recipients and messages over 10 MB and passes on Cloudflare's verdict **only if** exactly one
+  `ARC-Authentication-Results` names `mx.cloudflare.net`, its instance is the newest ARC set in
+  the message, that set's `ARC-Seal` has `d=cloudflare.net`, and the seal's signature verifies
+  against the key Cloudflare publishes in DNS (read over DNS-over-HTTPS); otherwise it passes no
+  verdict and the app quarantines the message (fail closed). It POSTs
+  `{"recipient", "raw" (base64), "auth"}` to `/api/inbound-email`, signed with
+  HMAC-SHA256 over timestamp, nonce and body. The endpoint needs no session (and is outside
+  the gate). Without reading the body it checks the signature headers, the 5-minute window
+  and a pre-authentication tag (`X-Michelito-Preauth`: an HMAC over timestamp, nonce and the
+  declared Content-Length, which only the Worker can make); a request without a valid one
+  never takes a read slot. Then at most 4 bodies are read at once (503 beyond, so the Worker
+  retries), each exactly its declared length, within 30 seconds in all and 10 between chunks
+  (408 otherwise), streamed into the full-body HMAC, which stays the real authentication;
+  then the nonce (kept in `accounts.db` until its window passes, so a replay is refused).
+  Only requests that fail these checks are rate-limited (300 a minute per network, 1,000 a
+  minute in all), and a full bucket never refuses a request whose tag is still unchecked: the
+  Worker's egress is shared with the rest of Cloudflare, so junk from there can never block
+  validly signed mail. **Residual risk**: a captured genuine request could be replayed within
+  its 5-minute window to occupy a slot until its nonce is seen (it is rejected then, after
+  being read: at most for the deadlines above), and a slow or broken Worker connection holds a
+  slot up to 30 seconds; genuine mail then gets 503 and is retried, so it is delayed, not lost
+  (the optional Cloudflare and Caddy rules in docs/deployment.md narrow who can reach the
+  route). Without `MICHELITO_INBOUND_SECRET_FILE` it answers
+  404. The account comes only from the signed recipient's token; unknown addresses get a 404
+  that the Worker turns into a permanent bounce, and count against a budget of their own, so
+  guessing never uses the real accounts' one. Limits once the address resolves: 60 messages an
+  hour and 300 a day per account, 1,000 an hour for the whole server; the body may be only what
+  a 10 MB message needs in base64 plus a small envelope (`ForwardingCaps`). Idempotent by trust
+  class: an authenticated message by its `Message-ID`, a quarantined one by a hash of its bytes
+  (so a forged message reusing a genuine one's `Message-ID` never makes the genuine one a
+  duplicate; discarding forgets its key). It answers only `{"status": "accepted"}`, and logs
+  only the route it took.
+- **Which authentication counts**: forwarding breaks SPF but keeps the bank's DKIM signature,
+  so DMARC passes through DKIM alignment. Cloudflare's sealed verdict (passed on by the Worker
+  inside the signed request) is **required**: DKIM and DMARC must pass for the sender's domain,
+  and the From address must be one of the banks' senders (`config.DEFAULT_SOURCES`). The
+  forwarded message's own Gmail `Authentication-Results`, when present, can only **veto**
+  (anyone who knows the address can write any header into a message, but not sign it with
+  Cloudflare's key).
+- **The address is the secret**: whoever learns it could forward genuine bank emails of their
+  own. So what would be a *first* waits for the person: a purchase alert on a card no
+  statement of theirs has shown goes to quarantine, and a statement that squares but is of an
+  account (or card) they do not have yet is held as "statement of a new account" (its read
+  pages sealed, so a typed password is not asked again) until they approve it. Their first
+  statement of an account comes through the upload gate. Rotate the address if it leaks.
+- **Routing** (`hosted/inbox.py`): Gmail's forwarding confirmation (from
+  `forwarding-noreply@google.com`, authenticated) shows its code, its link (rebuilt only from
+  Google's `/mail/vf-…` pattern: no query, no `..`, no encoded dot or slash, no redirector) and
+  the Gmail address that asked, in Settings ("confirm forwarding in Gmail"); **Michelito never
+  confirms it** for the person. A Popular purchase alert goes through the live-sync pipeline
+  into provisional transactions. A PDF statement goes through the same in-memory pipeline as an
+  upload (the isolated worker; only statements that square persist; the PDF is deleted once
+  read either way): with the bank's stored password if the person chose to store one, else it
+  waits in "statements waiting" until they type it. Anything else (an unknown sender, or a
+  bank's address that did not authenticate) goes to **quarantine**: only the sender's domain,
+  the date and the attachment count are readable; nothing in it is opened until "Discard" or
+  "Approve", which takes a second, explicit step (the API refuses without `{"confirmed":
+  true}`) that warns "someone could be impersonating your bank" when it claims to be one. An
+  approved message is routed as if authenticated (never to the confirmation panel); what it
+  brings is listed under "approved by hand", marked "Aprobado a mano" in the transactions, and
+  can be taken back: an alert's provisional is discarded through the change log (undoable
+  there), a statement's rows are removed if nothing uses them (a note, a link, a group, a
+  confirmed alert). Quarantined messages are kept 30 days, waiting statements 90; a full queue
+  emails the person. Banreservas has no sender configured yet: its emails land in quarantine
+  and can be approved.
+- **Encrypted at rest**: the waiting PDFs (and held pages), quarantined messages and stored passwords are
+  AES-256-GCM sealed under a key derived from the account's data key (bound to their table and
+  row), inside the SQLCipher-encrypted database: deleting the account (crypto-shredding)
+  makes all of it unreadable. A stored PDF password (Settings, with a step-up) is never logged
+  or returned (the API says only "stored: yes/no"); "forget my password" deletes it.
+- **Notices**: The statements card on the Summary (the newest forwarded statement per account, what
+  waits, quarantine, problems and statements later than usual: the newest cut-off plus the
+  usual gap between cut-offs, plus 5 days). The person (not only the owner) gets a data-free
+  email (the kind of problem and a link) only on a problem: quarantine, missing or wrong
+  password, unsupported bank, a statement that does not square or cannot be read, and, from the
+  daily `michelito forwarding-check`, a late statement; at most one per kind a day, and never
+  using the last 20 emails of the day's cap (sign-in codes keep their room).
+
+Locally, `tests/e2e_hosted_server.py deliver --dir DIR --port P --to ADDRESS --kind
+confirmation|locked|stranger` plays the Worker with synthetic emails (`tests/forwarding_helpers.py`).
+Setting up Email Routing and the Worker: [docs/deployment.md](docs/deployment.md#email-forwarding-email-routing-and-the-worker).
 
 ### Hosted deployment
 
@@ -369,6 +466,8 @@ Operations commands (in the hosted container they are the only ones that run, wi
   downloading anything else, then every checksum, unwraps every data key, opens every database
   and runs SQLCipher's and SQLite's integrity checks, all in a temporary folder next to the target
   that only takes its place once everything checked out. It warns when a newer backup exists.
+- `michelito forwarding-check` (daily): emails each person whose forwarded statement is later
+  than usual, once per late statement (data-free, see "Email forwarding").
 - `michelito ops-check`: emails the owner (`MICHELITO_OPS_EMAIL`, through the mailer) **only when
   something failed**: the last backup failed or is older than 26 hours, sign-in emails could
   not be sent, or statements failed to parse in the last day (counts and short fingerprints;
