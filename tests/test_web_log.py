@@ -135,9 +135,11 @@ def test_category_note_and_one_off_each_leave_an_entry_and_undo(client: TestClie
 
     undone = _undo(client, category["id"])
     assert undone.status_code == 200
-    assert (undone.json()["undoes"], undone.json()["after"]["text"]) == (
+    # The original comes back with its new state; the audit record stays out of the list.
+    assert (undone.json()["id"], undone.json()["undone"], undone.json()["can_redo"]) == (
         category["id"],
-        categories.CASH,
+        True,
+        True,
     )
     row = _tx(client, fp)
     assert (row["category"], row["note"], row["one_off"]) == (
@@ -146,7 +148,8 @@ def test_category_note_and_one_off_each_leave_an_entry_and_undo(client: TestClie
         True,
     )
     first = next(e for e in _log(client) if e["id"] == category["id"])
-    assert (first["undone"], first["can_undo"]) == (True, False)
+    assert (first["undone"], first["can_undo"], first["toggles"]) == (True, False, 1)
+    assert len(_log(client)) == 3 and all(e["undoes"] is None for e in _log(client))
 
 
 def test_undo_blocked_after_a_later_change(client: TestClient) -> None:

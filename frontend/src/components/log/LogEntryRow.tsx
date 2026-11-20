@@ -9,12 +9,15 @@ import {
   entryHref,
   entryLine,
   kindLabel,
+  linkLabel,
   type LogEntry,
   REASON_MAX,
+  showsAffected,
   timeText,
+  toggledText,
   undoNote,
 } from '@/lib/log'
-import { useSaveReason, useUndo } from '@/lib/logQueries'
+import { useRedo, useSaveReason, useUndo } from '@/lib/logQueries'
 import { cn } from '@/lib/utils'
 
 const SMALL = 'h-11 rounded-xl px-4 text-sm font-semibold'
@@ -27,7 +30,8 @@ interface LogEntryRowProps {
 }
 
 /** An entry as a readable line, with its kind, how many transactions it touched, the author, the
- * link, the reason (editable) and undo (or why it cannot be undone). */
+ * link, the reason (editable) and undo; an undone one says so and offers "Redo" (one row per
+ * change: undoing and redoing toggles it, with "undone and redone N times"). */
 export function LogEntryRow({ entry, showLink = true }: LogEntryRowProps) {
   const line = entryLine(entry)
   // In the detail's history the accessible name goes by number: the merchant is already in the
@@ -35,7 +39,9 @@ export function LogEntryRow({ entry, showLink = true }: LogEntryRowProps) {
   const name = showLink ? line : t('log.row.changeNumber', { id: entry.id })
   const href = showLink ? entryHref(entry) : null
   const undo = useUndo()
+  const redo = useRedo()
   const note = undoNote(entry)
+  const toggled = toggledText(entry)
   return (
     <li className={cn(ROW_DIVIDER, 'flex min-w-0 flex-col gap-1.5 py-3')}>
       <p className="text-sm font-semibold break-words text-foreground">{line}</p>
@@ -43,14 +49,19 @@ export function LogEntryRow({ entry, showLink = true }: LogEntryRowProps) {
         <span>{timeText(new Date(entry.at))}</span>
         <span aria-hidden="true">·</span>
         <span>{kindLabel(entry.kind)}</span>
-        <span aria-hidden="true">·</span>
-        <span>{affectedText(entry.affected)}</span>
+        {showsAffected(entry) && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{affectedText(entry.affected)}</span>
+          </>
+        )}
         {entry.author === 'claude' && (
           <Badge className="border border-primary/30 bg-secondary text-secondary-foreground">
             {t('log.row.claude')}
           </Badge>
         )}
         {entry.undone && <Badge className="bg-muted text-muted-foreground">{t('log.row.undoneBadge')}</Badge>}
+        {toggled && <span data-testid="log-toggled">{toggled}</span>}
       </div>
       <Reason entry={entry} line={name} />
       <div className="flex flex-wrap items-center gap-2">
@@ -62,12 +73,21 @@ export function LogEntryRow({ entry, showLink = true }: LogEntryRowProps) {
               FOCUS,
             )}
           >
-            {entry.target_type === 'merchant'
-              ? t('log.row.viewMerchant')
-              : t('log.row.viewTransaction')}
+            {linkLabel(entry)}
           </Link>
         )}
-        {entry.can_undo && (
+        {entry.undone && entry.can_redo && (
+          <Button
+            variant="outline"
+            className={OUTLINE}
+            aria-label={t('log.row.redoNamed', { name })}
+            disabled={redo.isPending}
+            onClick={() => redo.mutate(entry.id)}
+          >
+            {redo.isPending ? t('log.row.redoing') : t('log.row.redo')}
+          </Button>
+        )}
+        {!entry.undone && entry.can_undo && (
           <Button
             variant="outline"
             className={OUTLINE}
@@ -79,10 +99,15 @@ export function LogEntryRow({ entry, showLink = true }: LogEntryRowProps) {
           </Button>
         )}
       </div>
-      {note && !entry.undone && <p className="text-[13px] text-muted-foreground">{note}</p>}
+      {note && <p className="text-[13px] text-muted-foreground">{note}</p>}
       {undo.isError && (
         <p role="alert" className="text-[13px] text-up-ink">
           {t('log.row.undoFailed', { message: undo.error.message })}
+        </p>
+      )}
+      {redo.isError && (
+        <p role="alert" className="text-[13px] text-up-ink">
+          {t('log.row.redoFailed', { message: redo.error.message })}
         </p>
       )}
     </li>

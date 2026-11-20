@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from michelito import db, extract, migrations_live
+from michelito import db, extract
 from michelito.analysis import live_store
 from michelito.config import DEFAULT_SOURCES, find_source
 from michelito.gmail import MailMessage, message_from_api
@@ -94,7 +94,7 @@ def test_a_database_from_the_previous_schema_gains_the_live_tables(tmp_path: Pat
             "DROP TABLE alerts; DROP TABLE provisional_decisions; PRAGMA user_version = 19;"
         )
     with closing(db.connect(path)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == migrations_live.VERSION
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"alerts", "provisional_decisions"} <= tables
         assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == count

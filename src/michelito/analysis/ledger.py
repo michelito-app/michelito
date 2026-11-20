@@ -9,18 +9,21 @@ database only links transactions to an entry or a payment (`ledger_links`).
 Everything here is from the user's point of view: what each person owes the user and what the
 user owes each person. Debts between two other people are not tracked (no "simplify debts").
 
-Splits (`equal_split`, `check_exact`): an equal split divides the cents among the checked
-people and the leftover cent(s) go to the payer (or, when the payer is not among them, to the
-first person); an exact split must add up to the amount.
+Splits (`equal_split`, `parts_split`, `exact_shortfall`): an equal split divides the cents among
+the checked people and the leftover cent(s) go to the payer (or, when the payer is not among
+them, to the first person); a split by parts gives each person amount x parts / total parts,
+rounded down to the cent, with the leftover cent(s) by the same rule; an exact split must add up
+to the amount. `resplit_without` takes one person out of an entry keeping its mode (see there).
 
 Balances (`group_state`), per group:
 1. Claims: for each entry the user paid, each other person owes their share; for each entry
    another person paid, the user owes that person their own share.
-2. Attributed payments (in (day, id) order) settle the claims of that pair **from the oldest
-   entry to the newest** (FIFO); a payment in another currency is converted at the rate of the
-   payment's month (`convert`) and what is left goes back to its currency at that same rate
-   and moves on. Without a rate, the rest does not count (`unconverted`). What is left after
-   settling everything is not lost: see below.
+2. Attributed payments (in (day, id) order) settle, for each person they are for
+   (`Payment.parts_for`: one payment can be "on behalf of others"), the claims of that pair
+   **from the oldest entry to the newest** (FIFO); a payment in another currency is converted
+   at the rate of the payment's month (`convert`) and what is left goes back to its currency at
+   that same rate and moves on. Without a rate, the rest does not count (`unconverted`). What
+   is left after settling everything is not lost: see below.
    What an attributed payment brings beyond what that pair owed (a payment against the
    balance, or more than the balance) is not lost: it becomes a claim the other way (the
    receiver now owes the payer that rest, in the payment's currency).
@@ -51,8 +54,8 @@ from typing import Literal
 
 from michelito.analysis.rates import Rate, rate_for
 
-SplitMode = Literal["equal", "exact"]
-SPLIT_MODES: tuple[SplitMode, ...] = ("equal", "exact")
+SplitMode = Literal["equal", "exact", "parts"]
+SPLIT_MODES: tuple[SplitMode, ...] = ("equal", "exact", "parts")
 CURRENCIES = ("DOP", "USD")
 _CENT = Decimal("0.01")
 _ZERO = Decimal(0)
@@ -73,6 +76,7 @@ class Contact:
 class Split:
     contact_id: int
     share: Decimal  # in the entry's currency
+    parts: int | None = None  # a split by parts: this person's number of parts
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,41 @@ class Entry:
 
 
 @dataclass(frozen=True)
+class Allocation:
+    """Who a payment is for: the person whose balance with the user it settles, and how much."""
+
+    contact_id: int
+    amount: Decimal  # in the payment's currency
+
+
+def fit_allocations(
+    given: Sequence[tuple[int, Decimal]], principal: int, total: Decimal
+) -> tuple[tuple[int, Decimal], ...]:
+    """Allocations (person, amount) made to add up to `total`, the one rule for every mismatch
+    (the bank's amount linked later or at once, a difference accepted): what is more goes to
+    the principal's own allocation (the sender's: who sent it, and on whom a difference stays
+    pending); what is less comes off the principal first and then off the others in order,
+    never below zero. Zero amounts are left out; none given: all of it is the principal's."""
+    found = [(c, v) for c, v in given if v > 0]
+    if not found:
+        return ((principal, total),) if total > 0 else ()
+    if principal not in (c for c, _ in found):
+        found.insert(0, (principal, _ZERO))
+    else:
+        found.sort(key=lambda item: item[0] != principal)
+    delta = total - sum((v for _, v in found), _ZERO)
+    fitted: list[tuple[int, Decimal]] = []
+    for contact, value in found:
+        if delta >= 0:
+            value, delta = value + delta, _ZERO
+        else:
+            taken = min(value, -delta)
+            value, delta = value - taken, delta + taken
+        fitted.append((contact, value))
+    return tuple((c, v) for c, v in fitted if v > 0)
+
+
+@dataclass(frozen=True)
 class Payment:
     id: int
     group_id: int
@@ -110,6 +149,26 @@ class Payment:
     accepted: bool = False  # "Accept difference": it settles what was sent
     note: str = ""
     fingerprint: str | None = None  # the linked transaction
+    # Who it is for (they add up to `amount` when recorded). Empty: all of it for the other end.
+    allocations: tuple[Allocation, ...] = ()
+
+    def principal(self, me: int) -> int | None:
+        """The person (not the user) at the other end: who paid the user, or who the user paid
+        (None: unattributed or between two other people)."""
+        if self.from_contact is None:
+            return None
+        if self.to_contact == me:
+            return self.from_contact
+        return self.to_contact if self.from_contact == me else None
+
+    def parts_for(self, me: int) -> tuple[tuple[int, Decimal], ...]:
+        """(person, amount) this payment settles with each person, adding up to `settles`
+        (`fit_allocations`). Without allocations, all of it is for the principal."""
+        principal = self.principal(me)
+        if principal is None:
+            return ()
+        given = [(a.contact_id, a.amount) for a in self.allocations]
+        return fit_allocations(given, principal, self.settles)
 
     @property
     def settles(self) -> Decimal:
@@ -231,6 +290,65 @@ def equal_split(amount: Decimal, people: Sequence[int], paid_by: int) -> tuple[S
 def exact_shortfall(amount: Decimal, shares: Iterable[Decimal]) -> Decimal:
     """What is missing (positive) or over (negative) for the exact shares to add up."""
     return amount - sum(shares, _ZERO)
+
+
+def _weighted(cents: int, weights: Sequence[tuple[int, int]], paid_by: int) -> list[int]:
+    """`cents` divided in proportion to the weights (person, weight), each rounded down to the
+    cent; the leftover cent(s) go to the payer, or to the first person when the payer is not
+    among them (the equal split's rule)."""
+    total = sum(w for _, w in weights)
+    found = [cents * w // total for _, w in weights]
+    people = [p for p, _ in weights]
+    taker = people.index(paid_by) if paid_by in people else 0
+    found[taker] += cents - sum(found)
+    return found
+
+
+def parts_split(
+    amount: Decimal, parts: Sequence[tuple[int, int]], paid_by: int
+) -> tuple[Split, ...]:
+    """`amount` divided by parts: each person (in that order) gets amount x parts / total parts,
+    rounded down to the cent; the leftover cent(s) go to the payer (or the first person)."""
+    chosen = list(dict(parts).items())
+    if not chosen:
+        raise ValueError("a split by parts needs at least one person")
+    if any(count < 1 for _, count in chosen):
+        raise ValueError("every person has at least one part")
+    shares = _weighted(to_cents(amount), chosen, paid_by)
+    return tuple(
+        Split(person, Decimal(cents).scaleb(-2), count)
+        for (person, count), cents in zip(chosen, shares, strict=True)
+    )
+
+
+def resplit_without(entry: Entry, contact_id: int) -> tuple[Split, ...]:
+    """The entry's splits without `contact_id`, keeping its mode:
+
+    - equal: equal among the rest (the cent rule);
+    - parts: the rest keep their parts and the amount is divided again by parts;
+    - exact: the person's amount goes to the rest in proportion to their amounts (a person with
+      RD$ 600 of the RD$ 900 left gets two thirds of it), rounded down to the cent, with the
+      leftover cent(s) to the payer (or the first person). An exact split stores no zero
+      amounts, so a share of 0 is no share: that person is not in the split and gets nothing.
+
+    When nobody (or, for exact, nobody with an amount) is left, all of it is the payer's: the
+    expense becomes theirs alone, and what the person owed for it is gone. `resplit_preview`
+    shows that before it happens."""
+    rest = [s for s in entry.splits if s.contact_id != contact_id]
+    if entry.split_mode == "equal" and rest:
+        return equal_split(entry.amount, [s.contact_id for s in rest], entry.paid_by)
+    if entry.split_mode == "parts" and rest:
+        return parts_split(
+            entry.amount, [(s.contact_id, s.parts or 1) for s in rest], entry.paid_by
+        )
+    weights = [(s.contact_id, to_cents(s.share)) for s in rest if s.share > 0]
+    if not weights:
+        return (Split(entry.paid_by, entry.amount),)
+    shares = _weighted(to_cents(entry.amount), weights, entry.paid_by)
+    return tuple(
+        Split(person, Decimal(cents).scaleb(-2))
+        for (person, _), cents in zip(weights, shares, strict=True)
+    )
 
 
 # --- Currency -------------------------------------------------------------------------------
@@ -503,6 +621,10 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
     others = [m.contact_id for m in group.members if m.contact_id != me]
     for entry in entries:
         others.extend(c for c in (entry.paid_by, *entry.people) if c != me and c not in others)
+    for payment in group.payments:
+        for contact, _ in payment.parts_for(me):
+            if contact != me and contact not in others:
+                others.append(contact)
     to_me = {p: _Claims(list(currencies), [_ZERO] * size, [_ZERO] * size) for p in others}
     from_me = {p: _Claims(list(currencies), [_ZERO] * size, [_ZERO] * size) for p in others}
     for index, entry in enumerate(entries):
@@ -517,24 +639,9 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
     results: dict[int, PaymentState] = {}
     payments = _ordered_payments(group)
     for payment in payments:
-        found = _claims_for(payment, me, to_me, from_me)
-        if found is None:
-            continue
-        claims, opposite = found
-        done = apply_fifo(
-            payment.settles,
-            payment.currency,
-            payment.day,
-            claims.currencies,
-            claims.remaining,
-            claims.applied,
-            rates,
-        )
-        if done.left > 0 and not done.blocked:
-            opposite.add(payment.currency, done.left)
-            results[payment.id] = PaymentState(payment, turned=done.left)
-        else:
-            results[payment.id] = _payment_state(payment, done)
+        state = _apply_attributed(payment, me, to_me, from_me, rates)
+        if state is not None:
+            results[payment.id] = state
     # Unattributed payments: what is left of the group's claims to the user as a whole.
     aggregate = [sum((to_me[p].remaining[i] for p in others), _ZERO) for i in range(size)]
     loose = [_ZERO] * size
@@ -565,21 +672,45 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
     )
 
 
-def _claims_for(
-    payment: Payment, me: int, to_me: Mapping[int, _Claims], from_me: Mapping[int, _Claims]
-) -> tuple[_Claims, _Claims] | None:
-    """The claims an attributed payment settles and those its rest turns into (None:
-    unattributed or between other people)."""
-    other = payment.from_contact if payment.to_contact == me else payment.to_contact
-    if payment.from_contact is None or other is None or other == me:
+def _apply_attributed(
+    payment: Payment,
+    me: int,
+    to_me: Mapping[int, _Claims],
+    from_me: Mapping[int, _Claims],
+    rates: Mapping[str, Rate],
+) -> PaymentState | None:
+    """Applies an attributed payment, person by person (`Payment.parts_for`): each part settles
+    the claims of that person with the user and what is left of it becomes a claim the other
+    way. None: unattributed or between other people."""
+    parts = payment.parts_for(me)
+    if not parts:
         return None
-    if other not in to_me:
-        return None
-    if payment.to_contact == me:
-        return to_me[other], from_me[other]
-    if payment.from_contact == me:
-        return from_me[other], to_me[other]
-    return None
+    turned, unconverted, counted = _ZERO, False, False
+    for contact, value in parts:
+        if contact not in to_me:
+            continue
+        if payment.to_contact == me:
+            claims, opposite = to_me[contact], from_me[contact]
+        else:
+            claims, opposite = from_me[contact], to_me[contact]
+        done = apply_fifo(
+            value,
+            payment.currency,
+            payment.day,
+            claims.currencies,
+            claims.remaining,
+            claims.applied,
+            rates,
+        )
+        counted = counted or done.counted
+        if done.left > 0 and not done.blocked:
+            opposite.add(payment.currency, done.left)
+            turned += done.left
+        elif done.left > 0:
+            unconverted = True
+    return PaymentState(
+        payment, turned=turned, unconverted=unconverted, uncounted=unconverted and not counted
+    )
 
 
 def _payment_state(payment: Payment, done: _Applied) -> PaymentState:

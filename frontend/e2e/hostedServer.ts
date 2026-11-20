@@ -33,10 +33,17 @@ export function emailsTo(to: string): Sent[] {
   } catch {
     return []
   }
-  return names
-    .sort()
-    .map((name) => JSON.parse(readFileSync(join(folder, name), 'utf8')) as Sent)
-    .filter((email) => email.to === to)
+  // The mailer writes each email to a hidden temporary file and renames it: only complete
+  // `<n>.json` files are read (a half-written one, from an older server, is skipped this time).
+  const found: Sent[] = []
+  for (const name of names.filter((n) => !n.startsWith('.')).sort()) {
+    try {
+      found.push(JSON.parse(readFileSync(join(folder, name), 'utf8')) as Sent)
+    } catch {
+      continue
+    }
+  }
+  return found.filter((email) => email.to === to)
 }
 
 /** The 6-digit code of the newest email to `to`. */

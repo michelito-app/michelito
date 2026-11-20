@@ -43,6 +43,15 @@ export function useSaveReason() {
   })
 }
 
+/** Redoes an undone entry (applies it again): like undo, everything is refetched. */
+export function useRedo() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => request<LogEntry>(`/api/log/${id}/redo`, { method: 'POST' }),
+    onSuccess: () => client.invalidateQueries(),
+  })
+}
+
 /** Undoes an entry: it may change anything, so everything is refetched. */
 export function useUndo() {
   const client = useQueryClient()

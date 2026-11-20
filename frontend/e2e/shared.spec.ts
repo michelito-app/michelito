@@ -248,7 +248,9 @@ test('add an expense by both paths: "I paid it" from the bank and "someone else 
   await expect(taxi).toContainText(t('shared.entry.owe', { amount: 'RD$ 500' }))
 })
 
-test('an exact split shows the shortfall live and only saves when it adds up', async ({ page }) => {
+test('exact amounts start from the current split; the shortfall is live and it saves when it adds up', async ({
+  page,
+}) => {
   const group = await tripGroup(page)
   await page.goto(`/shared/${group.id}`)
   await page.getByRole('button', { name: t('shared.addExpense') }).click()
@@ -256,7 +258,7 @@ test('an exact split shows the shortfall live and only saves when it adds up', a
     .getByRole('button', { name: new RegExp(escapeRegExp(t('shared.add.other'))) })
     .click()
   const form = dialog(page, t('shared.add.other'))
-  await form.getByLabel(t('shared.add.amount')).fill('1000')
+  await form.getByLabel(t('shared.add.amount')).fill('900')
   await form.getByLabel(t('shared.add.description')).fill('Supermercado') // spanish-data
   await form.getByTestId('split-summary').click()
 
@@ -264,15 +266,28 @@ test('an exact split shows the shortfall live and only saves when it adds up', a
   await split.getByLabel(t('shared.split.exact')).check()
   const done = split.getByRole('button', { name: t('shared.done') })
   const shortfall = split.getByTestId('split-shortfall')
-  await split.getByLabel(t('shared.split.amountOf', { name: t('shared.you') })).fill('300')
-  await expect(shortfall).toHaveText(t('shared.split.missing', { amount: 'RD$ 700' }))
+  const you = split.getByLabel(t('shared.split.amountOf', { name: t('shared.you') }))
+  const pedro = split.getByLabel(t('shared.split.amountOf', { name: 'Pedro Ficticio' }))
+  // Prefilled with the equal split: it already adds up, only the different one is edited.
+  await expect(you).toHaveValue('300.00')
+  await expect(split.getByLabel(t('shared.split.amountOf', { name: 'Carola Ficticia' }))).toHaveValue('300.00')
+  await expect(pedro).toHaveValue('300.00')
+  await expect(shortfall).toHaveText(t('shared.split.addsUp'))
+  await expect(done).toBeEnabled()
+  await you.fill('200')
+  await expect(shortfall).toHaveText(t('shared.split.missing', { amount: 'RD$ 100' }))
   await expect(done).toBeDisabled()
-  await split.getByLabel(t('shared.split.amountOf', { name: 'Carola Ficticia' })).fill('500')
-  await expect(shortfall).toHaveText(t('shared.split.missing', { amount: 'RD$ 200' }))
-  await split.getByLabel(t('shared.split.amountOf', { name: 'Pedro Ficticio' })).fill('300')
+  // Unchecking a person drops their amount; checking them again starts at 0.
+  const pedroBox = split.getByRole('checkbox', { name: 'Pedro Ficticio' })
+  await pedroBox.uncheck()
+  await expect(shortfall).toHaveText(t('shared.split.missing', { amount: 'RD$ 400' }))
+  await pedroBox.check()
+  await expect(pedro).toHaveValue('0.00')
+  await expect(shortfall).toHaveText(t('shared.split.missing', { amount: 'RD$ 400' }))
+  await pedro.fill('500')
   await expect(shortfall).toHaveText(t('shared.split.over', { amount: 'RD$ 100' }))
   await expect(done).toBeDisabled()
-  await split.getByLabel(t('shared.split.amountOf', { name: 'Pedro Ficticio' })).fill('200')
+  await pedro.fill('400')
   await expect(shortfall).toHaveText(t('shared.split.addsUp'))
   await noSidewaysScroll(page, 'split sheet')
   await done.click()
@@ -281,8 +296,209 @@ test('an exact split shows the shortfall live and only saves when it adds up', a
   await form.getByRole('button', { name: t('shared.add.save') }).click()
   await expect(form).toHaveCount(0)
   await expect(page.getByTestId('timeline-entry').filter({ hasText: 'Supermercado' })).toContainText( // spanish-data
-    t('shared.entry.owe', { amount: 'RD$ 300' }),
+    t('shared.entry.owe', { amount: 'RD$ 200' }),
   )
+})
+
+test("a split by parts: steppers, the amounts by parts, and the detail shows each one's parts", async ({
+  page,
+}) => {
+  const group = await tripGroup(page)
+  await page.goto(`/shared/${group.id}`)
+  await page.getByRole('button', { name: t('shared.addExpense') }).click()
+  await dialog(page, t('shared.add.title'))
+    .getByRole('button', { name: new RegExp(escapeRegExp(t('shared.add.other'))) })
+    .click()
+  const form = dialog(page, t('shared.add.other'))
+  await form.getByLabel(t('shared.add.amount')).fill('1200')
+  await form.getByLabel(t('shared.add.description')).fill('Entradas') // spanish-data
+  await form.getByTestId('split-summary').click()
+  const split = dialog(page, t('shared.split.title'))
+  await split.getByLabel(t('shared.split.parts')).check()
+  const amounts = split.getByTestId('split-amount')
+  await expect(amounts).toHaveText(['RD$ 400', 'RD$ 400', 'RD$ 400'])
+  const more = split.getByRole('button', { name: t('shared.split.morePart', { name: 'Pedro Ficticio' }) })
+  const less = split.getByRole('button', { name: t('shared.split.lessPart', { name: 'Pedro Ficticio' }) })
+  await expect(less).toBeDisabled() // never under 1 part
+  const box = await more.boundingBox()
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+  await more.click()
+  await expect(amounts).toHaveText(['RD$ 300', 'RD$ 300', 'RD$ 600'])
+  await noSidewaysScroll(page, 'split by parts')
+  await split.getByRole('button', { name: t('shared.done') }).click()
+  await expect(form.getByTestId('split-summary')).toHaveText(t('shared.add.splitParts', { count: 4 }))
+  await form.getByRole('button', { name: t('shared.add.save') }).click()
+  await expect(form).toHaveCount(0)
+  const row = page.getByTestId('timeline-entry').filter({ hasText: 'Entradas' }) // spanish-data
+  await expect(row).toContainText(t('shared.entry.owe', { amount: 'RD$ 300' }))
+  await row.click()
+  const detail = dialog(page, t('shared.detail.entry'))
+  await expect(detail.getByRole('list', { name: t('shared.detail.split') })).toContainText(
+    t('shared.detail.partsLine', { count: 2, amount: 'RD$ 600' }),
+  )
+  // Editing keeps the mode.
+  await detail.getByRole('button', { name: t('shared.detail.edit') }).click()
+  await expect(page.getByTestId('split-summary')).toHaveText(t('shared.add.splitParts', { count: 4 }))
+})
+
+test('removing a person: why someone who paid stays, and "Remove from N expenses" re-splits in one undo', async ({
+  page,
+}) => {
+  const group = await tripGroup(page)
+  const me = group.members.find((m) => m.is_me)!.id
+  const carola = group.members.find((m) => m.name === 'Carola Ficticia')!.id
+  const pedro = group.members.find((m) => m.name === 'Pedro Ficticio')!.id
+  await addEntry(page.request, group.id, {
+    paid_by: me,
+    amount_cents: 90_000,
+    description: 'Taxi de prueba', // spanish-data
+    day: '2026-02-10',
+    split: 'equal',
+    people: [me, carola, pedro],
+  })
+  await addEntry(page.request, group.id, {
+    paid_by: carola,
+    amount_cents: 60_000,
+    description: 'Cine de prueba', // spanish-data
+    day: '2026-02-11',
+    split: 'exact',
+    shares: [
+      { contact_id: me, cents: 10_000 },
+      { contact_id: carola, cents: 20_000 },
+      { contact_id: pedro, cents: 30_000 },
+    ],
+  })
+  // Only Pedro's: without him nobody else is left, so it would be all mine.
+  await addEntry(page.request, group.id, {
+    paid_by: me,
+    amount_cents: 5_000,
+    description: 'Regalo de prueba', // spanish-data
+    day: '2026-02-12',
+    split: 'exact',
+    shares: [{ contact_id: pedro, cents: 5_000 }],
+  })
+  await page.goto(`/shared/${group.id}`)
+  await page.getByRole('button', { name: t('shared.menuOf', { name: DINNER_GROUP }) }).click()
+  await dialog(page, DINNER_GROUP).getByRole('button', { name: t('shared.group.people') }).click()
+  const people = dialog(page, t('shared.group.people'))
+  // Carola paid an expense: she stays, and it says why.
+  await people.getByRole('button', { name: t('shared.group.removePerson', { name: 'Carola Ficticia' }) }).click()
+  const panel = people.getByTestId('remove-person')
+  await expect(panel.getByRole('status')).toContainText('Cine de prueba') // spanish-data
+  await expect(panel.getByRole('button', { name: t('shared.group.removeResplit', { count: 1 }) })).toHaveCount(0)
+  await panel.getByRole('button', { name: t('shared.group.removeCancel') }).click()
+  // Pedro only has shares: one step takes him out of all three and re-splits them, each shown
+  // as it would be before confirming.
+  await people.getByRole('button', { name: t('shared.group.removePerson', { name: 'Pedro Ficticio' }) }).click()
+  const shares = panel.getByTestId('remove-share')
+  await expect(shares.filter({ hasText: 'Taxi de prueba' })).toContainText( // spanish-data
+    t('shared.group.removeAfter', { split: `${t('shared.you')} RD$ 450 · Carola Ficticia RD$ 450` }),
+  )
+  const gift = shares.filter({ hasText: 'Regalo de prueba' }) // spanish-data
+  await expect(gift.getByRole('note')).toHaveText(t('shared.group.removeToYou'))
+  await noSidewaysScroll(page, 'remove person')
+  // It erases what Pedro owed for the gift: it has to be acknowledged first.
+  const confirm = panel.getByRole('button', { name: t('shared.group.removeResplit', { count: 3 }) })
+  await expect(confirm).toBeDisabled()
+  await panel.getByRole('checkbox', { name: t('shared.group.removeUnderstood', { name: 'Pedro Ficticio', count: 1 }) }).check()
+  await confirm.click()
+  await expect(panel).toHaveCount(0)
+  await expect(people.getByRole('list', { name: t('shared.group.people') }).first()).not.toContainText('Pedro Ficticio')
+  await page.keyboard.press('Escape')
+  // Equal: RD$ 900 between the two left (Carola owes RD$ 450). Exact: Pedro's RD$ 300 goes 1:2 to
+  // me and Carola (I owe RD$ 200).
+  await expect(page.getByTestId('timeline-entry').filter({ hasText: 'Taxi de prueba' })).toContainText( // spanish-data
+    t('shared.entry.lent', { amount: 'RD$ 450' }),
+  )
+  await expect(page.getByTestId('timeline-entry').filter({ hasText: 'Cine de prueba' })).toContainText( // spanish-data
+    t('shared.entry.owe', { amount: 'RD$ 200' }),
+  )
+  // One change in the log, undone in one step.
+  await page.goto('/log')
+  const line = `Quitaste a Pedro Ficticio del grupo ${DINNER_GROUP} y de 3 gasto(s), divididos entre los demás` // spanish-data: backend log line
+  await page.getByRole('button', { name: t('log.row.undoNamed', { name: line }), exact: true }).click()
+  await expect(page.getByRole('button', { name: t('log.row.redoNamed', { name: line }), exact: true })).toBeVisible()
+  await page.goto(`/shared/${group.id}`)
+  await expect(page.getByTestId('timeline-entry').filter({ hasText: 'Taxi de prueba' })).toContainText( // spanish-data
+    t('shared.entry.lent', { amount: 'RD$ 600' }),
+  )
+})
+
+test('a payment on behalf of others settles both people in one go', async ({ page }) => {
+  const group = await createGroup(page.request, DINNER_GROUP, [
+    { name: 'Javier Ficticio' }, // spanish-data
+    { name: 'Gordo Ficticio' }, // spanish-data
+  ])
+  await addEntry(page.request, group.id, {
+    paid_by: group.members.find((m) => m.is_me)!.id,
+    amount_cents: 90_000,
+    description: 'Entradas', // spanish-data
+    day: '2026-02-10',
+    split: 'equal',
+    people: group.members.map((m) => m.id),
+  })
+  await page.goto(`/shared/${group.id}`)
+  await page
+    .getByRole('list', { name: t('shared.group.cards') })
+    .getByRole('button', { name: /^Javier Ficticio/ })
+    .click()
+  const pay = dialog(page, t('shared.pay.title'))
+  const amount = pay.getByLabel(t('shared.pay.amount'))
+  await expect(amount).toHaveValue('300.00')
+  await pay.getByRole('checkbox', { name: t('shared.pay.coversLabel', { name: 'Gordo Ficticio' }) }).check()
+  // Gordo's balance is added; each allocation starts at what they owe.
+  await expect(amount).toHaveValue('600.00')
+  const gordo = pay.getByLabel(t('shared.pay.allocationOf', { name: 'Gordo Ficticio' }))
+  await expect(gordo).toHaveValue('300.00')
+  await expect(pay.getByLabel(t('shared.pay.allocationOf', { name: 'Javier Ficticio' }))).toHaveValue('300.00')
+  const shortfall = pay.getByTestId('allocation-shortfall')
+  await expect(shortfall).toHaveText(t('shared.split.addsUp'))
+  await gordo.fill('250')
+  await expect(shortfall).toHaveText(t('shared.split.missing', { amount: 'RD$ 50' }))
+  await expect(pay.getByRole('button', { name: t('shared.next') })).toBeDisabled()
+  await gordo.fill('300')
+  await noSidewaysScroll(page, 'paid for others')
+  await pay.getByRole('button', { name: t('shared.next') }).click()
+  await dialog(page, t('shared.pay.bankTitle')).getByRole('button', { name: t('shared.pay.notYet') }).click()
+  const line = t('shared.payment.line', { from: 'Javier Ficticio', to: t('shared.you'), amount: 'RD$ 600' })
+  await expect(page.getByTestId('timeline-payment')).toContainText(
+    `${line} ${t('shared.payment.covers', { names: 'Gordo Ficticio' })}`,
+  )
+  await expect(page.getByTestId('group-sentence')).toHaveText(t('shared.group.sentence.settled'))
+})
+
+test('the log: one row per change, a sentence that links to the group, undo and redo toggle it', async ({
+  page,
+}) => {
+  // Its own name per project and run: the log keeps the (undone) rows of earlier runs.
+  const name = `${NEW_GROUP} ${test.info().project.name} ${Date.now()}`
+  const group = await createGroup(page.request, name, [{ name: 'Javier Ficticio' }]) // spanish-data
+  const added = await page.request.post(`/api/shared/groups/${group.id}/members`, {
+    headers: { 'X-Michelito': '1' },
+    data: { name: 'Gordo Ficticio' }, // spanish-data
+  })
+  expect(added.ok()).toBe(true)
+  await page.goto('/log')
+  await page.getByRole('searchbox', { name: t('log.filter.search') }).fill(name)
+  const line = `Agregaste a Gordo Ficticio al grupo ${name}` // spanish-data: backend log line
+  const row = page.getByRole('listitem').filter({ hasText: line })
+  await expect(row).toHaveCount(1)
+  await expect(row).not.toContainText(t('log.affected', { count: 0 }))
+  await expect(row.getByRole('link', { name: t('log.row.viewGroup') })).toHaveAttribute('href', `/shared/${group.id}`)
+  await expect(row.getByRole('link', { name: t('log.row.viewTransaction') })).toHaveCount(0)
+  const items = page.getByRole('main').getByRole('listitem')
+  const rows = await items.count()
+  await row.getByRole('button', { name: t('log.row.undoNamed', { name: line }), exact: true }).click()
+  const redo = row.getByRole('button', { name: t('log.row.redoNamed', { name: line }), exact: true })
+  await expect(redo).toBeVisible()
+  await expect(row.getByText(t('log.row.undoneBadge'), { exact: true })).toBeVisible()
+  await expect(page.getByRole('main')).not.toContainText(t('log.undone', { line: '' }).trim())
+  await redo.click()
+  await expect(row.getByRole('button', { name: t('log.row.undoNamed', { name: line }), exact: true })).toBeVisible()
+  await expect(row.getByTestId('log-toggled')).toHaveText(t('log.row.toggled', { count: 2 }))
+  await expect(items).toHaveCount(rows)
+  await noSidewaysScroll(page, 'log')
 })
 
 test('register a payment: linked to a bank candidate with a difference, then one "Not yet"', async ({

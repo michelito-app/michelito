@@ -26,7 +26,9 @@ async function undo(page: Page, search: string, line: string | RegExp) {
   const name = typeof line === 'string' ? t('log.row.undoNamed', { name: line }) : line
   const button = page.getByRole('button', { name, exact: typeof line === 'string' })
   await button.first().click()
-  await expect(page.getByRole('main')).toContainText(t('log.undone', { line: '' }).trim())
+  // The row turns undone and offers «Rehacer».
+  const redo = new RegExp(`^${escapeRegExp(t('log.row.redoNamed', { name: '' }))}`)
+  await expect(page.getByRole('button', { name: redo }).first()).toBeVisible()
 }
 
 const ACTIVATED = digits(

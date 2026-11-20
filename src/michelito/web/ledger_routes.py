@@ -33,15 +33,18 @@ from michelito.web.ledger_schemas import (
     GroupOut,
     GroupPatchBody,
     MemberBody,
+    MemberUsageOut,
     MergeBody,
     NewPerson,
     PaymentBody,
     PaymentPatchBody,
     PersonOut,
     SharedHomeOut,
+    SplitOut,
+    UsedInOut,
     WriteOffBody,
 )
-from michelito.web.schemas import CandidateOut, LinkedTxOut
+from michelito.web.schemas import CandidateOut, LinkedTxOut, to_cents
 
 Connection = Callable[[], AbstractContextManager[sqlite3.Connection]]
 LoadFlow = Callable[[sqlite3.Connection], Sequence[Movement]]
@@ -94,6 +97,72 @@ def _day(text: str | None, default: date) -> date:
         return date.fromisoformat(text)
     except ValueError:
         raise HTTPException(422, t("web.ledger.invalid_day")) from None
+
+
+def _splits(amount: Decimal, paid_by: int, body: EntryBody) -> tuple[ledger.Split, ...]:
+    return ledger_store.build_splits(
+        amount,
+        paid_by,
+        body.split,
+        body.people,
+        {s.contact_id: Decimal(s.cents) / 100 for s in body.shares},
+        {p.contact_id: p.parts for p in body.parts},
+    )
+
+
+def usage_out(conn: sqlite3.Connection, group_id: int, contact_id: int) -> MemberUsageOut:
+    """Where a person appears in a group (before "Remove"), with why they would stay and, for
+    each expense they have a share in, how it would be split without them."""
+    usage = ledger_store.member_usage(conn, group_id, contact_id)
+    name = _contact_name(conn, contact_id)
+    book = ledger_store.load(conn)
+    group = book.group(group_id)
+    preview = ledger_store.resplit_preview(conn, group_id, contact_id) if usage.shares else {}
+
+    def plain(u: ledger_store.UsedIn) -> UsedInOut:
+        return UsedInOut(
+            id=u.id,
+            day=u.day.isoformat(),
+            description=u.description,
+            amount_cents=to_cents(u.amount),
+            currency=u.currency,
+        )
+
+    def item(u: ledger_store.UsedIn) -> UsedInOut:
+        entry = None if group is None else group.entry(u.id)
+        after = preview.get(u.id, ())
+        payer = None if entry is None else entry.paid_by
+        return UsedInOut(
+            id=u.id,
+            day=u.day.isoformat(),
+            description=u.description,
+            amount_cents=to_cents(u.amount),
+            currency=u.currency,
+            after=[
+                SplitOut(
+                    contact_id=s.contact_id,
+                    name=book.name(s.contact_id),
+                    is_me=s.contact_id == book.me,
+                    cents=to_cents(s.share),
+                    parts=s.parts,
+                )
+                for s in after
+            ],
+            to_payer=bool(after) and all(s.contact_id == payer for s in after),
+            paid_by_name=book.name(payer),
+            paid_by_me=payer == book.me,
+        )
+
+    return MemberUsageOut(
+        contact_id=contact_id,
+        name=name,
+        shares=[item(u) for u in usage.shares],
+        paid=[plain(u) for u in usage.paid],
+        payments=[plain(u) for u in usage.payments],
+        free=usage.free,
+        resplittable=usage.resplittable,
+        message="" if usage.free else ledger_store.usage_text(name, usage),
+    )
 
 
 def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
@@ -290,11 +359,20 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
                 ledger_store.add_member(conn, group_id, person_id(conn, body))
             return group_response(conn, group_id)
 
+    @app.get("/api/shared/groups/{group_id}/members/{contact_id}/usage")
+    def get_member_usage(group_id: int, contact_id: int) -> MemberUsageOut:
+        """Where the person appears in the group, before removing them."""
+        with connection() as conn, errors():
+            return usage_out(conn, group_id, contact_id)
+
     @app.delete("/api/shared/groups/{group_id}/members/{contact_id}")
-    def delete_member(group_id: int, contact_id: int) -> GroupOut:
+    def delete_member(group_id: int, contact_id: int, resplit: bool = False) -> GroupOut:
+        """Remove a person. With `resplit` someone who only has shares leaves those expenses
+        too (each split again among the rest keeping its mode): one change, one undo."""
         with connection() as conn:
-            with tracked(conn, "group_member", f"group-{group_id}", _group_name(conn, group_id)):
-                ledger_store.remove_member(conn, group_id, contact_id)
+            kind = "group_member_resplit" if resplit else "group_member"
+            with tracked(conn, kind, f"group-{group_id}", _group_name(conn, group_id)):
+                ledger_store.remove_member(conn, group_id, contact_id, resplit=resplit)
             return group_response(conn, group_id)
 
     @app.post("/api/shared/groups/{group_id}/write-off")
@@ -344,13 +422,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             raise LookupError(t("analysis.links.unknown_group", id=group_id))
         args["category_id"] = body.category_id if body.category_id is not None else group[0]
         args["mode"] = body.split
-        args["splits"] = ledger_store.build_splits(
-            amount,
-            args["paid_by"],
-            body.split,
-            body.people,
-            {s.contact_id: Decimal(s.cents) / 100 for s in body.shares},
-        )
+        args["splits"] = _splits(amount, args["paid_by"], body)
         return args
 
     @app.post("/api/shared/groups/{group_id}/entries", status_code=201)
@@ -383,13 +455,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
                 args = entry_args(conn, group_id, body.model_copy(update={"fingerprint": None}))
                 if linked is not None:
                     args.update(_linked_fields(conn, load_flow(conn), str(linked[0]), body))
-                    args["splits"] = ledger_store.build_splits(
-                        args["amount"],
-                        args["paid_by"],
-                        body.split,
-                        body.people,
-                        {s.contact_id: Decimal(s.cents) / 100 for s in body.shares},
-                    )
+                    args["splits"] = _splits(args["amount"], args["paid_by"], body)
                 kept = _kept_splits(conn, entry_id, body, args)
                 if kept is not None:
                     args["splits"], args["mode"] = kept
@@ -488,8 +554,22 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
                     day=_day(body.day, today()),
                     sent=sent,
                     fingerprint=body.fingerprint,
+                    allocations=_allocations(body, amount),
                 )
             return group_response(conn, group_id)
+
+    def _allocations(body: PaymentBody, amount: Decimal) -> dict[int, Decimal] | None:
+        """The allocations as given; when the bank's received amount differs from what was
+        typed (they were typed to add up to it), they are fitted to it with the ledger's one
+        rule (`ledger.fit_allocations`: the payer's own part first)."""
+        if not body.allocations:
+            return None
+        given = [(a.contact_id, Decimal(a.cents) / 100) for a in body.allocations]
+        if body.from_contact is None:
+            raise LinkError(t("analysis.ledger.allocations_need_payer"))
+        if amount == Decimal(body.amount_cents) / 100:  # as typed: they must add up (store)
+            return dict(given)
+        return dict(ledger.fit_allocations(given, body.from_contact, amount))
 
     @app.patch("/api/shared/payments/{payment_id}")
     def patch_payment(payment_id: int, body: PaymentPatchBody) -> GroupOut:

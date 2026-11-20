@@ -1120,8 +1120,24 @@ uv run michelito board [--port N] [--no-browser]
 - **Shared expenses** (Shared, a ledger of its own: `analysis/ledger.py`): groups of people (the
   user, "You", is always in), global **contacts** reused across groups with **aliases** (how the
   bank prints their name), **expenses** (who paid, amount, currency, date, description, category)
-  split per person **equally** (in cents; the leftover cent goes to whoever paid) or by **exact
-  amounts**, and **payments** between people. Balances are per person and in both directions
+  split per person **equally** (in cents; the leftover cent goes to whoever paid), by **parts**
+  (each person has a number of parts, 1 or more: total x parts / total parts in cents, the
+  leftover cent to whoever paid) or by **exact amounts** (switching to them starts from the
+  current split, so only the different one is edited), and **payments** between people. A
+  payment someone else makes to you can also be **on behalf of others** ("Also pays for…"): one
+  payment, with what it covers of each person (each one's balance to start, editable, adding up
+  to the payment); every balance, Pending and "To review" use those amounts, and the timeline
+  says it ("Javier → You · RD$ 1,632 (covers Gordo)"). If the bank's amount differs from
+  what was typed, the payer's own part takes the difference. Removing a person from a group says
+  why they cannot leave (the expenses they paid or have a share in, and their payments); someone
+  who only has shares can leave them too in one step ("Remove from N expense(s) and the group"):
+  each of those expenses is split again among the rest **keeping its mode** (equal among the
+  rest; by parts with the others' parts; exact: their amount goes to the others in proportion to
+  their amounts, rounded down to the cent with the leftover to whoever paid), as one change with
+  one undo. Before confirming, each expense shows how it would be split; one where nobody else
+  is left becomes the payer's alone ("nobody else is left: it becomes yours"), which erases what
+  the person owed for it, so it has to be acknowledged first. Schema 21 (`migrations_v21`) added the parts and the payments' allocations; existing
+  payments got one allocation each, with every balance identical. Balances are per person and in both directions
   (no "simplify debts" between third parties). Your bank transactions are only *linked*: an
   expense you paid ("I paid it") links its debit and counts only your share as spending; the
   share of an expense someone else paid is a **group movement** in Transactions (no bank, its
@@ -1308,7 +1324,17 @@ uv run michelito board [--port N] [--no-browser]
   "History".
   **Undo** puts each touched row back as it was before, also a link's members with their role,
   capital and manual reimbursements, a merchant's previous rule (or none) and a deleted category
-  with its corrections and keywords; and it stays as an entry of its own. It is only offered if
+  with its corrections and keywords. The list keeps **one row per change**: undoing it marks it
+  "Undone" with **Redo** (which applies the change again; undoing again toggles back, and "N changes
+  of state" shows when it went back and forth more than once). Each undo and redo is
+  still recorded as an audit entry under the original (`michelito log --json` lists them all),
+  but is never offered for undoing itself; older chains of undos of undos collapse into the
+  original's state without rewriting anything. Shared's changes read as a sentence ("You removed
+  Javier and El Gordo from the group …") and link to the group or the person instead of a
+  transaction. Undo or redo never takes out of a group a person who has expenses, shares or
+  payments there after the change (it says which later change to undo, or redo, first), and a
+  payment change recorded before schema 21 undoes with the allocations the migration gave it.
+  Undo (and redo) is only offered if
   what the entry left is still the same: if a later entry changed it, it says which one to undo
   first instead (and if it was changed by something that does not go into the log, like a name or
   a `parse --retry`, that it can no longer be undone). Before offering it, it is rehearsed (and

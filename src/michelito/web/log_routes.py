@@ -15,10 +15,10 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 
-from michelito.analysis import catalog, changelog, changelog_rules, live_match
+from michelito.analysis import catalog, changelog, changelog_ledger, changelog_rules, live_match
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
-from michelito.web.log_schemas import EntryOut, HistoryOut, LogOut, ReasonBody, RuleHintOut
+from michelito.web.log_schemas import EntryOut, HistoryOut, LogOut, ReasonBody, RuleHintOut, Toggle
 
 Connection = Callable[[], AbstractContextManager[sqlite3.Connection]]
 LoadFlow = Callable[[sqlite3.Connection], Sequence[Movement]]
@@ -65,26 +65,80 @@ def rule_suggestions(
     return [s for s in found if s.category_id in usable]
 
 
+def names(conn: sqlite3.Connection) -> changelog_ledger.Names:
+    """Today's contacts and groups (for Shared's sentences and links)."""
+    present = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'contacts'"
+    ).fetchone()
+    if present is None:
+        return changelog_ledger.Names()
+    contacts = {int(r[0]): str(r[1]) for r in conn.execute("SELECT id, name FROM contacts")}
+    me = conn.execute("SELECT id FROM contacts WHERE is_me = 1").fetchone()
+    groups = {int(r[0]): str(r[1]) for r in conn.execute("SELECT id, name FROM ledger_groups")}
+    return changelog_ledger.Names(contacts, groups, None if me is None else int(me[0]))
+
+
+def originals(entries: Sequence[changelog.Entry]) -> list[changelog.Entry]:
+    """The entries the list shows: original changes (an "Undo" record stays under its original)."""
+    return [e for e in entries if e.undoes is None]
+
+
+def _rooted(
+    state: changelog.UndoState, chains: changelog.Toggles, done: frozenset[int]
+) -> changelog.UndoState:
+    """The later change that blocks, as the list shows it: its original (never an audit record)
+    and what to do with it first: undo it, or redo it if that original is undone now (what is in
+    effect is its undo)."""
+    if state.blocked_by is None:
+        return state
+    root = chains.root(state.blocked_by)
+    redo = root in done
+    if state.reason:
+        key = "analysis.changelog.blocked_by_redo" if redo else "analysis.changelog.blocked_by"
+        message = t(key, reason=state.reason, id=root)
+    else:
+        key = (
+            "analysis.changelog.redo_later_first" if redo else "analysis.changelog.undo_later_first"
+        )
+        message = t(key, id=root)
+    return changelog.UndoState(state.allowed, state.undone, root, message, state.reason)
+
+
 def entry_views(
     conn: sqlite3.Connection,
     entries: Sequence[changelog.Entry],
     sessions_of: dict[int, changelog_rules.Session] | None = None,
     flow: Sequence[Movement] = (),
 ) -> list[EntryOut]:
-    """The entries with their undo state (tried with the days of `flow`, today's flow) and
-    their transaction's month for the link."""
+    """The original entries with their state: undone or not, whether "Undo" (or "Redo") can be
+    done now (tried with the days of `flow`, today's flow), how many times it toggled, and their
+    transaction's month (or group, or person) for the link."""
     done = changelog.undone(conn)
+    chains = changelog.toggles(conn)
+    known = names(conn)
     present: Mapping[str, str] = {m.fingerprint: m.month for m in flow}
     days = {m.fingerprint: m.day for m in flow}
-    return [
-        EntryOut.of(
-            e,
-            changelog.undo_state(conn, e, done, days),
-            None if sessions_of is None else sessions_of.get(e.id),
-            present,
+    views = []
+    for entry in originals(entries):
+        undone = entry.id in done
+        state = (
+            changelog.redo_state(conn, entry, done, chains, days)
+            if undone
+            else changelog.undo_state(conn, entry, done, days)
         )
-        for e in entries
-    ]
+        records = chains.records(entry.id)
+        last = changelog.get(conn, records[-1]).at.isoformat() if records else None
+        views.append(
+            EntryOut.of(
+                entry,
+                _rooted(state, chains, done),
+                None if sessions_of is None else sessions_of.get(entry.id),
+                present,
+                Toggle(undone=undone, count=len(records), last_at=last),
+                known,
+            )
+        )
+    return views
 
 
 def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
@@ -100,7 +154,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
         filters don't cut it). `kind`: comma-separated kinds."""
         kinds = {k.strip() for k in kind.split(",") if k.strip()} if kind else None
         with connection() as conn:
-            entries = changelog.load(conn)
+            entries = originals(changelog.load(conn))
             groups = changelog_rules.sessions([(e.id, e.at) for e in entries])
             sessions_of = {i: s for s in groups for i in s.ids}
             wanted = [e for e in entries if matches(e, kinds, author, q)]
@@ -126,15 +180,13 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
                 raise HTTPException(422, str(exc)) from None
             return entry_views(conn, [changelog.get(conn, entry_id)], None, load_flow(conn))[0]
 
-    @app.post("/api/log/{entry_id}/undo")
-    def post_undo(entry_id: int) -> EntryOut:
-        """Undo the entry; return the new entry that records it. 409 if it can no longer be
-        undone (the message says which later entry to undo first)."""
+    def toggle(entry_id: int, redo: bool) -> EntryOut:
         with connection() as conn:
             days = {m.fingerprint: m.day for m in load_flow(conn)}
             try:
                 with conn:
-                    made = changelog.undo(conn, entry_id, days)
+                    act = changelog.redo if redo else changelog.undo_original
+                    made = act(conn, entry_id, days)
             except LookupError:
                 raise HTTPException(404, t("web.log.unknown_entry")) from None
             except changelog.UndoBlocked as exc:
@@ -144,7 +196,20 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
                 # already arrived: reconciling now confirms it instead of counting it twice.
                 with conn:
                     live_match.reconcile(conn, changelog.now().isoformat())
-            return entry_views(conn, [changelog.get(conn, made)], None, load_flow(conn))[0]
+            return entry_views(conn, [changelog.get(conn, entry_id)], None, load_flow(conn))[0]
+
+    @app.post("/api/log/{entry_id}/undo")
+    def post_undo(entry_id: int) -> EntryOut:
+        """Undo an original change; return it with its new state (undone, "Redo"). The audit
+        record is kept under it. 409 if it can no longer be undone (the message says which
+        later change to undo first) or if `entry_id` is an audit record."""
+        return toggle(entry_id, redo=False)
+
+    @app.post("/api/log/{entry_id}/redo")
+    def post_redo(entry_id: int) -> EntryOut:
+        """Redo an undone original (apply the change again, recorded like an undo); 409 when a
+        later change would be overwritten."""
+        return toggle(entry_id, redo=True)
 
     @app.get("/api/transactions/{fingerprint}/history")
     def get_history(fingerprint: str) -> HistoryOut:

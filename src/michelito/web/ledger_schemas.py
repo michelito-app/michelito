@@ -112,6 +112,10 @@ class SplitOut(BaseModel):
     name: str
     is_me: bool
     cents: int
+    parts: int | None = None  # a split by parts: their number of parts
+
+
+SplitMode = Literal["equal", "exact", "parts"]
 
 
 class EffectOut(BaseModel):
@@ -132,7 +136,7 @@ class EntryOut(BaseModel):
     paid_by_name: str
     paid_by_me: bool
     category_id: int | None
-    split: Literal["equal", "exact"]
+    split: SplitMode
     splits: list[SplitOut]
     effect: EffectOut
     my_share_cents: int
@@ -140,6 +144,13 @@ class EntryOut(BaseModel):
     written_off_cents: int
     debt_pending_cents: int  # what the user still owes for it
     transaction: LinkedTxOut | None  # the user's linked transaction
+
+
+class AllocationOut(BaseModel):
+    contact_id: int
+    name: str
+    is_me: bool
+    cents: int
 
 
 class PaymentOut(BaseModel):
@@ -161,6 +172,36 @@ class PaymentOut(BaseModel):
     excess_cents: int
     unconverted: bool
     transaction: LinkedTxOut | None
+    # Who it is for ("Paid for others"), the principal first; one line when it is all theirs.
+    allocations: list[AllocationOut] = Field(default_factory=list)
+
+
+class UsedInOut(BaseModel):
+    id: int
+    day: str
+    description: str
+    amount_cents: int
+    currency: str
+    # An expense the person has a share in: how it would be split without them, and whether it
+    # becomes the payer's alone (nobody else left: what the person owed for it is gone).
+    after: list[SplitOut] = Field(default_factory=list)
+    to_payer: bool = False
+    paid_by_name: str = ""
+    paid_by_me: bool = False
+
+
+class MemberUsageOut(BaseModel):
+    """Where a person appears in a group, before removing them (`resplittable`: only shares,
+    so "Remove from N expense(s) and the group" applies; `message`: why else they stay)."""
+
+    contact_id: int
+    name: str
+    shares: list[UsedInOut]
+    paid: list[UsedInOut]
+    payments: list[UsedInOut]
+    free: bool
+    resplittable: bool
+    message: str
 
 
 class GroupOut(BaseModel):
@@ -214,6 +255,11 @@ class ShareBody(BaseModel):
     cents: ShareCents
 
 
+class PartsBody(BaseModel):
+    contact_id: int
+    parts: Annotated[int, Field(ge=1, le=999)]
+
+
 class EntryBody(BaseModel):
     """An expense. With `fingerprint` ("I paid it") the amount, date and description come from
     the transaction and the user is the payer."""
@@ -225,9 +271,10 @@ class EntryBody(BaseModel):
     day: Day | None = None
     description: Annotated[str, Field(max_length=120)] | None = None
     category_id: int | None = None
-    split: Literal["equal", "exact"] = "equal"
+    split: SplitMode = "equal"
     people: list[int] = Field(default_factory=list, max_length=50)  # equal
     shares: list[ShareBody] = Field(default_factory=list, max_length=50)  # exact
+    parts: list[PartsBody] = Field(default_factory=list, max_length=50)  # parts
 
 
 class PaymentBody(BaseModel):
@@ -238,6 +285,8 @@ class PaymentBody(BaseModel):
     day: Day
     sent_cents: Cents | None = None
     fingerprint: str | None = Field(default=None, max_length=200)
+    # "Also pays for…": who it is for, adding up to `amount_cents` (the payer included).
+    allocations: list[ShareBody] = Field(default_factory=list, max_length=50)
 
 
 class PaymentPatchBody(BaseModel):

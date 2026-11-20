@@ -5,7 +5,7 @@ import { Action, ConfirmBox, Failure } from '@/components/transactions/linkParts
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { t } from '@/i18n'
 import type { LinkedTx } from '@/lib/api'
-import { displayName, differenceText, entryLine, paymentLine } from '@/lib/ledger'
+import { displayName, differenceText, entryLine, paymentLine, splitLineText } from '@/lib/ledger'
 import { formatMoney, linkedAmount } from '@/lib/links'
 import { useUndo } from '@/lib/logQueries'
 import { longDay, shortDay } from '@/lib/months'
@@ -158,7 +158,7 @@ function EntryBody({ entry }: { entry: Entry }) {
             <li key={split.contact_id} className="flex min-h-11 items-center justify-between gap-3 px-3.5 text-sm">
               <span className="min-w-0 truncate">{displayName(split.name, split.is_me)}</span>
               <span className="shrink-0 font-semibold tabular-nums">
-                {formatMoney(split.cents, entry.currency)}
+                {splitLineText(split, entry.currency)}
               </span>
             </li>
           ))}
@@ -183,6 +183,21 @@ function PaymentBody({ group, payment }: { group: Group; payment: Payment }) {
           <p className="text-[13px] text-muted-foreground">{t('shared.detail.accepted')}</p>
         )}
       </div>
+      {payment.allocations.length > 1 && (
+        <div className="flex flex-col gap-1.5">
+          <h3 className={LABEL}>{t('shared.detail.coveredFor')}</h3>
+          <ul className={LIST_CARD} aria-label={t('shared.detail.coveredFor')}>
+            {payment.allocations.map((part) => (
+              <li key={part.contact_id} className="flex min-h-11 items-center justify-between gap-3 px-3.5 text-sm">
+                <span className="min-w-0 truncate">{displayName(part.name, part.is_me)}</span>
+                <span className="shrink-0 font-semibold tabular-nums">
+                  {formatMoney(part.cents, payment.currency)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {payment.from_contact === null && (
         <fieldset className="flex flex-col gap-2">
           <legend className={cn(LABEL, 'pb-2')}>{t('shared.unattributed.hint')}</legend>

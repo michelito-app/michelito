@@ -64,7 +64,8 @@ class MemoryMailer:
 
 
 class OutboxMailer:
-    """Each email as `<folder>/<n>.json` (only for the user: 0600)."""
+    """Each email as `<folder>/<n>.json` (only for the user: 0600). Written atomically: first to
+    a hidden `.<n>.json.tmp` and then renamed, so a reader never sees half a file."""
 
     def __init__(self, folder: Path) -> None:
         self.folder = folder
@@ -74,11 +75,20 @@ class OutboxMailer:
 
     def send(self, email: Email) -> None:
         # Sortable by time and unique across processes (the server and `michelito invite`).
-        path = self.folder / f"{time.time_ns():020d}-{secrets.token_hex(4)}.json"
+        name = f"{time.time_ns():020d}-{secrets.token_hex(4)}.json"
+        path = self.folder / name
+        staging = self.folder / f".{name}.tmp"
         with self._lock:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump({**asdict(email), "sent_at": time.time()}, handle)
+            fd = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump({**asdict(email), "sent_at": time.time()}, handle)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(staging, path)
+            except BaseException:
+                staging.unlink(missing_ok=True)
+                raise
 
 
 def _utc_day(clock: Callable[[], float]) -> str:

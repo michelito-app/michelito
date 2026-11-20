@@ -176,7 +176,7 @@ def test_undo_restores_each_previous_correction_exactly(client: TestClient, tmp_
 
     undone = _undo(client, entry)
     assert undone.status_code == 200
-    assert undone.json()["undoes"] == entry
+    assert (undone.json()["id"], undone.json()["undone"]) == (entry, True)
     after = _note_rows(tmp_path, [bare, noted, salary])
     crypto_id = _category_id(client, categories.CRYPTO)
     assert all(row[0] != crypto_id for row in after.values())
@@ -188,7 +188,8 @@ def test_undo_restores_each_previous_correction_exactly(client: TestClient, tmp_
         categories.OTHER_INCOME,
         categories.SALARY,
     ]
-    assert _batch_entries(client) == 2  # the batch and its undo
+    # One row: the batch, now undone (its undo is an audit record under it).
+    assert _batch_entries(client) == 1
 
 
 def test_undo_without_later_edits_removes_the_new_rows(client: TestClient, tmp_path: Path) -> None:

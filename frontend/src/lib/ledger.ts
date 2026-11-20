@@ -5,6 +5,7 @@ import { t } from '@/i18n'
 import type { CurrencyCents } from './api'
 import { formatMoney } from './links'
 import { fold } from './picker'
+import { joinPhrases } from './summary'
 import type {
   BankName,
   Contact,
@@ -12,9 +13,11 @@ import type {
   Entry,
   Member,
   NewPerson,
+  PartsBody,
   Payment,
   Person,
   ShareBody,
+  SplitLine,
   SplitMode,
   Total,
 } from './sharedApi'
@@ -130,6 +133,24 @@ export function equalShares(total: number, people: readonly number[], payer: num
   return chosen.map((id) => ({ contact_id: id, cents: base + (id === taker ? left : 0) }))
 }
 
+/** `total` cents by parts: each person gets total × parts / total parts rounded down to the
+ * cent; the leftover cent(s) go to the payer, or to the first person (the server's rule). */
+export function partsShares(
+  total: number,
+  people: readonly number[],
+  parts: Readonly<Record<number, number>>,
+  payer: number,
+): ShareBody[] {
+  const chosen = [...new Set(people)]
+  if (chosen.length === 0) return []
+  const counts = chosen.map((id) => Math.max(1, Math.floor(parts[id] ?? 1)))
+  const sum = counts.reduce((a, b) => a + b, 0)
+  const cents = counts.map((count) => Math.floor((total * count) / sum))
+  const taker = chosen.includes(payer) ? chosen.indexOf(payer) : 0
+  cents[taker] += total - cents.reduce((a, b) => a + b, 0)
+  return chosen.map((id, index) => ({ contact_id: id, cents: cents[index] }))
+}
+
 /** What is missing (positive) or over (negative) for exact shares to add up to `total`. */
 export function shortfall(total: number, shares: readonly number[]): number {
   return total - shares.reduce((sum, cents) => sum + cents, 0)
@@ -143,16 +164,78 @@ export function shortfallText(missing: number, currency: string): string {
 }
 
 /** How an expense is being split, as the form edits it. `shares`: what was typed per person
- * (exact mode). */
+ * (exact mode); `parts`: each person's number of parts (parts mode, 1 when missing). */
 export interface SplitDraft {
   mode: SplitMode
   people: readonly number[]
   shares: Readonly<Record<number, string>>
+  parts?: Readonly<Record<number, number>>
 }
 
 /** Equal among everyone given. */
 export function equalDraft(people: readonly number[]): SplitDraft {
   return { mode: 'equal', people: [...people], shares: {} }
+}
+
+/** Cents as an exact field shows them: "1250.50". */
+export function centsField(cents: number): string {
+  return (cents / 100).toFixed(2)
+}
+
+/** The draft's current amounts per person, whatever the mode (exact: what was typed, as cents;
+ * a field that is not an amount counts as 0). */
+export function draftAmounts(draft: SplitDraft, total: number, payer: number): Record<number, number> {
+  if (draft.mode === 'equal') {
+    return Object.fromEntries(equalShares(total, draft.people, payer).map((s) => [s.contact_id, s.cents]))
+  }
+  if (draft.mode === 'parts') {
+    return Object.fromEntries(
+      partsShares(total, draft.people, draft.parts ?? {}, payer).map((s) => [s.contact_id, s.cents]),
+    )
+  }
+  return Object.fromEntries(
+    draft.people.map((id) => [id, amountCents((draft.shares[id] ?? '').trim() || '0', true) ?? 0]),
+  )
+}
+
+/** The draft in another mode, starting from the current split: exact amounts are prefilled with
+ * what each person has now (so only the different one needs editing); parts keep the parts given
+ * before, or 1 each. */
+export function switchMode(draft: SplitDraft, mode: SplitMode, total: number, payer: number): SplitDraft {
+  if (mode === draft.mode) return draft
+  if (mode === 'exact') {
+    const amounts = draftAmounts(draft, total, payer)
+    return {
+      ...draft,
+      mode,
+      shares: Object.fromEntries(draft.people.map((id) => [id, centsField(amounts[id] ?? 0)])),
+    }
+  }
+  if (mode === 'parts') {
+    const parts = Object.fromEntries(draft.people.map((id) => [id, draft.parts?.[id] ?? 1]))
+    return { ...draft, mode, parts }
+  }
+  return { ...draft, mode }
+}
+
+/** Checks or unchecks a person, keeping `order` (the group's): in exact mode a new person starts
+ * at 0 and the shortfall shows what to fill; in parts mode, at 1 part. */
+export function togglePerson(draft: SplitDraft, id: number, order: readonly number[]): SplitDraft {
+  const chosen = new Set(draft.people)
+  if (chosen.has(id)) {
+    const shares = { ...draft.shares }
+    delete shares[id]
+    return { ...draft, people: draft.people.filter((p) => p !== id), shares }
+  }
+  const people = order.filter((p) => p === id || chosen.has(p))
+  if (draft.mode === 'exact') return { ...draft, people, shares: { ...draft.shares, [id]: centsField(0) } }
+  if (draft.mode === 'parts') return { ...draft, people, parts: { ...draft.parts, [id]: 1 } }
+  return { ...draft, people }
+}
+
+/** One person's parts, from 1 up. */
+export function setParts(draft: SplitDraft, id: number, parts: number): SplitDraft {
+  return { ...draft, parts: { ...draft.parts, [id]: Math.max(1, Math.min(999, Math.floor(parts))) } }
 }
 
 /** The typed exact shares in cents (empty or invalid counts as 0); null if any is not an amount. */
@@ -181,10 +264,10 @@ export function amountCents(text: string, zero = false): number | null {
   return cents
 }
 
-/** The split's missing amount (exact mode), or 0 when it adds up or is equal; null when a typed
- * share is not an amount. */
+/** The split's missing amount (exact mode), or 0 when it adds up or is equal or by parts; null
+ * when a typed share is not an amount. */
 export function draftShortfall(draft: SplitDraft, total: number): number | null {
-  if (draft.mode === 'equal') return 0
+  if (draft.mode !== 'exact') return 0
   const cents = exactCents(draft)
   return cents === null ? null : shortfall(total, Object.values(cents))
 }
@@ -192,11 +275,12 @@ export function draftShortfall(draft: SplitDraft, total: number): number | null 
 /** Is the split complete: someone checked and, if exact, the amounts add up? */
 export function draftValid(draft: SplitDraft, total: number): boolean {
   if (draft.people.length === 0) return false
-  if (draft.mode === 'equal') return true
+  if (draft.mode !== 'exact') return true
   return total > 0 && draftShortfall(draft, total) === 0
 }
 
-/** The split line: "Equal among 4 · RD$ 1,250 each", "All for Ana" or "Exact amounts". */
+/** The split line: "Equal among 4 · RD$ 1,250 each", "All for Ana", "Exact amounts" or "By
+ * parts · 5 parts". */
 export function splitSummary(
   draft: SplitDraft,
   total: number,
@@ -204,6 +288,10 @@ export function splitSummary(
   members: readonly Pick<Member, 'id' | 'name' | 'is_me'>[],
 ): string {
   if (draft.mode === 'exact') return t('shared.add.splitExact')
+  if (draft.mode === 'parts') {
+    const count = draft.people.reduce((sum, id) => sum + (draft.parts?.[id] ?? 1), 0)
+    return t('shared.add.splitParts', { count })
+  }
   if (draft.people.length === 1) {
     const member = members.find((m) => m.id === draft.people[0])
     return t('shared.add.splitEqualOne', {
@@ -217,9 +305,20 @@ export function splitSummary(
   })
 }
 
-/** The request's split fields: `people` (equal) or `shares` (exact, without zeros). */
-export function splitFields(draft: SplitDraft): { split: SplitMode; people?: number[]; shares?: ShareBody[] } {
+/** The request's split fields: `people` (equal), `parts` or `shares` (exact, without zeros). */
+export function splitFields(draft: SplitDraft): {
+  split: SplitMode
+  people?: number[]
+  shares?: ShareBody[]
+  parts?: PartsBody[]
+} {
   if (draft.mode === 'equal') return { split: 'equal', people: [...draft.people] }
+  if (draft.mode === 'parts') {
+    return {
+      split: 'parts',
+      parts: draft.people.map((id) => ({ contact_id: id, parts: draft.parts?.[id] ?? 1 })),
+    }
+  }
   const cents = exactCents(draft) ?? {}
   return {
     split: 'exact',
@@ -229,15 +328,38 @@ export function splitFields(draft: SplitDraft): { split: SplitMode; people?: num
   }
 }
 
-/** A saved entry's split as a draft (to edit it). */
+/** A saved entry's split as a draft (to edit it, in its mode). */
 export function draftOf(entry: Pick<Entry, 'split' | 'splits'>): SplitDraft {
   const people = entry.splits.map((s) => s.contact_id)
   if (entry.split === 'equal') return equalDraft(people)
+  if (entry.split === 'parts') {
+    return {
+      mode: 'parts',
+      people,
+      shares: {},
+      parts: Object.fromEntries(entry.splits.map((s) => [s.contact_id, s.parts ?? 1])),
+    }
+  }
   return {
     mode: 'exact',
     people,
-    shares: Object.fromEntries(entry.splits.map((s) => [s.contact_id, (s.cents / 100).toFixed(2)])),
+    shares: Object.fromEntries(entry.splits.map((s) => [s.contact_id, centsField(s.cents)])),
   }
+}
+
+/** How an expense would be split without someone: "You RD$ 450 · Carola RD$ 450". */
+export function resplitText(
+  lines: readonly Pick<SplitLine, 'name' | 'is_me' | 'cents'>[],
+  currency: string,
+): string {
+  return lines.map((line) => `${displayName(line.name, line.is_me)} ${formatMoney(line.cents, currency)}`).join(' · ')
+}
+
+/** A split line in the entry detail: "RD$ 1,632", or "2 parts · RD$ 1,632" by parts. */
+export function splitLineText(line: Pick<SplitLine, 'cents' | 'parts'>, currency: string): string {
+  const amount = formatMoney(line.cents, currency)
+  if (line.parts == null) return amount
+  return t('shared.detail.partsLine', { count: line.parts, amount })
 }
 
 // --- Timeline ------------------------------------------------------------------------------
@@ -259,19 +381,63 @@ export function effectText(effect: Effect, currency: string): string {
   return t('shared.entry.none')
 }
 
-/** The payment row: "Luis → You · RD$ 1,000" (unattributed: "Unassigned → You"). */
+/** The payment row: "Luis → You · RD$ 1,000" (unattributed: "Unassigned → You"); a payment on
+ * behalf of others adds who else it covers: "Javier → You · RD$ 1,632 (covers Gordo)". */
 export function paymentLine(
-  payment: Pick<Payment, 'from_contact' | 'from_name' | 'from_me' | 'to_name' | 'to_me' | 'amount_cents' | 'currency'>,
+  payment: Pick<Payment, 'from_contact' | 'from_name' | 'from_me' | 'to_name' | 'to_me' | 'amount_cents' | 'currency'> &
+    Partial<Pick<Payment, 'allocations'>>,
 ): string {
   const from =
     payment.from_contact === null
       ? t('shared.payment.unknown')
       : displayName(payment.from_name, payment.from_me)
-  return t('shared.payment.line', {
+  const line = t('shared.payment.line', {
     from,
     to: displayName(payment.to_name, payment.to_me),
     amount: formatMoney(payment.amount_cents, payment.currency),
   })
+  const covered = coveredText(payment)
+  return covered ? `${line} ${covered}` : line
+}
+
+/** "(covers Gordo)" when a payment covers other people besides the payer; null otherwise. */
+export function coveredText(
+  payment: Pick<Payment, 'from_contact'> & Partial<Pick<Payment, 'allocations'>>,
+): string | null {
+  const allocations = payment.allocations ?? []
+  const others = allocations.filter((a) => a.contact_id !== payment.from_contact)
+  if (others.length === 0) return null
+  const names = joinPhrases(others.map((a) => displayName(a.name, a.is_me)))
+  return t('shared.payment.covers', { names })
+}
+
+/** What a "Paid for others" payment starts with: each covered person's balance (what they owe
+ * the user, in `currency`), the payer's own included. */
+export function allocationDraft(
+  members: readonly Pick<Member, 'id' | 'balance'>[],
+  people: readonly number[],
+  currency: string,
+): Record<number, string> {
+  return Object.fromEntries(
+    people.map((id) => {
+      const owed = members.find((m) => m.id === id)?.balance.find((b) => b.currency === currency)?.cents ?? 0
+      return [id, centsField(Math.max(owed, 0))]
+    }),
+  )
+}
+
+/** The typed allocations in cents (blank counts as 0); null if any is not an amount. */
+export function allocationCents(
+  people: readonly number[],
+  typed: Readonly<Record<number, string>>,
+): Record<number, number> | null {
+  const found: Record<number, number> = {}
+  for (const id of people) {
+    const cents = amountCents((typed[id] ?? '').trim() || '0', true)
+    if (cents === null) return null
+    found[id] = cents
+  }
+  return found
 }
 
 /** Items (most recent first) grouped by their month, in order. */

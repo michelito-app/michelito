@@ -15,6 +15,7 @@ from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
 from michelito.web import links as links_view
 from michelito.web.ledger_schemas import (
+    AllocationOut,
     BankNameOut,
     ContactOut,
     ContactsOut,
@@ -179,6 +180,7 @@ def entry_out(book: Book, item: ledger.EntryState) -> EntryOut:
                 name=book.name(s.contact_id),
                 is_me=s.contact_id == me,
                 cents=to_cents(s.share),
+                parts=s.parts if entry.split_mode == "parts" else None,
             )
             for s in entry.splits
         ],
@@ -213,6 +215,15 @@ def payment_out(book: Book, state: ledger.PaymentState) -> PaymentOut:
         excess_cents=to_cents(state.excess),
         unconverted=state.unconverted,
         transaction=book.tx(payment.fingerprint),
+        allocations=[
+            AllocationOut(
+                contact_id=contact,
+                name=book.name(contact),
+                is_me=contact == me,
+                cents=to_cents(value),
+            )
+            for contact, value in payment.parts_for(me)
+        ],
     )
 
 

@@ -80,6 +80,7 @@ TRACKED = (
     "ledger_entries",
     "ledger_splits",
     "ledger_payments",
+    "ledger_allocations",  # schema 21
     "ledger_links",
     "ledger_settings",
     "provisional_decisions",
@@ -132,6 +133,9 @@ class UndoState:
     undone: bool = False  # already undone
     blocked_by: int | None = None  # the later entry that must be undone first
     message: str = ""
+    # Why, without "undo n.º X first" (with `blocked_by`, the list builds that part itself: from
+    # the later change's original and whether to undo or redo it). Empty: only "do X first".
+    reason: str = ""
 
 
 def now() -> datetime:
@@ -476,6 +480,7 @@ def _blocked(reason: str, later: int | None) -> UndoState:
         False,
         blocked_by=later,
         message=t("analysis.changelog.blocked_by", reason=reason, id=later),
+        reason=reason,
     )
 
 
@@ -484,6 +489,7 @@ _PARENT_LABELS = {
     "categories": t("analysis.changelog.parent_category"),
     "ledger_groups": t("analysis.changelog.parent_group"),
     "ledger_entries": t("analysis.changelog.parent_entry"),
+    "ledger_payments": t("analysis.changelog.parent_payment"),
     "contacts": t("analysis.changelog.parent_contact"),
 }
 
@@ -563,6 +569,60 @@ def _domain_problem(
     return None
 
 
+def _foreign(entry: Entry, changes: Iterable[Change]) -> list[Change]:
+    """The rows an undo touched that the entry did not. A payment's allocations go with it: an
+    entry from before schema 21 did not record them (they were added by the migration), and
+    deleting or unassigning the payment takes them away (cascade or trigger)."""
+    own = {c.row_key for c in entry.changes}
+    payments = {
+        int(c.key["id"]) for c in entry.changes if c.table == "ledger_payments" and "id" in c.key
+    }
+    return [
+        c
+        for c in changes
+        if c.row_key not in own
+        and not (c.table == "ledger_allocations" and int(c.key.get("payment_id", -1)) in payments)
+    ]
+
+
+def _ledger_members(conn: sqlite3.Connection) -> set[tuple[int, int]]:
+    rows = conn.execute("SELECT group_id, contact_id FROM ledger_members")
+    return {(int(r[0]), int(r[1])) for r in rows}
+
+
+def _member_in_use(
+    conn: sqlite3.Connection, before: set[tuple[int, int]]
+) -> tuple[str, list[str]] | None:
+    """A person the undo would take out of a group (their member row goes) while they still pay,
+    have a share or a payment there: their name and the rows that keep them (for the later
+    change to undo first). Shares and payments point to contacts, not to members, so nothing
+    in the schema stops it."""
+    # Imported here: `ledger_store` reaches `spending`, which imports this module.
+    from michelito.analysis import ledger_store  # noqa: PLC0415
+
+    for group_id, contact_id in sorted(before - _ledger_members(conn)):
+        exists = conn.execute("SELECT 1 FROM ledger_groups WHERE id = ?", (group_id,)).fetchone()
+        if exists is None:
+            continue
+        usage = ledger_store.member_usage(conn, group_id, contact_id)
+        if usage.free:
+            continue
+        keys = [row_key("ledger_entries", {"id": u.id}) for u in usage.paid]
+        keys += [
+            row_key("ledger_splits", {"entry_id": u.id, "contact_id": contact_id})
+            for u in usage.shares
+        ]
+        for u in usage.payments:
+            keys.append(row_key("ledger_payments", {"id": u.id}))
+            keys.append(
+                row_key("ledger_allocations", {"payment_id": u.id, "contact_id": contact_id})
+            )
+        row = conn.execute("SELECT name FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+        name = str(row[0]) if row is not None else t("analysis.changelog.someone")
+        return name, keys
+    return None
+
+
 _SAVEPOINT = "changelog_rehearsal"
 
 
@@ -572,7 +632,6 @@ def _rehearse(
     """Rehearse the undo inside a `SAVEPOINT` (and roll it back): None if it would work;
     otherwise why, and which later entry to undo first."""
     _install(conn)
-    own = {c.row_key for c in entry.changes}
     # Outside a transaction, the write lock is taken up front (waiting if another connection is
     # writing): a deferred SAVEPOINT that has already read and then wants to write fails at once
     # ("database is locked") against another connection that is writing.
@@ -588,15 +647,21 @@ def _rehearse(
         return UndoState(False, message=BUSY)
     try:
         conn.execute(f"DELETE FROM {_CAPTURE}")
+        members = _ledger_members(conn)
         try:
             _restore(conn, entry.changes)
         except sqlite3.IntegrityError:
             later = _latest_later(conn, entry, done, fingerprints=entry.fingerprints)
             return _blocked(t("analysis.changelog.conflict"), later)
-        extra = [c.row_key for c in _collect(conn) if c.row_key not in own]
+        extra = [c.row_key for c in _foreign(entry, _collect(conn))]
         if extra:
             later = _latest_later(conn, entry, done, keys=extra)
             return _blocked(t("analysis.changelog.would_change_later"), later)
+        used = _member_in_use(conn, members)
+        if used is not None:
+            name, keys = used
+            later = _latest_later(conn, entry, done, keys=keys)
+            return _blocked(t("analysis.changelog.member_in_use", name=name), later)
         problem = _domain_problem(conn, entry, days)
         if problem is not None:
             reason, link_id = problem
@@ -736,7 +801,6 @@ def undo(conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None =
     state = undo_state(conn, entry, days=days)
     if not state.allowed:
         raise UndoBlocked(state.message)
-    own = {c.row_key for c in entry.changes}
     with track(
         conn,
         entry.kind,
@@ -753,11 +817,86 @@ def undo(conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None =
             _restore(conn, entry.changes)
         except sqlite3.IntegrityError:
             raise UndoBlocked(t("analysis.changelog.later_uses_before")) from None
-        if any(c.row_key not in own for c in _collect(conn)):
+        if _foreign(entry, _collect(conn)):
             raise UndoBlocked(t("analysis.changelog.would_change_later_undo"))
     if draft.entry_id is None:  # should not happen: the state was the *after*
         raise UndoBlocked(t("analysis.changelog.nothing_to_undo"))
     return draft.entry_id
+
+
+# --- Undo and redo of an original change ----------------------------------------------------
+#
+# The list shows one row per original change (`undoes` NULL); the "Undo" entries stay as the audit
+# records under it. An original is undone when its newest record that is still in effect undoes
+# it (`undone`). "Undo" undoes the original itself (it is in effect: every record that undid it
+# was undone in turn); "Redo" undoes the record that undid it, which puts the change back and is
+# recorded like any other. Older databases may have longer chains (an undo of an undo of an undo):
+# `root` follows them up to the original and the same two rules give its state.
+
+
+@dataclass(frozen=True)
+class Toggles:
+    """The audit records under each original: record id -> the entry it undoes."""
+
+    undoes: Mapping[int, int]
+
+    def root(self, entry_id: int) -> int:
+        seen = set()
+        while entry_id in self.undoes and entry_id not in seen:
+            seen.add(entry_id)
+            entry_id = self.undoes[entry_id]
+        return entry_id
+
+    def records(self, root_id: int) -> list[int]:
+        """The records under an original, oldest first."""
+        return sorted(r for r in self.undoes if self.root(r) == root_id)
+
+    def redo_target(self, root_id: int, done: frozenset[int]) -> int | None:
+        """The record that undid the original and is in effect (the newest)."""
+        found = [r for r, target in self.undoes.items() if target == root_id and r not in done]
+        return max(found) if found else None
+
+
+def toggles(conn: sqlite3.Connection) -> Toggles:
+    rows = conn.execute("SELECT id, undoes FROM change_log WHERE undoes IS NOT NULL")
+    return Toggles({int(r[0]): int(r[1]) for r in rows})
+
+
+def redo_state(
+    conn: sqlite3.Connection,
+    entry: Entry,
+    done: frozenset[int],
+    chains: Toggles,
+    days: dict[str, date] | None = None,
+) -> UndoState:
+    """Whether an undone original can be redone (undoing the record that undid it)."""
+    target = chains.redo_target(entry.id, done)
+    if entry.id not in done or target is None:
+        return UndoState(False, message=t("analysis.changelog.not_undone"))
+    return undo_state(conn, get(conn, target), done, days)
+
+
+def undo_original(
+    conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None = None
+) -> int:
+    """ "Undo" from the list: only an original change in effect (never an audit record)."""
+    entry = get(conn, entry_id)
+    if entry.undoes is not None:
+        raise UndoBlocked(t("analysis.changelog.record_not_undoable"))
+    return undo(conn, entry_id, days)
+
+
+def redo(conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None = None) -> int:
+    """ "Redo" an undone original: undoes the record that undid it (in the caller's
+    transaction). Returns the new audit record."""
+    entry = get(conn, entry_id)
+    if entry.undoes is not None:
+        raise UndoBlocked(t("analysis.changelog.record_not_undoable"))
+    done = undone(conn)
+    target = toggles(conn).redo_target(entry_id, done)
+    if entry_id not in done or target is None:
+        raise UndoBlocked(t("analysis.changelog.not_undone"))
+    return undo(conn, target, days)
 
 
 def category_edits(

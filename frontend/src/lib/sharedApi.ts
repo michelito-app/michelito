@@ -95,6 +95,7 @@ export interface SplitLine {
   name: string
   is_me: boolean
   cents: number
+  parts?: number | null // a split by parts: their number of parts
 }
 
 export interface Effect {
@@ -102,7 +103,7 @@ export interface Effect {
   cents: number
 }
 
-export type SplitMode = 'equal' | 'exact'
+export type SplitMode = 'equal' | 'exact' | 'parts'
 
 export interface Entry {
   kind: 'entry'
@@ -144,6 +145,40 @@ export interface Payment {
   excess_cents: number
   unconverted: boolean
   transaction: LinkedTx | null
+  allocations: Allocation[] // who it is for, the payer first ("Paid for others")
+}
+
+/** Who a payment settles with: the person and how much. */
+export interface Allocation {
+  contact_id: number
+  name: string
+  is_me: boolean
+  cents: number
+}
+
+/** An expense or payment that names a person (before removing them from a group). */
+export interface UsedIn {
+  id: number
+  day: string
+  description: string
+  amount_cents: number
+  currency: string
+  after: SplitLine[] // an expense with their share: how it would be split without them
+  to_payer: boolean // nobody else is left: it becomes the payer's alone
+  paid_by_name: string
+  paid_by_me: boolean
+}
+
+/** Where a person appears in a group: `resplittable` when they only have shares. */
+export interface MemberUsage {
+  contact_id: number
+  name: string
+  shares: UsedIn[]
+  paid: UsedIn[]
+  payments: UsedIn[]
+  free: boolean
+  resplittable: boolean
+  message: string
 }
 
 export type TimelineItem = Entry | Payment
@@ -176,6 +211,11 @@ export interface ShareBody {
   cents: number
 }
 
+export interface PartsBody {
+  contact_id: number
+  parts: number
+}
+
 /** An expense: with `fingerprint` ("I paid it") the bank sets amount, date and description. */
 export interface EntryBody {
   fingerprint?: string
@@ -188,6 +228,7 @@ export interface EntryBody {
   split: SplitMode
   people?: number[]
   shares?: ShareBody[]
+  parts?: PartsBody[]
 }
 
 export interface PaymentBody {
@@ -198,6 +239,7 @@ export interface PaymentBody {
   day: string
   sent_cents?: number
   fingerprint?: string
+  allocations?: ShareBody[] // "Also pays for…": adding up to amount_cents, the payer included
 }
 
 export interface PaymentPatch {

@@ -105,10 +105,10 @@ test.describe('log', () => {
       await expect(undoCategory).toHaveCount(left - 1)
     }
     await page.getByRole('button', { name: t('log.row.undoNamed', { name: NOTE_LINE }) }).click()
-    await expect(page.getByRole('main')).toContainText(
-      t('log.undone', { line: `${GYM} · ${LEISURE} → ${OTHER}` }),
-    )
+    // One row per change: each undone one offers «Rehacer», and no «Deshecho: …» rows appear.
+    await expect(page.getByRole('button', { name: t('log.row.redoNamed', { name: NOTE_LINE }) })).toBeVisible()
     await expect(page.getByText(t('log.row.undoneBadge'), { exact: true })).toHaveCount(3)
+    await expect(page.getByRole('main')).not.toContainText(t('log.undone', { line: '' }).trim())
 
     const detail = await openGym(page, '2026-01')
     await expect(detail.getByLabel(t('transactions.filters.category'))).toHaveValue(OTHER)

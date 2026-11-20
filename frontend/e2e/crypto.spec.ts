@@ -10,7 +10,6 @@ const MONTH = '2026-01'
 const CRYPTO = 'Cripto' // spanish-data: seeded category
 const OTHER_INCOME = 'Otros ingresos' // spanish-data: seeded category
 const LINE = `3 transacciones · ${OTHER_INCOME} → ${CRYPTO}` // spanish-data: backend log line
-const UNDONE = `3 transacciones · ${CRYPTO} → ${OTHER_INCOME}` // spanish-data: backend log line
 const REASON = 'Venta de USDT por P2P' // spanish-data: typed reason
 const LIST = t('transactions.list.label')
 const BAR = t('transactions.selection.region')
@@ -52,7 +51,10 @@ async function undoBatch(page: Page) {
   await page.goto('/log')
   await page.getByRole('searchbox', { name: t('log.filter.search') }).fill(CRYPTO)
   await page.getByRole('button', { name: t('log.row.undoNamed', { name: LINE }), exact: true }).click()
-  await expect(page.getByRole('main')).toContainText(t('log.undone', { line: UNDONE }))
+  // The same row turns undone and offers «Rehacer» (no new «Deshecho: …» row).
+  await expect(
+    page.getByRole('button', { name: t('log.row.redoNamed', { name: LINE }), exact: true }),
+  ).toBeVisible()
 }
 
 test('filtering, selecting several, moving them to crypto with a reason and undoing in the Log', async ({

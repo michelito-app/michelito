@@ -3,10 +3,11 @@
 Tables (`db.LEDGER_SCHEMA`): `contacts` (global people; exactly one with `is_me`, the user,
 created on first use), `contact_aliases` (names seen in transfers, unique once folded),
 `ledger_groups`, `ledger_members`, `ledger_entries`, `ledger_splits` (each person's share, in
-cents), `ledger_payments` and, in the personal part, `ledger_links` (a transaction's
-fingerprint -> an entry or a payment) and `ledger_settings` (flags such as "Review your
-people"). Every id is `AUTOINCREMENT`: a deleted id is never reused, so an undo never gives a
-row back to a parent that inherited its id.
+cents, and their parts in a split by parts), `ledger_payments`, `ledger_allocations` (who an
+attributed payment is for: schema 21, `migrations_v21`) and, in the personal part,
+`ledger_links` (a transaction's fingerprint -> an entry or a payment) and `ledger_settings`
+(flags such as "Review your people"). Every id is `AUTOINCREMENT`: a deleted id is never
+reused, so an undo never gives a row back to a parent that inherited its id.
 
 Nothing here commits: the caller wraps each change in `with conn:` and the change log.
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -22,6 +24,7 @@ from michelito.analysis import links
 from michelito.analysis.ledger import (
     CURRENCIES,
     SPLIT_MODES,
+    Allocation,
     Contact,
     Entry,
     Group,
@@ -31,6 +34,8 @@ from michelito.analysis.ledger import (
     Split,
     SplitMode,
     equal_split,
+    parts_split,
+    resplit_without,
     to_cents,
 )
 from michelito.analysis.links import AlreadyLinked, LinkError
@@ -92,9 +97,19 @@ def load(conn: sqlite3.Connection) -> Ledger:
         else:
             linked[("payment", int(row["payment_id"]))] = row["fingerprint"]
     splits: dict[int, list[Split]] = {}
-    for row in conn.execute("SELECT * FROM ledger_splits ORDER BY entry_id, rowid"):
+    # In the group's order of people (so an undo that brings a person back puts them where
+    # they were), then as written.
+    for row in conn.execute(
+        "SELECT s.* FROM ledger_splits s JOIN ledger_entries e ON e.id = s.entry_id "
+        "LEFT JOIN ledger_members m ON m.group_id = e.group_id AND m.contact_id = s.contact_id "
+        "ORDER BY s.entry_id, m.added_at IS NULL, m.added_at, m.rowid, s.rowid"
+    ):
         splits.setdefault(int(row["entry_id"]), []).append(
-            Split(int(row["contact_id"]), Decimal(row["share_cents"]).scaleb(-2))
+            Split(
+                int(row["contact_id"]),
+                Decimal(row["share_cents"]).scaleb(-2),
+                _parts(row),
+            )
         )
     entries: dict[int, list[Entry]] = {}
     for row in conn.execute("SELECT * FROM ledger_entries ORDER BY day, id"):
@@ -113,6 +128,11 @@ def load(conn: sqlite3.Connection) -> Ledger:
                 fingerprint=linked.get(("entry", int(row["id"]))),
             )
         )
+    allocations: dict[int, list[Allocation]] = {}
+    for row in _allocation_rows(conn):
+        allocations.setdefault(int(row["payment_id"]), []).append(
+            Allocation(int(row["contact_id"]), Decimal(row["amount_cents"]).scaleb(-2))
+        )
     payments: dict[int, list[Payment]] = {}
     for row in conn.execute("SELECT * FROM ledger_payments ORDER BY day, id"):
         payments.setdefault(int(row["group_id"]), []).append(
@@ -128,6 +148,7 @@ def load(conn: sqlite3.Connection) -> Ledger:
                 accepted=bool(row["accepted"]),
                 note=row["note"] or "",
                 fingerprint=linked.get(("payment", int(row["id"]))),
+                allocations=tuple(allocations.get(int(row["id"]), ())),
             )
         )
     members: dict[int, list[Member]] = {}
@@ -151,6 +172,22 @@ def load(conn: sqlite3.Connection) -> Ledger:
         "SELECT value FROM ledger_settings WHERE key = ?", (REVIEW_PEOPLE,)
     ).fetchone()
     return Ledger(me, contacts, groups, review_people=flag is not None and flag[0] == "1")
+
+
+def _parts(row: sqlite3.Row) -> int | None:
+    """A split's parts (a `Row` has no `in` for its columns: before schema 21 there are none)."""
+    names = row.keys()  # noqa: SIM118
+    return None if "parts" not in names or row["parts"] is None else int(row["parts"])
+
+
+def _allocation_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The payments' allocations (none before schema 21, while an earlier step migrates)."""
+    present = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_allocations'"
+    ).fetchone()
+    if present is None:
+        return []
+    return conn.execute("SELECT * FROM ledger_allocations ORDER BY payment_id, rowid").fetchall()
 
 
 def _has_tables(conn: sqlite3.Connection) -> bool:
@@ -315,19 +352,36 @@ def merge_contacts(conn: sqlite3.Connection, source: int, target: int) -> None:
         )
     conn.execute("DELETE FROM ledger_members WHERE contact_id = ?", (source,))
     for row in conn.execute(
-        "SELECT entry_id, share_cents FROM ledger_splits WHERE contact_id = ?", (source,)
+        "SELECT entry_id, share_cents, parts FROM ledger_splits WHERE contact_id = ?", (source,)
     ).fetchall():
         updated = conn.execute(
-            "UPDATE ledger_splits SET share_cents = share_cents + ? "
+            "UPDATE ledger_splits SET share_cents = share_cents + ?, "
+            "parts = CASE WHEN parts IS NULL OR ? IS NULL THEN parts ELSE parts + ? END "
             "WHERE entry_id = ? AND contact_id = ?",
+            (row[1], row[2], row[2], row[0], target),
+        )
+        if updated.rowcount == 0:
+            conn.execute(
+                "INSERT INTO ledger_splits (entry_id, contact_id, share_cents, parts) "
+                "VALUES (?, ?, ?, ?)",
+                (row[0], target, row[1], row[2]),
+            )
+    conn.execute("DELETE FROM ledger_splits WHERE contact_id = ?", (source,))
+    for row in conn.execute(
+        "SELECT payment_id, amount_cents FROM ledger_allocations WHERE contact_id = ?", (source,)
+    ).fetchall():
+        updated = conn.execute(
+            "UPDATE ledger_allocations SET amount_cents = amount_cents + ? "
+            "WHERE payment_id = ? AND contact_id = ?",
             (row[1], row[0], target),
         )
         if updated.rowcount == 0:
             conn.execute(
-                "INSERT INTO ledger_splits (entry_id, contact_id, share_cents) VALUES (?, ?, ?)",
+                "INSERT INTO ledger_allocations (payment_id, contact_id, amount_cents) "
+                "VALUES (?, ?, ?)",
                 (row[0], target, row[1]),
             )
-    conn.execute("DELETE FROM ledger_splits WHERE contact_id = ?", (source,))
+    conn.execute("DELETE FROM ledger_allocations WHERE contact_id = ?", (source,))
     conn.execute("UPDATE ledger_entries SET paid_by = ? WHERE paid_by = ?", (target, source))
     conn.execute(
         "UPDATE ledger_payments SET from_contact = ? WHERE from_contact = ?", (target, source)
@@ -410,23 +464,178 @@ def add_member(conn: sqlite3.Connection, group_id: int, contact_id: int) -> None
     )
 
 
-def remove_member(conn: sqlite3.Connection, group_id: int, contact_id: int) -> None:
-    """Only someone with no expense, share or payment in the group; never the user."""
+@dataclass(frozen=True)
+class UsedIn:
+    """An expense or a payment that names a person (for "remove from the group")."""
+
+    id: int
+    day: date
+    description: str  # the expense's (empty for a payment)
+    amount: Decimal
+    currency: str
+
+
+@dataclass(frozen=True)
+class MemberUsage:
+    """Where a person appears in a group: expenses they have a share in (without having paid
+    them), expenses they paid and payments from, to or on behalf of them."""
+
+    shares: tuple[UsedIn, ...] = ()
+    paid: tuple[UsedIn, ...] = ()
+    payments: tuple[UsedIn, ...] = ()
+
+    @property
+    def free(self) -> bool:
+        return not (self.shares or self.paid or self.payments)
+
+    @property
+    def resplittable(self) -> bool:
+        """Only shares: they can be taken out of those expenses (re-split among the rest)."""
+        return bool(self.shares) and not (self.paid or self.payments)
+
+
+def _used_in(row: sqlite3.Row, description: str = "") -> UsedIn:
+    return UsedIn(
+        int(row["id"]),
+        date.fromisoformat(row["day"]),
+        description,
+        Decimal(row["amount_cents"]).scaleb(-2),
+        row["currency"],
+    )
+
+
+def member_usage(conn: sqlite3.Connection, group_id: int, contact_id: int) -> MemberUsage:
+    _require_group(conn, group_id)
+    paid = conn.execute(
+        "SELECT * FROM ledger_entries WHERE group_id = ? AND paid_by = ? ORDER BY day, id",
+        (group_id, contact_id),
+    ).fetchall()
+    shares = conn.execute(
+        "SELECT e.* FROM ledger_entries e JOIN ledger_splits s ON s.entry_id = e.id "
+        "WHERE e.group_id = ? AND s.contact_id = ? AND e.paid_by != ? ORDER BY e.day, e.id",
+        (group_id, contact_id, contact_id),
+    ).fetchall()
+    payments = conn.execute(
+        "SELECT * FROM ledger_payments p WHERE group_id = ? AND (from_contact = ? "
+        "OR to_contact = ? OR EXISTS (SELECT 1 FROM ledger_allocations a "
+        "WHERE a.payment_id = p.id AND a.contact_id = ?)) ORDER BY day, id",
+        (group_id, contact_id, contact_id, contact_id),
+    ).fetchall()
+    return MemberUsage(
+        shares=tuple(_used_in(r, r["description"]) for r in shares),
+        paid=tuple(_used_in(r, r["description"]) for r in paid),
+        payments=tuple(_used_in(r) for r in payments),
+    )
+
+
+def resplit_preview(
+    conn: sqlite3.Connection, group_id: int, contact_id: int
+) -> dict[int, tuple[Split, ...]]:
+    """What each expense the person has a share in would become without them (entry id ->
+    splits), as `remove_member` with `resplit` would write it."""
+    group = load(conn).group(group_id)
+    if group is None:
+        raise LookupError(t("analysis.links.unknown_group", id=group_id))
+    return {
+        e.id: resplit_without(e, contact_id)
+        for e in group.entries
+        if contact_id in e.people and e.paid_by != contact_id
+    }
+
+
+def _money(amount: Decimal, currency: str) -> str:
+    """ "RD$ 1,632" (cents only when there are), as the change log writes it."""
+    cents = to_cents(amount)
+    prefix = "US$" if currency == "USD" else "RD$"
+    whole = f"{prefix} {abs(cents) // 100:,}"
+    return whole if cents % 100 == 0 else f"{whole}.{abs(cents) % 100:02d}"
+
+
+def _payments_listed(items: Sequence[UsedIn]) -> str:
+    return ", ".join(
+        t(
+            "analysis.ledger.used_payment_item",
+            day=i.day.strftime("%d/%m/%Y"),
+            amount=_money(i.amount, i.currency),
+        )
+        for i in items
+    )
+
+
+def _listed(items: Sequence[UsedIn]) -> str:
+    return ", ".join(
+        t("analysis.ledger.used_entry", what=i.description, day=i.day.strftime("%d/%m/%Y"))
+        for i in items
+    )
+
+
+def usage_text(name: str, usage: MemberUsage) -> str:
+    """Why a person cannot just leave the group: where they have a share, what they paid and
+    which payments name them (date and amount), and what can be done."""
+    parts = []
+    if usage.shares:
+        parts.append(t("analysis.ledger.used_shares", list=_listed(usage.shares)))
+    if usage.paid:
+        parts.append(t("analysis.ledger.used_paid", list=_listed(usage.paid)))
+    if usage.payments:
+        key = "used_payment" if len(usage.payments) == 1 else "used_payments"
+        parts.append(t(f"analysis.ledger.{key}", list=_payments_listed(usage.payments)))
+    text = t("analysis.ledger.used_in", name=name, what="; ".join(parts))
+    if usage.resplittable:
+        return text + t("analysis.ledger.used_resplit_hint", count=len(usage.shares))
+    return text + t("analysis.ledger.used_blocked_hint")
+
+
+def remove_member(
+    conn: sqlite3.Connection, group_id: int, contact_id: int, *, resplit: bool = False
+) -> int:
+    """Takes a person out of the group; never the user. Someone who paid an expense or is in a
+    payment stays (the refusal says where). Someone with shares only leaves with `resplit`:
+    each of those expenses is split again among the rest keeping its mode
+    (`ledger.resplit_without`). Returns how many expenses were split again."""
     _require_group(conn, group_id)
     if contact_id == me_id(conn):
         raise LinkError(t("analysis.ledger.me_fixed"))
-    used = conn.execute(
-        "SELECT 1 FROM ledger_entries e LEFT JOIN ledger_splits s ON s.entry_id = e.id "
-        "WHERE e.group_id = ? AND (e.paid_by = ? OR s.contact_id = ?) "
-        "UNION SELECT 1 FROM ledger_payments WHERE group_id = ? "
-        "AND (from_contact = ? OR to_contact = ?)",
-        (group_id, contact_id, contact_id, group_id, contact_id, contact_id),
-    ).fetchone()
-    if used is not None:
-        raise LinkError(t("analysis.ledger.member_in_use"))
+    _require_contact(conn, contact_id)
+    usage = member_usage(conn, group_id, contact_id)
+    if not usage.free and not (resplit and usage.resplittable):
+        name = conn.execute("SELECT name FROM contacts WHERE id = ?", (contact_id,)).fetchone()[0]
+        raise LinkError(usage_text(str(name), usage))
+    if usage.shares:
+        wanted = {u.id for u in usage.shares}
+        group = load(conn).group(group_id)
+        for entry in () if group is None else group.entries:
+            if entry.id in wanted:
+                _replace_splits(conn, entry.id, resplit_without(entry, contact_id))
     conn.execute(
         "DELETE FROM ledger_members WHERE group_id = ? AND contact_id = ?", (group_id, contact_id)
     )
+    _touch(conn, group_id)
+    return len(usage.shares)
+
+
+def _replace_splits(conn: sqlite3.Connection, entry_id: int, splits: Sequence[Split]) -> None:
+    """Writes an entry's new splits, touching only the rows that change (so the change log shows
+    what moved)."""
+    current = {
+        int(r["contact_id"]): (int(r["share_cents"]), r["parts"])
+        for r in conn.execute("SELECT * FROM ledger_splits WHERE entry_id = ?", (entry_id,))
+    }
+    wanted = {s.contact_id: (to_cents(s.share), s.parts) for s in splits}
+    for contact in current.keys() - wanted.keys():
+        conn.execute(
+            "DELETE FROM ledger_splits WHERE entry_id = ? AND contact_id = ?", (entry_id, contact)
+        )
+    for contact, (cents, parts) in wanted.items():
+        if current.get(contact) == (cents, parts):
+            continue
+        conn.execute(
+            "INSERT INTO ledger_splits (entry_id, contact_id, share_cents, parts) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(entry_id, contact_id) DO UPDATE SET "
+            "share_cents = excluded.share_cents, parts = excluded.parts",
+            (entry_id, contact, cents, parts),
+        )
+    conn.execute("UPDATE ledger_entries SET updated_at = ? WHERE id = ?", (_now(), entry_id))
 
 
 def set_written_off(
@@ -465,14 +674,23 @@ def build_splits(
     mode: SplitMode,
     people: Sequence[int] = (),
     shares: Mapping[int, Decimal] | None = None,
+    parts: Mapping[int, int] | None = None,
 ) -> tuple[Split, ...]:
-    """The shares of an entry: equal among `people` (cent rule) or exactly `shares`."""
+    """The shares of an entry: equal among `people` (cent rule), by `parts` (person -> number
+    of parts, at least 1; the same cent rule) or exactly `shares`."""
     if mode not in SPLIT_MODES:
         raise LinkError(t("analysis.ledger.unknown_split"))
     if mode == "equal":
         if not people:
             raise LinkError(t("analysis.ledger.split_needs_people"))
         return equal_split(amount, people, paid_by)
+    if mode == "parts":
+        counts = dict(parts or {})
+        if not counts:
+            raise LinkError(t("analysis.ledger.split_needs_people"))
+        if any(count < 1 for count in counts.values()):
+            raise LinkError(t("analysis.ledger.parts_positive"))
+        return parts_split(amount, list(counts.items()), paid_by)
     given = {c: v for c, v in (shares or {}).items()}
     if not given or any(v < 0 for v in given.values()):
         raise LinkError(t("analysis.ledger.split_needs_people"))
@@ -543,8 +761,8 @@ def _write_splits(
     for contact in dict.fromkeys((paid_by, *(s.contact_id for s in splits))):
         add_member(conn, group_id, contact)
     conn.executemany(
-        "INSERT INTO ledger_splits (entry_id, contact_id, share_cents) VALUES (?, ?, ?)",
-        [(entry_id, s.contact_id, to_cents(s.share)) for s in splits],
+        "INSERT INTO ledger_splits (entry_id, contact_id, share_cents, parts) VALUES (?, ?, ?, ?)",
+        [(entry_id, s.contact_id, to_cents(s.share), s.parts) for s in splits],
     )
 
 
@@ -615,10 +833,13 @@ def add_payment(
     sent: Decimal | None = None,
     note: str | None = None,
     fingerprint: str | None = None,
+    allocations: Mapping[int, Decimal] | None = None,
 ) -> int:
     """A payment between two members (`from_contact` None: unattributed, to the user). One of
     the two ends must be the user. `fingerprint`: the user's transaction (credit if received,
-    debit if paid)."""
+    debit if paid). `allocations` ("Paid for others": only a payment another person made to
+    the user): who it is for (person -> amount, adding up to `amount`; people of the group);
+    without them, all of it is for the person at the other end."""
     _require_group(conn, group_id)
     _check_currency(currency)
     me = me_id(conn)
@@ -629,6 +850,10 @@ def add_payment(
     for contact in (from_contact, to_contact):
         if contact is not None:
             add_member(conn, group_id, contact)
+    principal = None if from_contact is None else (from_contact if to_contact == me else to_contact)
+    if allocations and to_contact != me:
+        raise LinkError(t("analysis.ledger.allocations_need_payer"))
+    shares = _allocations(conn, group_id, amount, principal, me, allocations)
     if fingerprint is not None:
         _check_free(conn, fingerprint)
     now = _now()
@@ -650,10 +875,52 @@ def add_payment(
         ),
     )
     found = int(cursor.lastrowid or 0)
+    _write_allocations(conn, found, shares)
     if fingerprint is not None:
         link_payment(conn, found, fingerprint)
     _touch(conn, group_id)
     return found
+
+
+def _allocations(
+    conn: sqlite3.Connection,
+    group_id: int,
+    amount: Decimal,
+    principal: int | None,
+    me: int | None,
+    given: Mapping[int, Decimal] | None,
+) -> dict[int, int]:
+    """The allocations to store, in cents (none for an unattributed payment)."""
+    if principal is None:
+        if given:
+            raise LinkError(t("analysis.ledger.allocations_need_payer"))
+        return {}
+    total = cents_of(amount)
+    if not given:
+        return {principal: total}
+    members = _members(conn, group_id)
+    found: dict[int, int] = {}
+    for contact, value in given.items():
+        if contact == me:
+            raise LinkError(t("analysis.ledger.allocation_not_me"))
+        if contact not in members:
+            raise LinkError(t("analysis.ledger.not_member"))
+        if value < 0:
+            raise LinkError(t("analysis.ledger.allocations_add_up"))
+        if value > 0:
+            found[contact] = cents_of(value)
+    if sum(found.values()) != total:
+        raise LinkError(t("analysis.ledger.allocations_add_up"))
+    return found
+
+
+def _write_allocations(
+    conn: sqlite3.Connection, payment_id: int, shares: Mapping[int, int]
+) -> None:
+    conn.executemany(
+        "INSERT INTO ledger_allocations (payment_id, contact_id, amount_cents) VALUES (?, ?, ?)",
+        [(payment_id, contact, cents) for contact, cents in shares.items()],
+    )
 
 
 def payment_group(conn: sqlite3.Connection, payment_id: int) -> int:
@@ -676,6 +943,11 @@ def assign_payment(conn: sqlite3.Connection, payment_id: int, from_contact: int)
         "UPDATE ledger_payments SET from_contact = ?, updated_at = ? WHERE id = ?",
         (from_contact, _now(), payment_id),
     )
+    conn.execute("DELETE FROM ledger_allocations WHERE payment_id = ?", (payment_id,))
+    cents = conn.execute(
+        "SELECT amount_cents FROM ledger_payments WHERE id = ?", (payment_id,)
+    ).fetchone()[0]
+    _write_allocations(conn, payment_id, {from_contact: int(cents)})
     _touch(conn, group_id)
 
 

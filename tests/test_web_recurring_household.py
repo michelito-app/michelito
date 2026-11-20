@@ -146,7 +146,8 @@ def test_join_logs_and_undoes(client: TestClient) -> None:
     assert entry["affected"] == 4 and entry["can_undo"]
     _undo(client, entry["id"])
     assert _item(_recurring(client), "AGUA FICTICIA PAGO") is None
-    assert _last_log(client)["undoes"] == entry["id"]
+    last = _last_log(client)
+    assert (last["id"], last["undone"], last["can_redo"]) == (entry["id"], True, True)
 
 
 def test_join_errors(client: TestClient) -> None:

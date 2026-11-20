@@ -11,10 +11,11 @@ import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from michelito.hosted import store
+from michelito.hosted import mailer, store
 from michelito.hosted.mailer import (
     Dispatcher,
     Email,
@@ -132,6 +133,24 @@ def test_the_outbox_writes_private_files(tmp_path: Path) -> None:
     (written,) = list((tmp_path / "outbox").glob("*.json"))
     assert json.loads(written.read_text())["to"] == "a@example.com"
     assert written.stat().st_mode & 0o777 == 0o600
+    assert [p.name for p in (tmp_path / "outbox").iterdir()] == [written.name]  # no temp file
+
+
+def test_the_outbox_never_leaves_half_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Written to a hidden temporary file and renamed: a reader of `*.json` sees whole emails
+    only, and a failed write leaves nothing behind."""
+    outbox = OutboxMailer(tmp_path / "outbox")
+
+    def broken(data: object, handle: Any) -> None:
+        handle.write('{"to": "a@exa')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mailer.json, "dump", broken)
+    with pytest.raises(OSError):
+        outbox.send(Email("a@example.com", "subject", "body"))
+    assert list((tmp_path / "outbox").iterdir()) == []
 
 
 class _Fake(BaseHTTPRequestHandler):

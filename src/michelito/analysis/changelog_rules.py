@@ -60,6 +60,7 @@ PARENT_COLUMNS: Mapping[str, tuple[str, str]] = {
     "ledger_entries": ("group_id", "ledger_groups"),
     "ledger_splits": ("entry_id", "ledger_entries"),
     "ledger_payments": ("group_id", "ledger_groups"),
+    "ledger_allocations": ("payment_id", "ledger_payments"),
     "ledger_links": ("group_id", "ledger_groups"),
 }
 PARENT_IDENTITY: Mapping[str, tuple[str, ...]] = {
@@ -68,6 +69,7 @@ PARENT_IDENTITY: Mapping[str, tuple[str, ...]] = {
     "contacts": ("created_at",),
     "ledger_groups": ("created_at",),
     "ledger_entries": ("created_at",),
+    "ledger_payments": ("created_at",),
 }
 
 
@@ -334,6 +336,9 @@ def _ledger_text(table: str, row: Row) -> str:
         return t("analysis.changelog_rules.ledger_split", amount=share)
     if table == "ledger_payments":
         return t("analysis.changelog_rules.ledger_payment", amount=money)
+    if table == "ledger_allocations":
+        share = _money(row.get("amount_cents"), None)
+        return t("analysis.changelog_rules.ledger_allocation", amount=share)
     if table == "ledger_settings":
         return t("analysis.changelog_rules.ledger_setting")
     return t("analysis.changelog_rules.ledger_link")

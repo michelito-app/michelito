@@ -10,6 +10,7 @@ import type {
   Contacts,
   EntryBody,
   Group,
+  MemberUsage,
   NewPerson,
   PaymentBody,
   PaymentPatch,
@@ -108,8 +109,10 @@ export const ledger = {
     request<Group>(groupPath(id), patch(body)),
   addMember: (id: number, person: NewPerson) =>
     request<Group>(groupPath(id, '/members'), post(person)),
-  removeMember: (id: number, contactId: number) =>
-    request<Group>(groupPath(id, `/members/${contactId}`), DELETE),
+  removeMember: (id: number, contactId: number, resplit = false) =>
+    request<Group>(groupPath(id, `/members/${contactId}${resplit ? '?resplit=true' : ''}`), DELETE),
+  memberUsage: (id: number, contactId: number) =>
+    request<MemberUsage>(groupPath(id, `/members/${contactId}/usage`)),
   writeOff: (id: number, contactId: number | null, writtenOff: boolean) =>
     request<Group>(
       groupPath(id, '/write-off'),

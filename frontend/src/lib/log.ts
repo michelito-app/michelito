@@ -27,10 +27,16 @@ export interface LogEntry {
   fingerprints: string[]
   reason: string | null
   undoes: number | null
-  undone: boolean
+  undone: boolean // the original is undone now: "Redo" applies
   can_undo: boolean
-  undo_message: string
+  can_redo?: boolean
+  undo_message: string // why the action that applies cannot be done now
   blocked_by: number | null
+  toggles?: number // how many times it was undone or redone
+  toggled_at?: string | null
+  summary?: string | null // Shared's changes as a sentence ("You removed Javier from …")
+  link_kind?: 'group' | 'contact' | null // what a change that is not a transaction's points to
+  link_id?: number | null
   fingerprint: string | null // the transaction for the link
   month: string | null // its month (null: it no longer shows up)
   session_start?: string | null
@@ -115,16 +121,38 @@ export function kindLabel(kind: string): string {
 }
 
 /** "SUBJECT · before → after" on one line; an undo entry says so in front. */
-type LineParts = Pick<LogEntry, 'subject' | 'before' | 'after' | 'undoes'>
+type LineParts = Pick<LogEntry, 'subject' | 'before' | 'after' | 'undoes'> &
+  Partial<Pick<LogEntry, 'summary'>>
 
+/** The entry's line: Shared's sentence when there is one, else "SUBJECT · before → after". */
 export function entryLine(entry: LineParts): string {
-  const line = `${entry.subject} · ${entry.before.text} → ${entry.after.text}`
+  const line = entry.summary ?? `${entry.subject} · ${entry.before.text} → ${entry.after.text}`
   return entry.undoes === null ? line : t('log.undone', { line })
 }
 
 /** How many transactions an entry touched. */
 export function affectedText(count: number): string {
   return t('log.affected', { count })
+}
+
+/** Whether to say how many transactions it touched: not for a change that is not about
+ * transactions (a group, a person) and touched none. */
+export function showsAffected(entry: Pick<LogEntry, 'target_type' | 'affected'>): boolean {
+  return entry.target_type === 'transaction' || entry.target_type === 'merchant' || entry.affected > 0
+}
+
+/** "undone and redone 3 times" when it went back and forth more than once. */
+export function toggledText(entry: Pick<LogEntry, 'toggles'>): string | null {
+  const count = entry.toggles ?? 0
+  return count > 1 ? t('log.row.toggled', { count }) : null
+}
+
+/** The link's label: the merchant, the group, the person or the transaction. */
+export function linkLabel(entry: Pick<LogEntry, 'target_type' | 'link_kind'>): string {
+  if (entry.target_type === 'merchant') return t('log.row.viewMerchant')
+  if (entry.link_kind === 'group') return t('log.row.viewGroup')
+  if (entry.link_kind === 'contact') return t('log.row.viewPerson')
+  return t('log.row.viewTransaction')
 }
 
 function sameDay(a: Date, b: Date): boolean {
@@ -225,7 +253,12 @@ export function entryHref(entry: LogEntry): string | null {
   if (entry.target_type === 'merchant' && entry.month) {
     return transactionsHref({ month: entry.month, q: entry.target }, null)
   }
-  const group = entry.target_type === 'link' ? /^group-(\d+)$/.exec(entry.target) : null
+  if (entry.link_kind === 'group' && entry.link_id != null) return `/shared/${entry.link_id}`
+  if (entry.link_kind === 'contact' && entry.link_id != null) return `/shared/people/${entry.link_id}`
+  const group =
+    entry.target_type === 'link' && entry.link_kind === undefined
+      ? /^group-(\d+)$/.exec(entry.target)
+      : null
   if (group) return `/shared/${group[1]}`
   if (!entry.fingerprint || !entry.month) return null
   return transactionsHref({ month: entry.month, tx: entry.fingerprint }, null)
@@ -233,7 +266,7 @@ export function entryHref(entry: LogEntry): string | null {
 
 /** Why there is no undo (empty when there is). */
 export function undoNote(entry: LogEntry): string {
-  if (entry.can_undo) return ''
+  if (entry.undone ? entry.can_redo : entry.can_undo) return ''
   return entry.undo_message
 }
 

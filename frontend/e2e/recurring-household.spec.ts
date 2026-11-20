@@ -43,9 +43,10 @@ async function undoInLog(page: Page, search: string, subject: string, after: str
   await page.getByRole('searchbox', { name: t('log.filter.search') }).fill(search)
   const line = `${subject} · — → ${after}`
   await page.getByRole('button', { name: t('log.row.undoNamed', { name: line }), exact: true }).click()
-  await expect(page.getByRole('main')).toContainText(
-    t('log.undone', { line: `${subject} · ${after} → —` }),
-  )
+  // The same row turns undone and offers «Rehacer».
+  await expect(
+    page.getByRole('button', { name: t('log.row.redoNamed', { name: line }), exact: true }),
+  ).toBeVisible()
 }
 
 test('groups go housing, loans, utilities; the provider joins its names', async ({ page }) => {

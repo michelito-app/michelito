@@ -138,6 +138,13 @@ MESSAGES: dict[str, str] = {
     "analysis.changelog.reason_too_long": "el motivo tiene más de {max} letras",
     "analysis.changelog.blocked": "{reason}; ya no se puede deshacer.",
     "analysis.changelog.blocked_by": "{reason}: primero deshaz la entrada posterior n.º {id}.",
+    "analysis.changelog.blocked_by_redo": "{reason}: primero rehaz la entrada posterior n.º {id}.",
+    "analysis.changelog.redo_later_first": "Primero rehaz la entrada posterior n.º {id}.",
+    "analysis.changelog.member_in_use": (
+        "{name} tiene gastos o pagos en el grupo después de este cambio; quitarlo los dejaría "
+        "sin persona"
+    ),
+    "analysis.changelog.someone": "Esa persona",
     "analysis.changelog.parent_link": "El vínculo",
     "analysis.changelog.parent_category": "La categoría",
     "analysis.changelog.parent_row": "La fila madre",
@@ -157,6 +164,10 @@ MESSAGES: dict[str, str] = {
     ),
     "analysis.changelog.busy": "La base está ocupada; reintenta.",
     "analysis.changelog.already_undone": "Ya está deshecha.",
+    "analysis.changelog.not_undone": "No está deshecha: no hay nada que rehacer.",
+    "analysis.changelog.record_not_undoable": (
+        "Es el registro de un «Deshacer»: se deshace o se rehace desde el cambio original."
+    ),
     "analysis.changelog.changed_outside": (
         "Cambió después por algo que no queda en la bitácora; ya no se puede deshacer."
     ),

@@ -159,7 +159,7 @@ export function oneOffsText(lines: CategoryLine[]): string | null {
 }
 
 /** "a", "a and b", "a, b and c" (not `Intl.ListFormat`: its Spanish "y" turns into "e"). */
-function joinPhrases(items: string[]): string {
+export function joinPhrases(items: readonly string[]): string {
   if (items.length <= 1) return items.join('')
   return t('summary.list.and', {
     head: items.slice(0, -1).join(t('summary.list.separator')),

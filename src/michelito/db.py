@@ -11,15 +11,16 @@ from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from pathlib import Path
 
-from michelito import encrypted, migrations_live, migrations_v18, migrations_v19
+from michelito import encrypted, migrations_live, migrations_v18, migrations_v19, migrations_v21
 from michelito.analysis import catalog
 from michelito.i18n import t
 from michelito.parsers import banreservas_account, bhd_savings, popular_web
 from michelito.parsers.common import Section, Statement, Transaction
 
-# 20: live sync (`migrations_live`); 19: the shared ledger (`migrations_v19`); 18: stored values
-# in English (`migrations_v18`).
-SCHEMA_VERSION = migrations_live.VERSION
+# 21: splits by parts and payments on behalf of others (`migrations_v21`); 20: live sync
+# (`migrations_live`); 19: the shared ledger (`migrations_v19`); 18: stored values in English
+# (`migrations_v18`).
+SCHEMA_VERSION = migrations_v21.VERSION
 DUPLICATE_PERIOD_INDEX = "statements_unique_period"
 DUPLICATE_PRINTOUT_INDEX = "statements_unique_printout"
 # Parser of Popular's printouts: the account's currency is given by hand (ingest).
@@ -525,7 +526,7 @@ LEDGER_SCHEMA = (
     day TEXT NOT NULL CHECK (length(day) = 10),
     description TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 120),
     category_id INTEGER,
-    split TEXT NOT NULL CHECK (split IN ('equal', 'exact')),
+    split TEXT NOT NULL CHECK (split IN ('equal', 'exact', 'parts')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )""",
@@ -533,6 +534,7 @@ LEDGER_SCHEMA = (
     entry_id INTEGER NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
     contact_id INTEGER NOT NULL REFERENCES contacts(id),
     share_cents INTEGER NOT NULL CHECK (share_cents >= 0),
+    parts INTEGER CHECK (parts IS NULL OR parts >= 1),
     PRIMARY KEY (entry_id, contact_id)
 )""",
     """CREATE TABLE IF NOT EXISTS ledger_payments (
@@ -742,14 +744,19 @@ def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
     rebuilt = _migrate_autoincrement(conn)
     for statement in LEDGER_SCHEMA:
         conn.execute(statement)
+    conn.execute(migrations_v21.ALLOCATIONS)  # schema 19's step already writes allocations
     # Schema 19 last: it reads the movements with everything above in place.
     if conn.execute("PRAGMA user_version").fetchone()[0] < migrations_v19.VERSION:
         migrations_v19.migrate(conn)
+    # Schema 21 after 19: it widens the entries' CHECK and gives each migrated payment its
+    # allocation.
+    rebuilt.extend(migrations_v21.apply(conn, _rebuild_check))
     conn.execute(HOLDERS_SCHEMA)
     # Only after rebuilding tables, and only the rebuilt ones (and the children of `links`): an
     # unrelated orphan (from another table, from before) must not prevent opening the database.
     if rebuild:
-        for child in dict.fromkeys((*_LINK_CHILDREN, *rebuilt, *translated)):
+        touched = migrations_v21.TOUCHED if "ledger_entries" in rebuilt else ()
+        for child in dict.fromkeys((*_LINK_CHILDREN, *rebuilt, *translated, *touched)):
             if conn.execute(f"PRAGMA foreign_key_check({child})").fetchone() is not None:
                 raise sqlite3.IntegrityError("the migration left rows without their parent row")
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -783,7 +790,7 @@ def _needs_rebuild(conn: sqlite3.Connection) -> bool:
         sql = _table_sql(conn, table)
         if sql is not None and marker not in sql:
             return True
-    if migrations_v18.needs_rebuild(conn):
+    if migrations_v18.needs_rebuild(conn) or migrations_v21.needs_rebuild(conn):
         return True
     return any(_needs_autoincrement(conn, table) for table in AUTOINCREMENT_TABLES)
 
