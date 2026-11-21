@@ -123,4 +123,9 @@ def test_this_repository_exports_cleanly(tmp_path: Path, env: dict[str, str]) ->
     result = _run(ROOT / "scripts" / SCRIPTS[0], {**env, **IDENTITY}, str(destination))
     assert result.returncode == 0, result.stderr
     exported = set(_git(destination, "ls-files").splitlines())
-    assert exported == set(_git(ROOT, "ls-tree", "-r", "--name-only", "HEAD").splitlines())
+    tracked = _git(ROOT, "ls-tree", "-r", "--name-only", "HEAD").splitlines()
+    # Files marked export-ignore (.gitattributes) live in the private working repo only.
+    marks = _git(ROOT, "check-attr", "export-ignore", "--", *tracked).splitlines()
+    private = {line.split(": ")[0] for line in marks if line.endswith(": set")}
+    assert {"CLAUDE.md", ".gitattributes"} <= private
+    assert exported == set(tracked) - private

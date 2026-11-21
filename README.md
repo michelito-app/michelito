@@ -1137,8 +1137,8 @@ uv run michelito board [--port N] [--no-browser]
   the difference. When someone paid more than they owed (an attributed payment whose rest is
   still a balance in their favour, at least RD$ 50 / US$ 1) while another member who is not
   written off still owes, the group and "To review" ask once for **all** of that person's
-  payments with an open excess: "Ana paid RD$ 74,340 too much in 3 payments and Beto owes
-  US$ 1,244.20. Were those payments for Beto too?" (not in an archived group, nor when
+  payments with an open excess: "Ana paid RD$ 54,644 too much in 3 payments and Beto owes
+  US$ 990.76. Were those payments for Beto too?" (not in an archived group, nor when
   unattributed payments already cover what is owed). "Yes" opens one review: each payment, oldest
   first, with what it would cover of each person (payer first, each one counting what the
   earlier ones covered, conversions shown) and how the balances end up; "Confirm" applies all of

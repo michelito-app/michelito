@@ -70,25 +70,25 @@ def book(found: Group | None = None) -> Ledger:
     return Ledger(ME, CONTACTS, (found or group(),))
 
 
-# --- Several payments with an excess (the shape of the owner's real group, made-up figures) ---
+# --- Several payments with an excess (one payer for two, in three payments; made-up figures) ---
 
 # One rate for every month (RD$ per US$): conversions are easy to follow.
-SPREAD_RATES = {"2025-09": Rate(D("61.21"), "2025-09", "bcrd")}
-# US$ 5,742.15 the user paid, split among the three: US$ 1,914.05 each.
-SPREAD_EXPENSES = ((1, D("3828.00"), date(2025, 9, 10)), (2, D("1914.15"), date(2025, 9, 20)))
-# Ana pays RD$ 191,500 in three payments (really for herself and Beto); Beto, RD$ 41,000.
+SPREAD_RATES = {"2025-09": Rate(D("58.90"), "2025-09", "bcrd")}
+# US$ 4,500.30 the user paid, split among the three: US$ 1,500.10 each.
+SPREAD_EXPENSES = ((1, D("3000.00"), date(2025, 9, 10)), (2, D("1500.30"), date(2025, 9, 20)))
+# Ana pays RD$ 143,000 in three payments (really for herself and Beto); Beto, RD$ 30,000.
 SPREAD_PAYMENTS = (
-    (11, ANA, D("125000.00"), date(2025, 10, 3)),
-    (12, BETO, D("41000.00"), date(2025, 10, 8)),
-    (13, ANA, D("25000.00"), date(2025, 10, 15)),
-    (14, ANA, D("41500.00"), date(2025, 11, 2)),
+    (11, ANA, D("98000.00"), date(2025, 10, 3)),
+    (12, BETO, D("30000.00"), date(2025, 10, 8)),
+    (13, ANA, D("20000.00"), date(2025, 10, 15)),
+    (14, ANA, D("25000.00"), date(2025, 11, 2)),
 )
 
 
 def spread_group(*, dismissed: frozenset = frozenset()) -> Group:
-    """Ana's three payments each attributed to her alone: the first settles her US$ 1,914.05 and
-    the rest of it, and the other two whole, become a RD$ claim the other way (≈ RD$ 74,340)
-    while Beto still owes ≈ US$ 1,244.22."""
+    """Ana's three payments each attributed to her alone: the first settles her US$ 1,500.10 and
+    the rest of it, and the other two whole, become a RD$ claim the other way (≈ RD$ 54,644)
+    while Beto still owes ≈ US$ 990.76."""
     return Group(
         2,
         "Viaje largo",  # spanish-data

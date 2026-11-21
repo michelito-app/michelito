@@ -229,7 +229,7 @@ class MemberUsageOut(BaseModel):
 
 
 class CoverOut(BaseModel):
-    """ "A paid RD$ 74,340 too much and B owes US$ 1,244.20. Was that payment for B too?" """
+    """ "A paid RD$ 54,644 too much and B owes US$ 990.76. Was that payment for B too?" """
 
     payment_id: int  # the oldest of them
     payment_ids: list[int]  # every payment of the payer it is about, oldest first

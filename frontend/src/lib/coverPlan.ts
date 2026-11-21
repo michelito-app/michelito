@@ -25,7 +25,7 @@ export function planBody(plan: Pick<CoverPlan, 'payments'>): CoverBody {
   }
 }
 
-/** "Payment of 3 Oct · RD$ 125,000". */
+/** "Payment of 3 Oct · RD$ 98,000". */
 export function planPaymentLine(payment: Pick<CoverPayment, 'day' | 'amount_cents' | 'currency'>): string {
   return t('shared.plan.payment', {
     day: shortDay(payment.day),

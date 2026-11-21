@@ -49,6 +49,8 @@ ALLOWED_PATHS: dict[str, str] = {
     "tests/fixtures/schema_v17*": "database written by the pre-rename release",
     "tests/fixtures/schema_v18_shared*": "database written by the schema 18 release (0be7009)",
     "scripts/check_spanish.py": "the Spanish word list of this check",
+    "CLAUDE.md": "local project notes, export-ignore (never in the public tree)",
+    ".superpowers/*": "design briefs, export-ignore (never in the public tree)",
     "tests/test_check_spanish.py": "examples of what this check flags",
     "LICENSE": "license text",
     "uv.lock": "generated",

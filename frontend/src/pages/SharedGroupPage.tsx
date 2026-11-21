@@ -239,7 +239,7 @@ interface CoverNoticeProps {
   onYes: () => void
 }
 
-/** "Ana paid RD$ 74,340 too much in 3 payments and Beto owes US$ 1,244.20. Were those payments
+/** "Ana paid RD$ 54,644 too much in 3 payments and Beto owes US$ 990.76. Were those payments
  * for Beto too?": "Yes" opens the review of every payment (the user confirms all of them as one
  * change); "No" is kept for each of those payments, as one change (undoable in the log). */
 function CoverNotice({ group, cover, onYes }: CoverNoticeProps) {

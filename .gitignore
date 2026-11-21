@@ -31,5 +31,10 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/blob-report/
 
-# Local work notes (kept out of the repository)
-.superpowers/
+# Work notes: design briefs are tracked in the private working repo only (see .gitattributes)
+!.superpowers/
+.superpowers/*
+!.superpowers/sdd/
+
+# The project notes for Claude are tracked too (a global ignore hides them otherwise)
+!CLAUDE.md

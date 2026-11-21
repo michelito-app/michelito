@@ -292,7 +292,7 @@ def group_out(book: Book, group_id: int) -> GroupOut | None:
 
 
 def cover_text(book: Ledger, found: ledger_cover.CoverSuggestion) -> str:
-    """ "Ana paid RD$ 74,340 too much in 3 payments and Beto owes US$ 1,244.20. Were those
+    """ "Ana paid RD$ 54,644 too much in 3 payments and Beto owes US$ 990.76. Were those
     payments for Beto too?" (one payment: "…too much and… Was that payment…")."""
     names = join([book.name(c) for c in found.covers])
     # Like the interface: RD$ without cents, US$ with them (`report.money`).

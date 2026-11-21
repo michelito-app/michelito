@@ -350,7 +350,7 @@ def test_several_payments_are_one_suggestion_and_one_change(client: TestClient) 
     whole = f"{round(excess / 100):,}"
     assert cover["text"] == (
         f"Ana Ficticia pagó RD$ {whole} de más en 3 pagos "  # spanish-data
-        "y Beto Inventado debe US$ 1,244.22. "  # spanish-data
+        "y Beto Inventado debe US$ 990.76. "  # spanish-data
         "¿Esos pagos también eran por Beto Inventado?"  # spanish-data
     )
     review = client.get("/api/review", params={"month": "2025-10"}).json()
@@ -362,11 +362,11 @@ def test_several_payments_are_one_suggestion_and_one_change(client: TestClient) 
     found = plan.json()
     assert [p["payment_id"] for p in found["payments"]] == hers
     first = {a["contact_id"]: a["cents"] for a in found["payments"][0]["allocations"]}
-    assert first[ana] + first[beto] == 12500000
+    assert first[ana] + first[beto] == 9800000
     after = {m["contact_id"]: m for m in found["after"]}
     assert after[ana]["balance"] == []
     left = _cents(after[beto]["balance"])["USD"]
-    assert 2900 < left < 3100
+    assert 6200 < left < 6400
 
     body = {
         "payments": [

@@ -78,6 +78,12 @@ export default defineConfig({
       testMatch: [MOBILE_SPECS, SHARED_SPECS, SUMMARY_SPECS, CASH_SPECS],
     },
     {
+      // Safari's engine on an iPhone-sized screen: the phone specs again, on WebKit.
+      name: 'iphone',
+      use: { ...devices['iPhone 15'] },
+      testMatch: [MOBILE_SPECS, SHARED_SPECS, SUMMARY_SPECS, CASH_SPECS],
+    },
+    {
       name: 'hosted',
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${HOSTED_PORT}` },
       testMatch: HOSTED_SPECS,

@@ -3,7 +3,7 @@
 - `propose_allocations`: the default allocations of a payment on behalf of several people (rule
   in `ledger`'s module docstring: payer first, then the others in the order checked, converted at
   the payment month's rate; what is left stays on the payer).
-- `cover_suggestion`: "A paid RD$ 74,340 too much and B owes US$ 1,244.20. Was that payment for B
+- `cover_suggestion`: "A paid RD$ 54,644 too much and B owes US$ 990.76. Was that payment for B
   too?" (the exact condition is in its docstring).
 - `approx_total`: the "in total ≈" line for balances in two currencies.
 """
@@ -140,7 +140,7 @@ def _owed_after_unattributed(
 
 @dataclass(frozen=True)
 class CoverSuggestion:
-    """ "Ana paid RD$ 74,340 too much in 3 payments and Beto owes US$ 1,244.20. Were those
+    """ "Ana paid RD$ 54,644 too much in 3 payments and Beto owes US$ 990.76. Were those
     payments for Beto too?" """
 
     payments: tuple[Payment, ...]  # every payment of the payer with an open excess, oldest first

@@ -11,7 +11,8 @@
 # (which may hold your real name or a work email). The committer is the same as the author.
 #
 # Only what is tracked in HEAD goes in (`git archive`): uncommitted changes and ignored files
-# (.superpowers/, databases, PDFs…) stay out. Before the commit it runs scripts/check_private.py
+# (.superpowers/, databases, PDFs…) stay out, and so do the paths marked
+# export-ignore in .gitattributes (CLAUDE.md, kept in the private working repo only). Before the commit it runs scripts/check_private.py
 # on the copy and stops if it finds anything.
 set -euo pipefail
 

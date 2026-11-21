@@ -572,7 +572,7 @@ test('one person paid for several in RD$: To review proposes it and both end set
   await expect(cards.getByRole('button', { name: /^Beto Viajero/ })).toContainText(t('shared.balance.settled'))
 })
 
-/** The shape of the owner's group (made-up figures, tests/ledger_cover_case.py `spread_group`)
+/** One payer for two in three payments (made-up figures, tests/ledger_cover_case.py `spread_group`)
  * at the e2e server's February rate: Ana pays three times in RD$, really for herself and Beto,
  * who paid once; each of her payments is hers alone. */
 async function spreadCase(page: Page) {
@@ -584,8 +584,8 @@ async function spreadCase(page: Page) {
   const ana = group.members.find((m) => m.name === 'Ana Viajera')!.id
   const beto = group.members.find((m) => m.name === 'Beto Viajero')!.id
   for (const [cents, day] of [
-    [382_800, '2026-01-10'],
-    [191_415, '2026-01-20'],
+    [300_000, '2026-01-10'],
+    [150_030, '2026-01-20'],
   ] as const) {
     await addEntry(page.request, group.id, {
       paid_by: me,
@@ -598,10 +598,10 @@ async function spreadCase(page: Page) {
     })
   }
   for (const [from, cents, day] of [
-    [ana, 12_500_000, '2026-02-03'],
-    [beto, 4_100_000, '2026-02-05'],
-    [ana, 2_500_000, '2026-02-08'],
-    [ana, 4_150_000, '2026-02-12'],
+    [ana, 9_800_000, '2026-02-03'],
+    [beto, 3_000_000, '2026-02-05'],
+    [ana, 2_000_000, '2026-02-08'],
+    [ana, 2_500_000, '2026-02-12'],
   ] as const) {
     await addPayment(page.request, group.id, { from_contact: from, to_contact: me, amount_cents: cents, currency: 'DOP', day })
   }
@@ -623,7 +623,7 @@ test('three payments for two people: one suggestion, one review and one change s
   const sheet = dialog(page, t('shared.plan.title'))
   await expect(sheet.getByTestId('plan-payment')).toHaveCount(3)
   await expect(sheet.getByTestId('plan-payment').first()).toContainText(
-    t('shared.plan.payment', { day: '3 feb', amount: 'RD$ 125,000' }),
+    t('shared.plan.payment', { day: '3 feb', amount: 'RD$ 98,000' }),
   )
   await noSidewaysScroll(page, 'three payments plan')
   const mark = await logMark(page.request)
