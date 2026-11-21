@@ -127,5 +127,5 @@ def test_this_repository_exports_cleanly(tmp_path: Path, env: dict[str, str]) ->
     # Files marked export-ignore (.gitattributes) live in the private working repo only.
     marks = _git(ROOT, "check-attr", "export-ignore", "--", *tracked).splitlines()
     private = {line.split(": ")[0] for line in marks if line.endswith(": set")}
-    assert {"CLAUDE.md", ".gitattributes"} <= private
+    assert not {"CLAUDE.md", ".gitattributes"} & exported  # absent in the public tree itself
     assert exported == set(tracked) - private

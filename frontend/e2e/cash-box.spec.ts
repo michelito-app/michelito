@@ -56,7 +56,10 @@ function section(detail: Locator) {
 /** On a phone the detail is full screen and its «Cash box» opens in a sheet: that sheet. */
 async function phoneCashBox(page: Page, detail: Locator): Promise<Locator> {
   const mobile = page.locator('[data-mobile-detail]')
-  if ((await mobile.count()) === 0) return detail
+  // Decided by the viewport (the app's phone query is max-width 767.98px), not by counting: right
+  // after a resize the desktop detail can still be on screen for a moment.
+  if (page.viewportSize()!.width >= 768) return detail
+  await mobile.waitFor()
   const open = mobile.getByRole('button', {
     name: t('transactions.links.openLabel', { what: t('transactions.actions.cashBox') }),
   })
