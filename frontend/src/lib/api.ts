@@ -329,6 +329,7 @@ export interface Tx {
   cash_box_currency: string | null
   cash_box_amount_cents: number | null
   cash_entry_id: number | null // recorded by hand in the box (it can be edited and deleted)
+  cash_state?: CashState // an unanswered scheduled cash occurrence
   provisional: boolean // from a bank alert: its statement has not arrived yet (badge)
   approved?: boolean // hosted: it entered because the person approved an unverified email
 }
@@ -362,6 +363,90 @@ export interface CashLine {
   note: string
   in_flow: boolean // appears in Transactions (everything but the opening balance)
   group: string | null // the shared group it is in: deleting it removes it from the group
+  concept: string | null // what a hand-written income or expense was (null: written before concepts)
+  schedule_id: number | null // the schedule that created it
+  state: CashState // an unanswered scheduled occurrence
+}
+
+/** An unanswered scheduled occurrence: "pending" (in To review), "unconfirmed" (a payment kept
+ * as paid after a week) or "lapsed" (a collection not received after a week: it does not count). */
+export type CashState = '' | 'pending' | 'unconfirmed' | 'lapsed'
+export type ScheduleKind = 'payment' | 'collection'
+export type Frequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
+
+export interface CashSchedule {
+  id: number
+  kind: ScheduleKind
+  concept: string
+  amount_cents: number
+  currency: CashCurrency
+  category: string
+  category_id: number | null
+  frequency: Frequency
+  start_day: string
+  end_day: string | null
+  max_count: number | null
+  paused: boolean
+  next_due: string | null
+  finished: boolean
+}
+
+/** A scheduled occurrence waiting for an answer. */
+export interface CashOccurrence {
+  entry_id: number
+  fingerprint: string
+  schedule_id: number | null
+  kind: 'income' | 'expense'
+  concept: string
+  day: string
+  amount_cents: number
+  currency: CashCurrency
+  category: string
+  category_id: number | null
+  state: 'pending' | 'lapsed'
+}
+
+export interface CashUpcoming {
+  schedule_id: number
+  kind: ScheduleKind
+  concept: string
+  day: string
+  amount_cents: number
+  currency: CashCurrency
+}
+
+/** GET /api/cash-box/concepts: what was written before (autocomplete). */
+export interface CashConcept {
+  concept: string
+  kind: 'income' | 'expense'
+  currency: CashCurrency
+  category_id: number | null
+  last_day: string
+}
+
+export interface RepeatBody {
+  frequency: Frequency
+  end_day?: string | null
+  max_count?: number | null
+}
+
+export interface ScheduleBody {
+  kind: ScheduleKind
+  concept: string
+  amount_cents: number
+  currency: CashCurrency
+  category_id: number | null
+  frequency: Frequency
+  start_day: string
+  end_day?: string | null
+  max_count?: number | null
+}
+
+export type AnswerAction = 'confirm' | 'amount' | 'skip'
+
+export interface CashCount {
+  currency: CashCurrency
+  amount_cents: number
 }
 
 /** GET /api/cash-box: balance per currency, ≈ RD$ and its entries. */
@@ -370,11 +455,18 @@ export interface CashBox {
   label: string
   exists: boolean
   balances: CurrencyAmount[] // RD$ first
+  balances_today: CurrencyAmount[] // only what is dated up to today: what a reconcile compares
   total_dop_cents: number
   unconverted: CurrencyAmount[] // without a rate
   negative: CurrencyAmount[] // currencies below zero: a notice is shown
   uncounted: string[] // deposits without a rate
   lines: CashLine[] // the most recent first
+  schedules: CashSchedule[]
+  occurrences: CashOccurrence[] // waiting for an answer, oldest first
+  upcoming: CashUpcoming | null // the next one due within a week
+  activated_on: string | null // from then on, ATM withdrawals move into cash by themselves
+  reconcile_due: boolean // the monthly "count your cash" prompt
+  last_reconciled: string | null
 }
 
 export interface CashEntryBody {
@@ -384,6 +476,8 @@ export interface CashEntryBody {
   currency: CashCurrency
   category_id?: number | null
   note?: string | null
+  concept?: string | null
+  repeat?: RepeatBody | null
 }
 
 export interface DepositBody {
@@ -451,6 +545,7 @@ export type ReviewKind =
   | 'possible_rule'
   | 'possible_reserve'
   | 'possible_payment'
+  | 'possible_cover'
   | 'unconfirmed'
   | 'reversal'
 
@@ -474,6 +569,7 @@ export interface ReviewItem {
   group_id?: number | null // possible payment: the group
   contact_id?: number | null // possible payment: who pays (null: unattributed)
   payment_id?: number | null // possible payment: the unlinked payment it reconciles
+  payment_ids?: number[] // possible cover: every payment of the suggestion
   provisional?: boolean // still provisional (from a bank alert): it can be discarded
 }
 

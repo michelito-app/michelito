@@ -1,11 +1,13 @@
 import { useId, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { t } from '@/i18n'
+import { CashReviewList } from '@/components/cashBox/CashReviewList'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Selection } from '@/lib/accountFilter'
 import type { InvestmentRole, ReviewItem } from '@/lib/api'
 import {
+  useCashBox,
   useChangeInvestment,
   useDecideProvisional,
   useEditTransaction,
@@ -14,6 +16,7 @@ import {
 } from '@/lib/queries'
 import {
   cardTitle,
+  coverHref,
   itemHref,
   itemKey,
   KIND_LABELS,
@@ -22,7 +25,9 @@ import {
   openLabel,
   originalAmountText,
 } from '@/lib/review'
-import { confirmPossiblePayment, useLedgerWrite } from '@/lib/sharedQueries'
+import { cashReviewCount } from '@/lib/cashBox'
+import { itemPayments } from '@/lib/coverPlan'
+import { confirmPossiblePayment, ledger, useLedgerWrite } from '@/lib/sharedQueries'
 import { REVIEW_LIMIT, splitTop } from '@/lib/summary'
 import { cn } from '@/lib/utils'
 import { FOCUS, PANEL, PANEL_TITLE, ROW_DIVIDER } from './styles'
@@ -41,20 +46,26 @@ const SECONDARY = cn(ACTION, 'border-[#D6D6D0] bg-card text-ink-2 hover:bg-muted
 interface ReviewCardProps {
   month: string
   selection?: Selection
+  /** Start with every item shown (the review list screen). */
+  expanded?: boolean
 }
 
 /** "To review": what is worth a look in the month (possible one-off expenses, unusual income,
  * large transfers, possible duplicate charges and price rises), each notice on two lines with its
  * actions. The first ones show and "See all" expands the rest. What was reviewed leaves the card;
  * the history lives in Reports. */
-export function ReviewCard({ month, selection = null }: ReviewCardProps) {
+export function ReviewCard({ month, selection = null, expanded = false }: ReviewCardProps) {
   const review = useReview(month, selection)
   const edit = useEditTransaction()
   const mark = useMarkReviewed()
   const invest = useChangeInvestment()
   const pay = useLedgerWrite()
   const decide = useDecideProvisional()
-  const [all, setAll] = useState(false)
+  // The cash account's own items (scheduled occurrences, the monthly reconcile): not by month.
+  const cash = useCashBox()
+  const cashCount = cashReviewCount(cash.data)
+  const navigate = useNavigate()
+  const [all, setAll] = useState(expanded)
   // What was decided leaves the card at once; when new data arrives the server rules.
   const updatedAt = review.dataUpdatedAt
   const [decided, setDecided] = useState<{ at: number; keys: ReadonlySet<string> }>({
@@ -116,14 +127,30 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
     pay.mutate(() => confirmPossiblePayment(item), { onSuccess: () => hide(item) })
   }
 
+  /** "Was that payment for B too?" answered yes: the group, with that payment's "Also paid
+   * for…" open (the user confirms there). */
+  function openCover(item: ReviewItem) {
+    if (item.group_id != null && item.payment_id != null) {
+      navigate(coverHref(item.group_id, item.payment_id))
+    }
+  }
+
   function reviewed(item: ReviewItem) {
+    if (item.kind === 'possible_cover') {
+      const group = item.group_id
+      if (group == null) return
+      pay.mutate(() => ledger.dismissCovers(group, itemPayments(item)), {
+        onSuccess: () => hide(item),
+      })
+      return
+    }
     mark.mutate(
       { kind: item.kind, fingerprint: item.fingerprint, reviewed: true },
       { onSuccess: () => hide(item) },
     )
   }
 
-  if (items.length === 0) {
+  if (items.length === 0 && cashCount === 0) {
     return (
       <section
         aria-labelledby="review-title"
@@ -151,12 +178,13 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
     >
       <div className="flex flex-col gap-1">
         <h2 id="review-title" className={PANEL_TITLE}>
-          {cardTitle(items.length)}
+          {cardTitle(items.length + cashCount)}
         </h2>
         <p className="text-[13px] text-muted-foreground">
           {t('summary.review.oneOffHint')}
         </p>
       </div>
+      {cash.data && <CashReviewList box={cash.data} />}
       <ul className="flex flex-col">
         {shown.map((item) => (
           <ReviewLine
@@ -170,6 +198,7 @@ export function ReviewCard({ month, selection = null }: ReviewCardProps) {
             onRule={acceptRule}
             onPayment={confirmPayment}
             onDiscard={discard}
+            onCover={openCover}
           />
         ))}
       </ul>
@@ -205,6 +234,7 @@ interface ReviewLineProps {
   onRule: (item: ReviewItem) => void
   onPayment: (item: ReviewItem) => void
   onDiscard: (item: ReviewItem) => void
+  onCover: (item: ReviewItem) => void
 }
 
 /** A notice on two lines: kind, merchant and amount (they open the transaction in Transactions);
@@ -219,6 +249,7 @@ function ReviewLine({
   onRule,
   onPayment,
   onDiscard,
+  onCover,
 }: ReviewLineProps) {
   const reason = useId()
   const original = originalAmountText(item)
@@ -276,6 +307,27 @@ function ReviewLine({
                 type="button"
                 className={SECONDARY}
                 aria-label={t('summary.review.notPaymentLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onReviewed(item)}
+              >
+                {t('summary.review.no')}
+              </button>
+            </>
+          ) : item.kind === 'possible_cover' && item.group_id != null ? (
+            <>
+              <button
+                type="button"
+                className={PRIMARY}
+                aria-label={t('summary.review.coverLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onCover(item)}
+              >
+                {t('summary.review.cover')}
+              </button>
+              <button
+                type="button"
+                className={SECONDARY}
+                aria-label={t('summary.review.notCoverLabel', { merchant: item.merchant })}
                 disabled={busy}
                 onClick={() => onReviewed(item)}
               >

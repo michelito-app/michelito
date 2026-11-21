@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from michelito import config, db, dossier
+from michelito import cash_pass, config, db, dossier
 from michelito.analysis import insights, transfers
 
 FORMATS = ("markdown", "json")
@@ -93,8 +93,12 @@ def add_commands(commands: Any) -> None:
 
 
 def _open(paths: config.Paths) -> sqlite3.Connection:
+    """The database, with the cash pass already run (`cash_pass`): the same figures as the
+    board."""
     config.ensure_private_dir(paths.root)
-    return db.connect(paths.database)
+    conn = db.connect(paths.database)
+    cash_pass.run(conn, paths.holders)
+    return conn
 
 
 def _dossier(
@@ -183,7 +187,7 @@ def _cmd_view(args: argparse.Namespace, paths: config.Paths) -> int:
         try:
             current = _dossier(conn, paths, args.month, list(found.accounts or ()) or None)
             changed = not insights.is_fresh(
-                conn, found, current.data_hash, lambda: current.legacy_hash
+                conn, found, current.data_hash, lambda: current.older_hashes
             )
         except (ValueError, LookupError):
             changed = True

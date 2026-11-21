@@ -251,7 +251,7 @@ def cmd_verify(args: argparse.Namespace, paths: config.Paths) -> int:
 
     if figures.refuse_file(sys.stdout):
         return _error("the figures only go to the terminal, not to a file", 2)
-    today = args.today or date.today()
+    today = args.today or config.local_today()
     if args.email:
         workspace = _hosted_workspace(args, paths)
         if workspace is None:
@@ -429,7 +429,7 @@ def cmd_forwarding_check(args: argparse.Namespace, paths: config.Paths) -> int:
     except (MasterKeyError, hosted_app.HostedStateError) as error:
         return _error(str(error), 2)
     sent, failed = send_overdue(
-        service, Notices(service.dispatcher, settings.url), args.today or date.today()
+        service, Notices(service.dispatcher, settings.url), args.today or config.local_today()
     )
     print(f"Late-statement emails sent: {sent}.")
     if failed:

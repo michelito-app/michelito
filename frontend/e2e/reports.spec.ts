@@ -128,14 +128,14 @@ test.describe('saved insights', () => {
       data: { text: TEXT },
     })
     expect(saved.ok()).toBe(true)
-    await page.goto(`/?month=${DECEMBER}`)
+    await page.goto(`/reports?month=${DECEMBER}`)
     const card = page.getByRole('region', { name: t('summary.reading.title') })
     const tab = card.getByRole('tab', { name: t('summary.reading.tab.insight') })
     await expect(tab).toHaveAttribute('aria-selected', 'true')
     await expect(card.getByRole('tabpanel')).toContainText(TEXT)
     // Not even the start of the stale note.
     await expect(card).not.toContainText(t('reports.insight.stale').split(' ').slice(0, 3).join(' '))
-    await page.goto('/?month=2026-01')
+    await page.goto('/reports?month=2026-01')
     await expect(page.getByRole('heading', { level: 1, name: 'Enero 2026' })).toBeVisible() // spanish-ui: month title built with Intl
     await expect(page.getByRole('tab', { name: t('summary.reading.tab.insight') })).toHaveCount(0)
   })

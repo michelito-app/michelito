@@ -169,7 +169,21 @@ def _members(s: _Sentence) -> str | None:
         return t("analysis.changelog_ledger.member_removed", names=join(removed), group=s.group)
     if added:
         return t("analysis.changelog_ledger.member_added", names=join(added), group=s.group)
-    return None
+    return _leftover_toggle(s)
+
+
+def _leftover_toggle(s: _Sentence) -> str | None:
+    """ "Exchange differences of X count as settled again in G" (schema 22's toggle)."""
+    changed = [
+        after
+        for before, after in s.rows.updated("ledger_members")
+        if before.get("leftover_settled") != after.get("leftover_settled")
+    ]
+    people = s.people(changed)
+    if not people:
+        return None
+    key = "leftover_on" if changed[0].get("leftover_settled") else "leftover_off"
+    return t(f"analysis.changelog_ledger.{key}", names=join(people), group=s.group)
 
 
 def _write_off(s: _Sentence) -> str | None:
@@ -249,11 +263,48 @@ def _payment(s: _Sentence) -> str | None:
             )
         if not before.get("accepted") and after.get("accepted"):
             return t("analysis.changelog_ledger.payment_accepted", amount=amount, group=s.group)
+    covered = _allocations_changed(s)
+    if covered is not None:
+        return covered
+    for rows, key in (
+        (s.rows.added("ledger_dismissals"), "cover_dismissed"),
+        (s.rows.removed("ledger_dismissals"), "cover_asked"),
+    ):
+        if len(rows) > 1:
+            return t(f"analysis.changelog_ledger.{key}_many", count=len(rows), group=s.group)
+        if rows:
+            return t(f"analysis.changelog_ledger.{key}", group=s.group)
     if s.rows.added("ledger_links"):
         return t("analysis.changelog_ledger.payment_linked", group=s.group)
     if s.rows.removed("ledger_links"):
         return t("analysis.changelog_ledger.payment_unlinked", group=s.group)
     return None
+
+
+def _allocations_changed(s: _Sentence) -> str | None:
+    """ "You changed who a payment of G covers: El Gordo too" when only an existing payment's
+    allocations moved (the payment row itself does not change, so the sentence goes by the
+    allocation rows: the people added, else the people taken out, else only the amounts)."""
+    rows = [
+        r for c in s.rows.changes if c.table == "ledger_allocations" for r in (c.after or c.before,)
+    ]
+    if not rows:
+        return None
+    count = len({r.get("payment_id") for r in rows if r})
+    added = s.people(s.rows.added("ledger_allocations"))
+    if added and count > 1:
+        return t(
+            "analysis.changelog_ledger.covering_changed_many",
+            count=count,
+            names=join(added),
+            group=s.group,
+        )
+    if added:
+        return t("analysis.changelog_ledger.covering_changed", names=join(added), group=s.group)
+    gone = s.people(s.rows.removed("ledger_allocations"))
+    if gone:
+        return t("analysis.changelog_ledger.covering_removed", names=join(gone), group=s.group)
+    return t("analysis.changelog_ledger.covering_amounts", group=s.group)
 
 
 def _contact_id(target: str) -> int | None:

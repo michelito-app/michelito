@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from michelito import db
 from michelito.analysis import categories as cat
 from michelito.web.app import create_app
+from tests.helpers import shown_name
 from tests.test_spending import seed
 
 WRITE = {"X-Michelito": "1"}
@@ -45,7 +46,7 @@ def _create(client: TestClient, **body) -> dict:
 class TestList:
     def test_list_has_ids_flags_keywords_and_yearly_count(self, client: TestClient) -> None:
         body = client.get("/api/categories").json()
-        assert [c["name"] for c in body] == list(cat.ALL)
+        assert [c["name"] for c in body] == [shown_name(name) for name in cat.ALL]
         other = _by_name(client, cat.OTHER)
         assert set(other) == {
             "id",

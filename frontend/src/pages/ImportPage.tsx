@@ -127,7 +127,7 @@ function SampleOutcome({ result }: { result: SampleResult }) {
       </p>
       {result.balanced && (
         <div className="flex flex-wrap gap-x-4">
-          <Link to={`/?month=${first}`} className={WIDGET_ACTION}>
+          <Link to={`/review?month=${first}`} className={WIDGET_ACTION}>
             {t('import.outcome.review')}
           </Link>
           <Link to={`/transactions?month=${last}`} className={WIDGET_ACTION}>

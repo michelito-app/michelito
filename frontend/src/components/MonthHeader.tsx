@@ -19,8 +19,9 @@ interface MonthHeaderProps {
   onReturn: () => void
   /** Account picker, next to the month. */
   picker?: ReactNode
-  /** Which accounts the transactions belong to ("all your accounts", "VISA ···4242"…). */
-  scope?: string
+  /** Which accounts the transactions belong to ("all your accounts", "VISA ···4242"…); null
+   * leaves the scope line out (the Summary says it in its coverage sheet). */
+  scope?: string | null
   /** Screen name, only for screen readers, before the month in the title. */
   title?: string
   children?: ReactNode
@@ -97,9 +98,11 @@ export function MonthHeader({
           )}
           {picker}
         </div>
-        <p className="text-sm text-muted-foreground">
-          {t('months.headerScope', { last: lastDay(month), month: monthName(month), scope })}
-        </p>
+        {scope !== null && (
+          <p className="text-sm text-muted-foreground">
+            {t('months.headerScope', { last: lastDay(month), month: monthName(month), scope })}
+          </p>
+        )}
       </div>
       {children}
     </header>

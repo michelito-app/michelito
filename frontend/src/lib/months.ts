@@ -63,14 +63,15 @@ export function localToday(now: Date = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
-/** The requested month if it exists; otherwise the latest complete one (or the latest). */
-export function resolveMonth(options: MonthOption[], requested: string | null): string | null {
+/** The requested month if it exists; otherwise the newest one (the month in progress, live):
+ * every month screen opens on it. */
+export function resolveMonth(options: readonly MonthOption[], requested: string | null): string | null {
   if (requested && options.some((o) => o.month === requested)) return requested
-  return (options.find((o) => !o.partial) ?? options[0])?.month ?? null
+  return options[0]?.month ?? null
 }
 
 /** Default month one can go back to from `month`; null if already on it. */
-export function returnTarget(options: MonthOption[], month: string): MonthOption | null {
+export function returnTarget(options: readonly MonthOption[], month: string): MonthOption | null {
   const home = resolveMonth(options, null)
   if (home === null || home === month) return null
   return options.find((o) => o.month === home) ?? null

@@ -30,6 +30,25 @@ outflows (expense entries and deposits), each movement in its own currency. A ne
 is allowed and warned about (`negative`: the box would end at -US$ 200; adjust the initial
 balance?). **~ RD$**: each movement at its month's rate; US$ without any rate is kept apart
 (`unconverted`).
+
+**Schema 23 (the cash account, shown as "Efectivo")**:
+
+- *Concept*: income and expense entries carry what they were (`concept`, required for new ones,
+  `check_concept`). It is the movement's merchant (`concept_merchant`: comparable text, so merchant
+  rules and recurring grouping apply) and its description. Old entries without one keep the
+  generic descriptions.
+- *Scheduled occurrences* (`cash_schedule`): an entry materialized from a schedule is `pending`
+  until the user answers. Unanswered for more than PENDING_DAYS days (`entry_state`): a payment
+  is kept as paid with a soft "unconfirmed" mark; a collection is *lapsed*: it stops counting
+  (neither income nor balance) until it is confirmed. The asymmetry is on purpose: money you
+  expected and did not see is not counted; money you planned to pay probably left.
+- *Reconcile* (`reconcile_plan`): the user says how much cash there is per currency; the
+  difference with the balance up to today becomes one entry per currency. Less cash than computed
+  is an expense ("unrecorded cash expenses", cash category). More cash is income ("unrecorded
+  cash", other income), except in a currency with no initial balance yet: there the
+  surplus is the initial balance (cash that was already there, not income of the month). The
+  result always equals the count, so a negative balance warning disappears with it; the
+  initial balance itself is never edited.
 """
 
 from __future__ import annotations
@@ -55,6 +74,15 @@ ENTRY_KINDS: tuple[EntryKind, ...] = get_args(EntryKind)
 LineKind = Literal["initial", "income", "expense", "stored", "deposit"]
 CURRENCIES = ("DOP", "USD")
 FINGERPRINT_PREFIX = "cash-"
+CONCEPT_MAX = 60
+# An occurrence nobody answered counts as "pending" this many days after its date (see
+# `entry_state`).
+PENDING_DAYS = 7
+EntryStatus = Literal["pending", "confirmed"]
+# How a scheduled occurrence stands today: "" (an ordinary or answered entry), "pending"
+# (unanswered, within PENDING_DAYS), "unconfirmed" (an unanswered payment: counted as paid) or
+# "lapsed" (an unanswered collection: not counted).
+EntryState = Literal["", "pending", "unconfirmed", "lapsed"]
 MERCHANT = "CAJA FUERTE"  # spanish-data: the merchant shown for entries made by hand
 # The description each kind of hand-made entry shows in Transactions.
 DESCRIPTIONS: Mapping[str, str] = {
@@ -94,10 +122,48 @@ class ManualEntry:
     amount: Decimal
     currency: str
     account_key: str = CASH_BOX_KEY
+    concept: str | None = None
+    schedule_id: int | None = None
+    occurrence_day: date | None = None
+    status: EntryStatus | None = None
 
     @property
     def fingerprint(self) -> str:
         return entry_fingerprint(self.id)
+
+
+def entry_state(entry: ManualEntry, today: date) -> EntryState:
+    """Where a scheduled occurrence stands on `today` (see the module docstring)."""
+    if entry.status != "pending":
+        return ""
+    if today <= entry.day + timedelta(days=PENDING_DAYS):
+        return "pending"
+    return "lapsed" if entry.kind == "income" else "unconfirmed"
+
+
+def counts(entry: ManualEntry, today: date | None) -> bool:
+    """Whether the entry counts (in the flow and the balance): all but a lapsed collection.
+    Without `today` everything counts."""
+    return today is None or entry_state(entry, today) != "lapsed"
+
+
+def check_concept(concept: str | None) -> str:
+    """The concept, with its spaces collapsed: required, at most CONCEPT_MAX characters and no
+    control characters."""
+    text = " ".join((concept or "").split())
+    if not text:
+        raise CashBoxError(t("analysis.cash_box.concept_required"))
+    if len(text) > CONCEPT_MAX:
+        raise CashBoxError(t("analysis.cash_box.concept_too_long", max=CONCEPT_MAX))
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise CashBoxError(t("analysis.cash_box.concept_invalid"))
+    return text
+
+
+def concept_merchant(concept: str) -> str:
+    """The merchant of an entry with that concept: comparable text (no accents, upper case), so
+    "Colmado" and "colmado " are the same merchant for rules and recurring charges."""
+    return categories.clean(concept) or concept.upper()
 
 
 def entry_fingerprint(entry_id: int) -> str:
@@ -187,15 +253,17 @@ def state_of(
     movements: Sequence[Movement],
     rates: Mapping[str, Rate],
     account_key: str = CASH_BOX_KEY,
+    today: date | None = None,
 ) -> BoxState:
     """The box with its lines and balances. `movements`: the flow (`spending.load_all`), holding
     the withdrawals, the deposits and the hand-made entries; one that no longer appears (or is no
-    longer a debit or a credit) does not count."""
+    longer a debit or a credit) does not count. `today`: a lapsed collection (`entry_state`)
+    does not count (without it, everything does)."""
     by_fp = {m.fingerprint: m for m in movements}
     lines = [
         _entry_line(entry, by_fp.get(entry.fingerprint), rates)
         for entry in entries
-        if entry.account_key == account_key
+        if entry.account_key == account_key and counts(entry, today)
     ]
     for member in () if box is None else box.members:
         move = by_fp.get(member.fingerprint)
@@ -332,6 +400,58 @@ def stored_dop(movements: Iterable[Movement], rates: Mapping[str, Rate], month: 
             continue
         total += to_dop(move.amount, move.currency, rate_for(rates, month)) or _ZERO
     return total
+
+
+# --- Reconcile --------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Adjustment:
+    """One entry of a reconcile: `amount` positive, in `currency`."""
+
+    kind: EntryKind
+    currency: str
+    amount: Decimal
+    concept: str
+
+
+def balance_on(state: BoxState, currency: str, day: date) -> Decimal:
+    """The `currency` balance counting only the lines up to `day` (later-dated entries wait)."""
+    return sum(
+        (
+            line.amount
+            for line in state.lines
+            if line.currency == currency and line.amount is not None and line.day <= day
+        ),
+        _ZERO,
+    )
+
+
+def reconcile_plan(
+    state: BoxState, counted: Mapping[str, Decimal], today: date
+) -> tuple[Adjustment, ...]:
+    """The entries that bring each counted currency to what the user has (see the module
+    docstring). A currency whose count matches needs nothing."""
+    found = []
+    for currency, amount in sorted(counted.items(), key=lambda item: (item[0] != "DOP", item[0])):
+        if currency not in CURRENCIES:
+            raise CashBoxError(t("analysis.cash_box.currency"))
+        if not amount.is_finite() or amount < 0 or amount != amount.quantize(_CENT):
+            raise CashBoxError(t("analysis.cash_box.count_invalid"))
+        difference = amount - balance_on(state, currency, today)
+        if difference == 0:
+            continue
+        if difference < 0:
+            found.append(
+                Adjustment("expense", currency, -difference, t("analysis.cash_box.unrecorded_out"))
+            )
+            continue
+        has_initial = any(
+            line.kind == "initial" and line.currency == currency for line in state.lines
+        )
+        kind: EntryKind = "income" if has_initial else "initial"
+        found.append(Adjustment(kind, currency, difference, t("analysis.cash_box.unrecorded_in")))
+    return tuple(found)
 
 
 def last_day(today: date) -> date:

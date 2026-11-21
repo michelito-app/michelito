@@ -3,20 +3,6 @@
 import { expect, type Page } from '@playwright/test'
 import { escapeRegExp, t } from './text'
 
-/** The Summary's collapsible sections (phone) start open on the next page loads. */
-export async function openSummarySections(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    try {
-      window.localStorage.setItem(
-        'michelito.summary.openSections',
-        JSON.stringify(['reading', 'upcoming', 'categories', 'trend', 'details']),
-      )
-    } catch {
-      // No storage: the sections stay closed and the spec says so when it fails.
-    }
-  })
-}
-
 /** Picks an option of a Transactions filter (kind, category, grouping, sort): in the search row
  * on a wide screen, in the «Filters» sheet on a phone (closed afterwards). */
 export async function chooseFilter(page: Page, label: string, option: string): Promise<void> {

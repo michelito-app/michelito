@@ -308,10 +308,13 @@ def decisions(conn: sqlite3.Connection) -> dict[str, Decision]:
 
 
 def decide(conn: sqlite3.Connection, mark: str, decision: Decision | None, now: str) -> None:
-    """Record "Discard" or "Keep" for a provisional (None: forget the decision)."""
+    """Record "Discard" or "Keep" for a provisional (None: forget the decision). Discarding or
+    voiding it also drops the automatic "moved into cash" mark, if the system put one."""
     if decision is None:
         conn.execute("DELETE FROM provisional_decisions WHERE fingerprint = ?", (mark,))
         return
+    if decision in ("discard", "void"):
+        _drop_auto_mark(conn, mark)
     conn.execute(
         "INSERT INTO provisional_decisions (fingerprint, decision, decided_at) VALUES (?, ?, ?) "
         "ON CONFLICT(fingerprint) DO UPDATE SET decision = excluded.decision, "
@@ -369,15 +372,48 @@ def _table(conn: sqlite3.Connection, name: str) -> bool:
 
 def is_linked(conn: sqlite3.Connection, mark: str) -> bool:
     """The fingerprint is in a link (`link_members`) or in the shared ledger (`ledger_links`):
-    discarding or voiding it would leave that link pointing at nothing."""
+    discarding or voiding it would leave that link pointing at nothing. A mark the system put
+    (`cash_auto_marks`, a withdrawal moved into cash automatically) does not count: `decide`
+    drops it."""
     for table in ("link_members", "ledger_links"):
         if _table(conn, table):
             found = conn.execute(
                 f"SELECT 1 FROM {table} WHERE fingerprint = ? LIMIT 1", (mark,)
             ).fetchone()
-            if found is not None:
+            if found is not None and not (table == "link_members" and _auto_marked(conn, mark)):
                 return True
     return False
+
+
+def in_cash(conn: sqlite3.Connection, mark: str) -> bool:
+    """Its link is the cash account (moved into cash or deposited from it), by hand."""
+    found = conn.execute(
+        "SELECT 1 FROM link_members m JOIN links l ON l.id = m.link_id "
+        "WHERE m.fingerprint = ? AND l.kind = 'cash_box'",
+        (mark,),
+    ).fetchone()
+    return found is not None
+
+
+def _auto_marked(conn: sqlite3.Connection, mark: str) -> bool:
+    if not _table(conn, "cash_auto_marks"):
+        return False
+    return (
+        conn.execute("SELECT 1 FROM cash_auto_marks WHERE fingerprint = ?", (mark,)).fetchone()
+        is not None
+    )
+
+
+def _drop_auto_mark(conn: sqlite3.Connection, mark: str) -> None:
+    """A discarded or voided movement never was cash: the system's mark goes with it."""
+    if not _auto_marked(conn, mark):
+        return
+    conn.execute(
+        "DELETE FROM link_members WHERE fingerprint = ? AND role = 'stored' "
+        "AND link_id IN (SELECT id FROM links WHERE kind = 'cash_box')",
+        (mark,),
+    )
+    conn.execute("DELETE FROM cash_auto_marks WHERE fingerprint = ?", (mark,))
 
 
 Reversal = Literal["pending", "charged"]

@@ -33,6 +33,29 @@ Balances (`group_state`), per group:
 4. "They won't pay me" is per person in a group (`Member.written_off`): what that person
    still owes goes back to the user's expense (in each entry's month). Unattributed payments
    cover first what the people not written off owe.
+5. Exchange leftovers (`PersonBalance.leftover`, schema 22): what is left with a person in one
+   currency, below `LEFTOVER` (RD$ 50 or US$ 1), when **every** claim of that currency still
+   open with them (both ways) was touched by a payment in the other currency (or is the rest
+   of one), is conversion rounding: those claims count as settled right after the attributed
+   payments (`_settle_leftover`), so neither `PersonBalance.net`, the entries' pending, the
+   totals, `has_pending`, Pending, "To review" nor `approx_total` count it; it shows as
+   "settled (exchange difference)" and the raw figure is `raw_net`. An untouched claim in that
+   currency (a new expense, say) is a real debt: then nothing of that currency is a leftover.
+   It can be turned off per person in a group (`Member.leftover_settled`). A written-off
+   person already owes nothing (rule 4), so for them it only applies to what the user owes
+   them.
+
+Allocations proposed for a payment on behalf of several people
+(`ledger_cover.propose_allocations`): first everything the payer owed the receiver as of the
+payment's (day, id) position, then each other person in the order given (the order they were
+checked), each up to what they owe at that point, converted at the payment month's rate; what
+is left stays on the payer (rule 2 turns it into a claim the other way).
+`ledger_cover.cover_suggestion` proposes covering someone with a payment whose excess is still
+open (see there).
+
+The total line (`ledger_cover.approx_total`): balances in two currencies stay apart; one line
+"in total ≈" converts them at the current month's rate (the closest previous month's when
+missing; no line without a rate) into the currency of the larger side.
 
 What counts as the user's spending for an entry (`EntryState.counted`): their share plus what
 was written off when they paid; their share when someone else paid (an accrual: it counts in
@@ -62,6 +85,8 @@ _ZERO = Decimal(0)
 _NO_RATES: Mapping[str, Rate] = {}
 # Below this, what was paid in excess is conversion rounding: neither excess nor warning.
 MIN_EXCESS = {"DOP": Decimal(1), "USD": Decimal("0.05")}
+# Below this, what is left with a person after a converted payment is an exchange leftover.
+LEFTOVER = {"DOP": Decimal(50), "USD": Decimal(1)}
 
 
 @dataclass(frozen=True)
@@ -188,6 +213,7 @@ class Payment:
 class Member:
     contact_id: int
     written_off: bool = False  # "They won't pay me"
+    leftover_settled: bool = True  # exchange leftovers count as settled (schema 22)
 
 
 @dataclass(frozen=True)
@@ -199,6 +225,8 @@ class Group:
     payments: tuple[Payment, ...] = ()
     category_id: int | None = None
     archived: bool = False
+    # Payments whose "Was it for someone else too?" was answered "No" (schema 22).
+    dismissed: frozenset[int] = frozenset()
 
     def member(self, contact_id: int) -> Member | None:
         return next((m for m in self.members if m.contact_id == contact_id), None)
@@ -373,12 +401,14 @@ def convert(
 
 @dataclass
 class _Applied:
-    """What a payment did: what was left (its currency), whether it counted and whether an
-    entry with something pending was skipped for lack of a rate."""
+    """What a payment did: what was left (its currency), whether it counted, whether an entry
+    with something pending was skipped for lack of a rate and whether it settled a claim in the
+    other currency (`converted`)."""
 
     left: Decimal
     counted: bool
     blocked: bool
+    converted: bool = False
 
 
 def apply_fifo(
@@ -389,11 +419,13 @@ def apply_fifo(
     remaining: list[Decimal],
     applied: list[Decimal],
     rates: Mapping[str, Rate],
+    touched: list[bool] | None = None,
 ) -> _Applied:
     """Applies a payment from the oldest claim to the newest (updates `remaining` and
-    `applied`, one slot per entry in `currencies`). A claim without a rate to convert the
-    payment is skipped: it goes on with the next ones."""
-    left, counted, blocked = amount, False, False
+    `applied`, one slot per entry in `currencies`; `touched` marks the slots a payment in the
+    other currency settled part of). A claim without a rate to convert the payment is skipped:
+    it goes on with the next ones."""
+    left, counted, blocked, converted = amount, False, False, False
     for index, target in enumerate(currencies):
         if left <= 0:
             break
@@ -407,11 +439,15 @@ def apply_fifo(
         applied[index] += used
         remaining[index] -= used
         counted = counted or used > 0
+        if used > 0 and target != currency:
+            converted = True
+            if touched is not None:
+                touched[index] = True
         if used == value:
-            return _Applied(_ZERO, counted, blocked)
+            return _Applied(_ZERO, counted, blocked, converted)
         back = convert(used, target, currency, day, rates) or _ZERO
         left = max(_ZERO, left - back)
-    return _Applied(left, counted, blocked)
+    return _Applied(left, counted, blocked, converted)
 
 
 # --- Balances -------------------------------------------------------------------------------
@@ -454,6 +490,7 @@ class PaymentState:
     turned: Decimal = _ZERO  # an attributed one: what became a claim the other way
     unconverted: bool = False  # part did not count: no rate
     uncounted: bool = False  # nothing counted for lack of a rate
+    converted: bool = False  # it settled claims in the other currency (at its month's rate)
 
 
 @dataclass(frozen=True)
@@ -476,15 +513,26 @@ class PersonBalance:
     owes_me: tuple[tuple[str, Decimal], ...] = ()
     i_owe: tuple[tuple[str, Decimal], ...] = ()
     written_off: bool = False
+    # Exchange leftovers taken as settled, by currency, signed like `net` (rule 5).
+    leftover: tuple[tuple[str, Decimal], ...] = ()
 
     @property
     def net(self) -> dict[str, Decimal]:
-        """Positive: they owe the user; negative: the user owes them (only non-zero)."""
+        """Positive: they owe the user; negative: the user owes them (only non-zero). The
+        exchange leftovers are already out (`group_state` settled those claims)."""
         found: dict[str, Decimal] = {}
         for currency, value in self.owes_me:
             found[currency] = found.get(currency, _ZERO) + value
         for currency, value in self.i_owe:
             found[currency] = found.get(currency, _ZERO) - value
+        return {c: v for c, v in sorted(found.items()) if v != 0}
+
+    @property
+    def raw_net(self) -> dict[str, Decimal]:
+        """`net` with the exchange leftovers still in."""
+        found = self.net
+        for currency, value in self.leftover:
+            found[currency] = found.get(currency, _ZERO) + value
         return {c: v for c, v in sorted(found.items()) if v != 0}
 
     @property
@@ -500,6 +548,9 @@ class GroupState:
     people: tuple[PersonBalance, ...]  # every member but the user
     # By currency: how much of the people's balances the unattributed payments covered.
     loose: tuple[tuple[str, Decimal], ...] = ()
+    # Attributed payments whose excess (a claim the other way) is still open: payment id ->
+    # what is left of it, in the payment's currency.
+    open_excess: tuple[tuple[int, Decimal], ...] = ()
 
     @property
     def id(self) -> int:
@@ -601,23 +652,57 @@ def _ordered_payments(group: Group) -> list[Payment]:
 @dataclass
 class _Claims:
     """Running claims of one direction with one person: one slot per entry, then one per
-    payment that turned into a claim this way."""
+    payment that turned into a claim this way (`sources`: that payment's id). `touched`: a
+    payment in the other currency settled part of the slot, or the slot is the rest of one."""
 
     currencies: list[str]
     remaining: list[Decimal]
     applied: list[Decimal]
+    touched: list[bool]
+    sources: list[int | None]
 
-    def add(self, currency: str, value: Decimal) -> None:
+    @classmethod
+    def empty(cls, currencies: Sequence[str]) -> _Claims:
+        size = len(currencies)
+        return cls(list(currencies), [_ZERO] * size, [_ZERO] * size, [False] * size, [None] * size)
+
+    def add(
+        self, currency: str, value: Decimal, touched: bool = False, source: int | None = None
+    ) -> None:
         self.currencies.append(currency)
         self.remaining.append(value)
         self.applied.append(_ZERO)
+        self.touched.append(touched)
+        self.sources.append(source)
+
+    def open_in(self, currency: str) -> list[int]:
+        """The slots of `currency` with something still open."""
+        return [
+            i for i, (c, r) in enumerate(zip(self.currencies, self.remaining, strict=True))
+            if c == currency and r > 0
+        ]  # fmt: skip
+
+    def settle(self, slots: Iterable[int]) -> None:
+        """What is left in these slots counts as settled (an exchange leftover)."""
+        for index in slots:
+            self.applied[index] += self.remaining[index]
+            self.remaining[index] = _ZERO
 
 
-def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) -> GroupState:
-    """The group's balances for the user (see the module docstring)."""
+@dataclass
+class _Book:
+    """The claims of a group before any payment: entries oldest first, the people (every
+    member but the user, and anyone an entry or payment names) and both directions."""
+
+    entries: list[Entry]
+    others: list[int]
+    to_me: dict[int, _Claims]
+    from_me: dict[int, _Claims]
+
+
+def _open_book(group: Group, me: int) -> _Book:
     entries = _ordered_entries(group)
     currencies = [e.currency for e in entries]
-    size = len(entries)
     others = [m.contact_id for m in group.members if m.contact_id != me]
     for entry in entries:
         others.extend(c for c in (entry.paid_by, *entry.people) if c != me and c not in others)
@@ -625,8 +710,8 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
         for contact, _ in payment.parts_for(me):
             if contact != me and contact not in others:
                 others.append(contact)
-    to_me = {p: _Claims(list(currencies), [_ZERO] * size, [_ZERO] * size) for p in others}
-    from_me = {p: _Claims(list(currencies), [_ZERO] * size, [_ZERO] * size) for p in others}
+    to_me = {p: _Claims.empty(currencies) for p in others}
+    from_me = {p: _Claims.empty(currencies) for p in others}
     for index, entry in enumerate(entries):
         if entry.paid_by == me:
             for split in entry.splits:
@@ -634,6 +719,15 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
                     to_me[split.contact_id].remaining[index] += split.share
         else:
             from_me[entry.paid_by].remaining[index] += entry.share_of(me)
+    return _Book(entries, others, to_me, from_me)
+
+
+def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) -> GroupState:
+    """The group's balances for the user (see the module docstring)."""
+    book = _open_book(group, me)
+    entries, others, to_me, from_me = book.entries, book.others, book.to_me, book.from_me
+    currencies = [e.currency for e in entries]
+    size = len(entries)
     owed = {p: list(c.remaining) for p, c in to_me.items()}
     debts = {p: list(c.remaining) for p, c in from_me.items()}
     results: dict[int, PaymentState] = {}
@@ -642,6 +736,11 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
         state = _apply_attributed(payment, me, to_me, from_me, rates)
         if state is not None:
             results[payment.id] = state
+    written = {m.contact_id for m in group.members if m.written_off}
+    kept = {m.contact_id for m in group.members if not m.leftover_settled}
+    leftovers = {
+        p: _settle_leftover(to_me[p], from_me[p], p in written) for p in others if p not in kept
+    }
     # Unattributed payments: what is left of the group's claims to the user as a whole.
     aggregate = [sum((to_me[p].remaining[i] for p in others), _ZERO) for i in range(size)]
     loose = [_ZERO] * size
@@ -652,12 +751,13 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
             payment.settles, payment.currency, payment.day, currencies, aggregate, loose, rates
         )
         results[payment.id] = _payment_state(payment, done)
-    written = {m.contact_id for m in group.members if m.written_off}
     states = tuple(
         _entry_state(index, entry, me, to_me, from_me, owed, debts, loose[index], written)
         for index, entry in enumerate(entries)
     )
-    people = tuple(_person(p, to_me[p], from_me[p], p in written) for p in others)
+    people = tuple(
+        _person(p, to_me[p], from_me[p], p in written, leftovers.get(p, ())) for p in others
+    )
     covered: dict[str, Decimal] = {}
     for index, item in enumerate(states):
         open_ = sum((c.remaining[index] for p, c in to_me.items() if p not in written), _ZERO)
@@ -669,7 +769,19 @@ def group_state(group: Group, me: int, rates: Mapping[str, Rate] = _NO_RATES) ->
         payments=tuple(results.get(p.id, PaymentState(p)) for p in payments),
         people=people,
         loose=tuple(sorted(covered.items())),
+        open_excess=_open_excess(to_me, from_me),
     )
+
+
+def _open_excess(
+    to_me: Mapping[int, _Claims], from_me: Mapping[int, _Claims]
+) -> tuple[tuple[int, Decimal], ...]:
+    found: dict[int, Decimal] = {}
+    for claims in (*to_me.values(), *from_me.values()):
+        for source, value in zip(claims.sources, claims.remaining, strict=True):
+            if source is not None and value > 0:
+                found[source] = found.get(source, _ZERO) + value
+    return tuple(sorted(found.items()))
 
 
 def _apply_attributed(
@@ -685,7 +797,7 @@ def _apply_attributed(
     parts = payment.parts_for(me)
     if not parts:
         return None
-    turned, unconverted, counted = _ZERO, False, False
+    turned, unconverted, counted, converted = _ZERO, False, False, False
     for contact, value in parts:
         if contact not in to_me:
             continue
@@ -701,24 +813,32 @@ def _apply_attributed(
             claims.remaining,
             claims.applied,
             rates,
+            claims.touched,
         )
         counted = counted or done.counted
+        converted = converted or done.converted
         if done.left > 0 and not done.blocked:
-            opposite.add(payment.currency, done.left)
+            opposite.add(payment.currency, done.left, touched=done.converted, source=payment.id)
             turned += done.left
         elif done.left > 0:
             unconverted = True
     return PaymentState(
-        payment, turned=turned, unconverted=unconverted, uncounted=unconverted and not counted
+        payment,
+        turned=turned,
+        unconverted=unconverted,
+        uncounted=unconverted and not counted,
+        converted=converted,
     )
 
 
 def _payment_state(payment: Payment, done: _Applied) -> PaymentState:
     if done.left <= 0:
-        return PaymentState(payment)
+        return PaymentState(payment, converted=done.converted)
     if not done.blocked:
-        return PaymentState(payment, excess=done.left)
-    return PaymentState(payment, unconverted=True, uncounted=not done.counted)
+        return PaymentState(payment, excess=done.left, converted=done.converted)
+    return PaymentState(
+        payment, unconverted=True, uncounted=not done.counted, converted=done.converted
+    )
 
 
 def _entry_state(
@@ -762,13 +882,47 @@ def _sum_by(values: Iterable[tuple[str, Decimal]]) -> tuple[tuple[str, Decimal],
     return tuple(sorted((c, v) for c, v in found.items() if v > 0))
 
 
-def _person(contact_id: int, to_me: _Claims, from_me: _Claims, written_off: bool) -> PersonBalance:
+def _settle_leftover(
+    to_me: _Claims, from_me: _Claims, written_off: bool
+) -> tuple[tuple[str, Decimal], ...]:
+    """Rule 5 for one person: in each currency where every claim still open (both ways; for a
+    written-off person, only what the user owes them) was touched by a payment in the other
+    currency and what they add up to is below `LEFTOVER`, those claims count as settled (moved
+    to `applied`, so entries, totals and Pending agree with `net`). Returns what was settled,
+    signed like `net`. An untouched claim in that currency is a real debt: nothing is settled."""
+    found = []
+    for currency in sorted(set(to_me.currencies) | set(from_me.currencies)):
+        owed = [] if written_off else to_me.open_in(currency)
+        owing = from_me.open_in(currency)
+        if not owed and not owing:
+            continue
+        if not all(to_me.touched[i] for i in owed) or not all(from_me.touched[i] for i in owing):
+            continue
+        value = sum((to_me.remaining[i] for i in owed), _ZERO) - sum(
+            (from_me.remaining[i] for i in owing), _ZERO
+        )
+        if value == 0 or abs(value) >= LEFTOVER.get(currency, _ZERO):
+            continue
+        to_me.settle(owed)
+        from_me.settle(owing)
+        found.append((currency, value))
+    return tuple(found)
+
+
+def _person(
+    contact_id: int,
+    to_me: _Claims,
+    from_me: _Claims,
+    written_off: bool,
+    leftover: tuple[tuple[str, Decimal], ...] = (),
+) -> PersonBalance:
     owes = () if written_off else _sum_by(zip(to_me.currencies, to_me.remaining, strict=True))
     return PersonBalance(
         contact_id=contact_id,
         owes_me=owes,
         i_owe=_sum_by(zip(from_me.currencies, from_me.remaining, strict=True)),
         written_off=written_off,
+        leftover=leftover,
     )
 
 

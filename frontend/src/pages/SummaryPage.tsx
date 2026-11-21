@@ -1,44 +1,36 @@
+import { type ReactNode, type TouchEvent, useRef } from 'react'
 import { useSearchParams } from 'react-router'
-import { HostedEmpty } from '@/components/onboarding/HostedEmpty'
-import { isHosted, useMode } from '@/lib/demo'
 import { AccountPicker } from '@/components/filters/AccountPicker'
+import { CoveragePill } from '@/components/cards/CoveragePill'
+import { HomeCards } from '@/components/cards/HomeCards'
+import { FabSpace, QuickCashButton } from '@/components/cashBox/QuickCash'
+import { NoMonths } from '@/components/cards/NoMonths'
 import { LoadError } from '@/components/LoadError'
-import { BudgetCard } from '@/components/summary/BudgetCard'
-import { ByAccount } from '@/components/summary/ByAccount'
-import { CategoryTable } from '@/components/summary/CategoryTable'
-import { CoverageChips } from '@/components/summary/CoverageChips'
-import { InterestCard } from '@/components/summary/InterestCard'
-import { Kpis } from '@/components/summary/Kpis'
 import { MonthHeader } from '@/components/MonthHeader'
 import { SummaryOnboarding } from '@/components/onboarding/SummaryOnboarding'
-import { MobileSummary } from '@/components/summary/MobileSummary'
-import { MonthReading } from '@/components/summary/MonthReading'
-import { PendingCard } from '@/components/summary/PendingCard'
-import { ReviewCard } from '@/components/summary/ReviewCard'
-import { RecurringCard } from '@/components/summary/RecurringCard'
-import { PANEL } from '@/components/summary/styles'
-import { TrendBars } from '@/components/summary/TrendBars'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
-import { tn } from '@/i18n/nodes'
+import { ACCOUNTS_PARAM, scopeText } from '@/lib/accountFilter'
 import {
-  ACCOUNTS_PARAM,
-  type AccountRef,
-  includesCard,
-  scopeText,
-  type Selection,
-} from '@/lib/accountFilter'
-import type { MonthOption, Summary } from '@/lib/api'
-import { neighbors, resolveMonth, returnTarget } from '@/lib/months'
+  lastDay,
+  monthName,
+  neighbors,
+  type Neighbors,
+  resolveMonth,
+  returnTarget,
+} from '@/lib/months'
 import { usePublishNavMonth } from '@/lib/navMonth'
-import { useMonths, useReview, useSummary } from '@/lib/queries'
-import { partialNote } from '@/lib/summary'
+import { useMonths, useSummary } from '@/lib/queries'
+import { useScrollMemory } from '@/lib/scrollMemory'
 import { useAccountSelection } from '@/lib/useAccountSelection'
-import { useIsMobile } from '@/lib/useMobile'
 import { cn } from '@/lib/utils'
 
-/** Summary screen: the month (`?month=YYYY-MM`) and the chosen accounts (`accounts=k1,k2`, also
- * remembered in the browser) live in the URL. */
+/** A horizontal swipe longer than this (and mostly sideways) changes the month. */
+const SWIPE_PX = 60
+
+/** Summary screen: a stack of cards for the month (`?month=YYYY-MM`, by default the newest, in
+ * progress) with the chosen accounts (`accounts=k1,k2`, also remembered in the browser). Each
+ * card leads to the list that explains it; going back returns to the same scroll position. */
 export function SummaryPage() {
   const [params, setParams] = useSearchParams()
   const { selection, accounts, ready, select } = useAccountSelection()
@@ -47,6 +39,7 @@ export function SummaryPage() {
   const summary = useSummary(month, selection)
   const home = months.data && month ? returnTarget(months.data, month) : null
   usePublishNavMonth(home ? month : null)
+  useScrollMemory()
 
   // Changing the month keeps the URL's accounts (when it has them).
   function goTo(target: string | null) {
@@ -60,156 +53,89 @@ export function SummaryPage() {
     return <LoadError what={t('summary.page.months')} error={months.error} onRetry={() => months.refetch()} />
   }
   if (!ready || months.isPending) return <SummarySkeleton />
-  if (month === null) return <EmptyState />
+  if (month === null) return <NoMonths />
 
   const option = months.data.find((o) => o.month === month) ?? months.data[0]
+  const around = neighbors(months.data, month)
   return (
     <>
-      <MonthHeader
-        month={month}
-        label={option.label}
-        months={months.data}
-        neighbors={neighbors(months.data, month)}
-        onNavigate={goTo}
-        home={home}
-        onReturn={() => goTo(null)}
-        scope={scopeText(selection, accounts)}
-        picker={
-          accounts.length > 1 && (
-            <AccountPicker selection={selection} accounts={accounts} onChange={select} />
-          )
-        }
-      >
-        {summary.data && <CoverageChips coverage={summary.data.coverage} />}
-      </MonthHeader>
+      <Swipe around={around} onNavigate={goTo}>
+        <MonthHeader
+          month={month}
+          label={option.label}
+          months={months.data}
+          neighbors={around}
+          onNavigate={goTo}
+          home={home}
+          onReturn={() => goTo(null)}
+          scope={null}
+          picker={
+            accounts.length > 1 && (
+              <AccountPicker selection={selection} accounts={accounts} onChange={select} />
+            )
+          }
+        >
+          {summary.data && (
+            <CoveragePill
+              coverage={summary.data.coverage}
+              scope={t('months.headerScope', {
+                last: lastDay(month),
+                month: monthName(month),
+                scope: scopeText(selection, accounts),
+              })}
+            />
+          )}
+        </MonthHeader>
+      </Swipe>
       <SummaryOnboarding />
+      <div className="flex justify-end">
+        <QuickCashButton />
+      </div>
       {summary.isError ? (
         <LoadError what={t('summary.page.summary')} error={summary.error} onRetry={() => summary.refetch()} />
       ) : summary.data ? (
-        <MonthBody
-          summary={summary.data}
-          stale={summary.isPlaceholderData}
-          newest={months.data[0]}
-          onSelectMonth={goTo}
-          selection={selection}
-          accounts={accounts}
-        />
+        <div
+          aria-busy={summary.isPlaceholderData}
+          className={cn('transition-opacity', summary.isPlaceholderData && 'opacity-60')}
+        >
+          <HomeCards summary={summary.data} selection={selection} />
+        </div>
       ) : (
         <BodySkeleton />
       )}
+      <FabSpace />
     </>
   )
 }
 
-interface MonthBodyProps {
-  summary: Summary
-  stale: boolean
-  newest: MonthOption
-  onSelectMonth: (month: string) => void
-  selection: Selection
-  accounts: readonly AccountRef[]
+interface SwipeProps {
+  around: Neighbors
+  onNavigate: (month: string) => void
+  children: ReactNode
 }
 
-function MonthBody({
-  summary,
-  stale,
-  newest,
-  onSelectMonth,
-  selection,
-  accounts,
-}: MonthBodyProps) {
-  const { option } = summary
-  const chosen = summary.trend.find((point) => point.month === option.month)
-  const note = option.partial
-    ? partialNote(option.label, summary.coverage)
-    : newest.partial && newest.month > option.month
-      ? t('summary.page.inProgress', { label: newest.label })
-      : null
-  // With nothing to review, "To review" stays on one line and Categories takes the full width.
-  const review = useReview(option.month, selection)
-  const nothingToReview = review.isSuccess && review.data.length === 0
-  // Interest belongs to cards: with none chosen, the widget does not show.
-  const cards = selection === null || includesCard(selection, accounts)
-  const mobile = useIsMobile()
-  if (mobile) {
-    return (
-      <div
-        aria-busy={stale}
-        className={cn('flex flex-col gap-5 transition-opacity', stale && 'opacity-60')}
-      >
-        <MobileSummary
-          summary={summary}
-          onSelectMonth={onSelectMonth}
-          selection={selection}
-          accounts={accounts}
-          note={note}
-        />
-      </div>
-    )
+/** Swiping the header sideways changes the month: to the left, the next one; to the right, the
+ * previous one (like turning pages). */
+function Swipe({ around, onNavigate, children }: SwipeProps) {
+  const start = useRef<{ x: number; y: number } | null>(null)
+  function onTouchStart(event: TouchEvent) {
+    const touch = event.touches[0]
+    start.current = touch ? { x: touch.clientX, y: touch.clientY } : null
+  }
+  function onTouchEnd(event: TouchEvent) {
+    const from = start.current
+    const touch = event.changedTouches[0]
+    start.current = null
+    if (!from || !touch) return
+    const dx = touch.clientX - from.x
+    const dy = touch.clientY - from.y
+    if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < 2 * Math.abs(dy)) return
+    const target = dx < 0 ? around.newer : around.older
+    if (target) onNavigate(target)
   }
   return (
-    <div
-      aria-busy={stale}
-      className={cn('flex flex-col gap-6 transition-opacity', stale && 'opacity-60')}
-    >
-      <Kpis key={option.month} summary={summary} selection={selection} />
-      <TrendBars trend={summary.trend} month={option.month} onSelect={onSelectMonth} />
-      <MonthReading
-        key={`reading-${option.month}`}
-        month={option.month}
-        point={chosen}
-        whatHappened={summary.what_happened}
-        changes={summary.changes}
-        partial={option.partial}
-        comparable={summary.habitual_cents !== null}
-        selection={selection}
-      />
-      <div
-        data-testid="summary-pair"
-        className={cn(
-          'grid items-stretch gap-6',
-          !nothingToReview && 'xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]',
-        )}
-      >
-        <CategoryTable
-          key={`cat-${option.month}`}
-          month={option.month}
-          categories={summary.categories}
-          selection={selection}
-        />
-        <ReviewCard key={`rev-${option.month}`} month={option.month} selection={selection} />
-      </div>
-      <div
-        className={cn(
-          'grid items-stretch gap-6 md:grid-cols-2',
-          cards ? 'xl:grid-cols-4' : 'xl:grid-cols-3',
-        )}
-      >
-        <RecurringCard month={option.month} selection={selection} />
-        <PendingCard selection={selection} />
-        {cards && <InterestCard month={option.month} selection={selection} />}
-        <ByAccount key={`acc-${option.month}`} accounts={summary.by_account} rate={summary.rate} />
-      </div>
-      <BudgetCard month={option.month} selection={selection} />
-      {note && <p className="text-[13px] text-muted-foreground">{note}</p>}
-    </div>
-  )
-}
-
-function EmptyState() {
-  if (isHosted(useMode())) return <HostedEmpty view="summary" />
-  return (
-    <div className={cn(PANEL, 'flex flex-col gap-2 px-6 py-10 text-center')}>
-      <h1 className="text-xl font-bold tracking-tight">{t('summary.page.title')}</h1>
-      <p className="text-sm text-muted-foreground">
-        {tn('summary.page.empty', {
-          command: (
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[13px] text-foreground">
-              uv run michelito sync
-            </code>
-          ),
-        })}
-      </p>
+    <div data-testid="summary-header" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      {children}
     </div>
   )
 }
@@ -228,17 +154,11 @@ function SummarySkeleton() {
 
 function BodySkeleton() {
   return (
-    <div aria-busy="true" className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-[130px] rounded-2xl" />
-        ))}
-      </div>
-      <Skeleton className="h-[300px] rounded-2xl" />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-        <Skeleton className="h-[420px] rounded-2xl" />
-        <Skeleton className="h-[420px] rounded-2xl" />
-      </div>
+    <div aria-busy="true" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <Skeleton className="h-[220px] rounded-[20px] md:col-span-2" />
+      {[0, 1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-[160px] rounded-[20px]" />
+      ))}
     </div>
   )
 }

@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { FOCUS, PANEL, PANEL_TITLE, ROW_DIVIDER } from '@/components/summary/styles'
 import { t } from '@/i18n'
+import { selectionFromParams, transactionsHref } from '@/lib/accountFilter'
 import {
   asideNotes,
   type Budget,
@@ -72,7 +74,7 @@ export function CategoryBudget({ budget }: { budget: Budget }) {
       )}
       <ul className="flex flex-col">
         {shown.map((line) => (
-          <CategoryRow key={line.category_id} line={line} />
+          <CategoryRow key={line.category_id} line={line} month={budget.month} />
         ))}
       </ul>
       {rest.length > 0 && (
@@ -87,7 +89,7 @@ export function CategoryBudget({ budget }: { budget: Budget }) {
           </summary>
           <ul className="flex flex-col">
             {rest.map((line) => (
-              <CategoryRow key={line.category_id} line={line} />
+              <CategoryRow key={line.category_id} line={line} month={budget.month} />
             ))}
           </ul>
         </details>
@@ -126,7 +128,25 @@ function Activate() {
   )
 }
 
-function CategoryRow({ line }: { line: BudgetLine }) {
+/** A category's name leads to its expenses of the month (with the URL's accounts). */
+function CategoryLink({ category, month }: { category: string; month: string }) {
+  const [params] = useSearchParams()
+  const href = transactionsHref({ month, category, kind: 'expense' }, selectionFromParams(params))
+  return (
+    <Link
+      to={href}
+      className={cn(
+        'relative min-w-0 rounded-sm text-sm font-semibold text-foreground underline-offset-2 hover:underline',
+        'before:absolute before:-inset-y-3 before:inset-x-0 before:content-[""]',
+        FOCUS,
+      )}
+    >
+      {category}
+    </Link>
+  )
+}
+
+function CategoryRow({ line, month }: { line: BudgetLine; month: string }) {
   const [editing, setEditing] = useState(false)
   const { share } = barShare(line)
   const over = line.passed
@@ -138,7 +158,7 @@ function CategoryRow({ line }: { line: BudgetLine }) {
       className={cn(ROW_DIVIDER, 'flex flex-col gap-2 py-3')}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="min-w-0 text-sm font-semibold">{line.category}</span>
+        <CategoryLink category={line.category} month={month} />
         <span className={cn('text-sm tabular-nums', over ? 'font-semibold text-up' : 'text-ink-2')}>
           {spentText(line).replace(/RD\$ /g, 'RD$\u00a0')}
           {line.over_cents > 0 && t('budget.line.overBy', { amount: formatDop(line.over_cents) })}

@@ -16,22 +16,39 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Query, Response
 
 from michelito.analysis import accounts as account_data
-from michelito.analysis import changelog, ledger, ledger_store, ledger_suggest, links, rates, shared
+from michelito.analysis import (
+    changelog,
+    ledger,
+    ledger_cover,
+    ledger_store,
+    ledger_suggest,
+    links,
+    rates,
+    shared,
+)
 from michelito.analysis.links import AlreadyLinked, LinkError
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.web import ledger_view
 from michelito.web import links as links_view
 from michelito.web.ledger_schemas import (
+    AfterOut,
     AliasBody,
+    AllocationsBody,
     ContactBody,
     ContactOut,
     ContactPatchBody,
     ContactsOut,
+    CoverBody,
+    CoverPaymentOut,
+    CoverPlanOut,
+    DismissCoverBody,
+    DismissCoversBody,
     EntryBody,
     GroupBody,
     GroupOut,
     GroupPatchBody,
+    LeftoverBody,
     MemberBody,
     MemberUsageOut,
     MergeBody,
@@ -39,21 +56,113 @@ from michelito.web.ledger_schemas import (
     PaymentBody,
     PaymentPatchBody,
     PersonOut,
+    ProposalOut,
+    ProposedOut,
+    ShareBody,
     SharedHomeOut,
     SplitOut,
     UsedInOut,
     WriteOffBody,
+    money,
 )
-from michelito.web.schemas import CandidateOut, LinkedTxOut, to_cents
+from michelito.web.schemas import CandidateOut, CurrencyCentsOut, LinkedTxOut, to_cents
 
 Connection = Callable[[], AbstractContextManager[sqlite3.Connection]]
 LoadFlow = Callable[[sqlite3.Connection], Sequence[Movement]]
 ParseAccounts = Callable[[str | None, Sequence[account_data.AccountInfo]], frozenset[str] | None]
 AccountKeys = Annotated[str | None, Query(max_length=2000)]
 _CANDIDATE_LIMIT = 30
+CoverList = Annotated[str, Query(max_length=500, pattern=r"^[0-9,]*$")]
 
 
-def load_book(conn: sqlite3.Connection, flow: Sequence[Movement]) -> ledger_view.Book:
+def _unique(allocations: Sequence[ShareBody]) -> list[tuple[int, Decimal]]:
+    """The allocations as (person, amount); the same person twice is refused (a dict would
+    keep the last one silently)."""
+    ids = [a.contact_id for a in allocations]
+    if len(set(ids)) != len(ids):
+        raise LinkError(t("analysis.ledger.allocation_twice"))
+    return [(a.contact_id, Decimal(a.cents) / 100) for a in allocations]
+
+
+def plan_out(
+    book: ledger_view.Book,
+    group: ledger.Group,
+    found: ledger_cover.CoverSuggestion,
+    plan: ledger_cover.CoverPlan,
+) -> CoverPlanOut:
+    after = []
+    for member in group.members:
+        balance = plan.after.person(member.contact_id)
+        if member.contact_id == book.ledger.me or balance is None:
+            continue
+        after.append(
+            AfterOut(
+                contact_id=member.contact_id,
+                name=book.name(member.contact_id),
+                balance=money(balance.net),
+                leftover=money(dict(balance.leftover)),
+            )
+        )
+    payments = []
+    for item in plan.payments:
+        proposed = proposal_out(book, group, item.payment.currency, item.payment.day, item.proposal)
+        payments.append(
+            CoverPaymentOut(
+                payment_id=item.payment.id,
+                day=item.payment.day.isoformat(),
+                amount_cents=to_cents(item.payment.settles),
+                currency=item.payment.currency,
+                allocations=proposed.allocations,
+                rate=proposed.rate,
+            )
+        )
+    return CoverPlanOut(
+        text=ledger_view.cover_text(book.ledger, found), payments=payments, after=after
+    )
+
+
+def proposal_out(
+    book: ledger_view.Book,
+    group: ledger.Group,
+    currency: str,
+    day: date,
+    found: ledger_cover.Proposal,
+) -> ProposalOut:
+    """The proposed allocations with what each one owed and, when their claims are in the
+    other currency, the part converted at the payment month's rate."""
+    other = "USD" if currency == "DOP" else "DOP"
+
+    def equivalent(contact: int, value: Decimal) -> CurrencyCentsOut | None:
+        if found.rate is None or value <= 0:
+            return None
+        if not any(contact in e.people and e.currency == other for e in group.entries):
+            return None
+        converted = ledger.convert(value, currency, other, day, book.rates)
+        return (
+            None
+            if converted is None
+            else CurrencyCentsOut(currency=other, cents=to_cents(converted))
+        )
+
+    return ProposalOut(
+        currency=currency,
+        allocations=[
+            ProposedOut(
+                contact_id=contact,
+                name=book.name(contact),
+                cents=to_cents(value),
+                owed_cents=to_cents(found.owed.get(contact, Decimal(0))),
+                equivalent=equivalent(contact, value),
+            )
+            for contact, value in found.parts
+        ],
+        rate=ledger_view.rate_out(found.rate),
+    )
+
+
+def load_book(
+    conn: sqlite3.Connection, flow: Sequence[Movement], today: date | None = None
+) -> ledger_view.Book:
     infos = account_data.account_infos(conn)
     by_month = rates.load(conn)
     book = ledger_store.load(conn)
@@ -65,6 +174,7 @@ def load_book(conn: sqlite3.Connection, flow: Sequence[Movement]) -> ledger_view
         labels={a.key: a.label for a in infos},
         rates=by_month,
         banks=frozenset(a.key for a in infos if a.kind in account_data.BANK_KINDS),
+        today=today or date.today(),
     )
 
 
@@ -188,7 +298,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             yield
 
     def group_response(conn: sqlite3.Connection, group_id: int) -> GroupOut:
-        book = load_book(conn, load_flow(conn))
+        book = load_book(conn, load_flow(conn), today())
         found = ledger_view.group_out(book, group_id)
         if found is None:
             raise HTTPException(404, t("web.unknown_group"))
@@ -214,19 +324,19 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
     def get_shared() -> SharedHomeOut:
         """People and groups with their balances (see `web.ledger_view.home`)."""
         with connection() as conn:
-            book = load_book(conn, load_flow(conn))
+            book = load_book(conn, load_flow(conn), today())
         return ledger_view.home(book, today())
 
     @app.get("/api/shared/contacts")
     def get_contacts() -> ContactsOut:
         with connection() as conn:
-            book = load_book(conn, load_flow(conn))
+            book = load_book(conn, load_flow(conn), today())
         return ledger_view.contacts(book)
 
     @app.get("/api/shared/people/{contact_id}")
     def get_person(contact_id: int) -> PersonOut:
         with connection() as conn:
-            book = load_book(conn, load_flow(conn))
+            book = load_book(conn, load_flow(conn), today())
         found = ledger_view.person_out(book, contact_id)
         if found is None:
             raise HTTPException(404, t("analysis.ledger.unknown_contact", id=contact_id))
@@ -242,7 +352,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
         """ "I paid it": recent expenses not in a group, likely ones first (`primary`)."""
         with connection() as conn:
             flow = load_flow(conn)
-            book = load_book(conn, flow)
+            book = load_book(conn, flow, today())
             selected = parse_accounts(accounts, account_data.account_infos(conn))
         found = ledger_suggest.expense_candidates(flow, book.links, today(), book.rates, selected)[
             :_CANDIDATE_LIMIT
@@ -262,7 +372,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
         """ "Is it in your bank yet?": up to 3 transactions for a payment (see `ledger_suggest`)."""
         with connection() as conn:
             flow = load_flow(conn)
-            book = load_book(conn, flow)
+            book = load_book(conn, flow, today())
         found = ledger_suggest.payment_candidates(
             flow,
             book.links,
@@ -293,7 +403,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             subject = _contact_name(conn, contact_id)
             with tracked(conn, "contact_rename", f"contact-{contact_id}", subject):
                 ledger_store.rename_contact(conn, contact_id, body.name)
-            return ledger_view.contacts(load_book(conn, load_flow(conn)))
+            return ledger_view.contacts(load_book(conn, load_flow(conn), today()))
 
     @app.post("/api/shared/contacts/{contact_id}/aliases")
     def post_alias(contact_id: int, body: AliasBody) -> ContactsOut:
@@ -301,7 +411,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             subject = _contact_name(conn, contact_id)
             with tracked(conn, "contact_alias", f"contact-{contact_id}", subject):
                 ledger_store.add_alias(conn, contact_id, body.alias)
-            return ledger_view.contacts(load_book(conn, load_flow(conn)))
+            return ledger_view.contacts(load_book(conn, load_flow(conn), today()))
 
     @app.delete("/api/shared/contacts/{contact_id}/aliases/{alias}")
     def delete_alias(contact_id: int, alias: str) -> ContactsOut:
@@ -309,7 +419,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             subject = _contact_name(conn, contact_id)
             with tracked(conn, "contact_alias", f"contact-{contact_id}", subject):
                 ledger_store.remove_alias(conn, contact_id, alias)
-            return ledger_view.contacts(load_book(conn, load_flow(conn)))
+            return ledger_view.contacts(load_book(conn, load_flow(conn), today()))
 
     @app.post("/api/shared/contacts/{contact_id}/merge")
     def post_merge(contact_id: int, body: MergeBody) -> ContactsOut:
@@ -318,7 +428,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             subject = _contact_name(conn, contact_id)
             with tracked(conn, "contact_merge", f"contact-{body.into}", subject):
                 ledger_store.merge_contacts(conn, contact_id, body.into)
-            return ledger_view.contacts(load_book(conn, load_flow(conn)))
+            return ledger_view.contacts(load_book(conn, load_flow(conn), today()))
 
     @app.post("/api/shared/review-people/done", status_code=204)
     def post_review_done() -> Response:
@@ -564,12 +674,120 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
         rule (`ledger.fit_allocations`: the payer's own part first)."""
         if not body.allocations:
             return None
-        given = [(a.contact_id, Decimal(a.cents) / 100) for a in body.allocations]
+        given = _unique(body.allocations)
         if body.from_contact is None:
             raise LinkError(t("analysis.ledger.allocations_need_payer"))
         if amount == Decimal(body.amount_cents) / 100:  # as typed: they must add up (store)
             return dict(given)
         return dict(ledger.fit_allocations(given, body.from_contact, amount))
+
+    @app.get("/api/shared/groups/{group_id}/allocation-proposal")
+    def get_allocation_proposal(
+        group_id: int,
+        from_contact: int,
+        amount_cents: Annotated[int, Query(gt=0, le=10**13)],
+        day: str,
+        currency: str = "DOP",
+        covers: CoverList = "",
+        payment_id: int | None = None,
+    ) -> ProposalOut:
+        """ "Also pays for…": the default allocations (`ledger_cover.propose_allocations`: the
+        payer's own balance first, then each person in `covers` in that order) for a new
+        payment, or for `payment_id` at its own position."""
+        if currency not in ledger.CURRENCIES:
+            raise HTTPException(422, t("analysis.links.currency_choice"))
+        with connection() as conn:
+            book = load_book(conn, load_flow(conn), today())
+        group = book.ledger.group(group_id)
+        if group is None:
+            raise HTTPException(404, t("web.unknown_group"))
+        if payment_id is not None and group.payment(payment_id) is None:
+            raise HTTPException(404, t("analysis.ledger.unknown_payment", id=payment_id))
+        when = _day(day, today())
+        found = ledger_cover.propose_allocations(
+            group,
+            book.ledger.me,
+            book.rates,
+            payer=from_contact,
+            amount=Decimal(amount_cents) / 100,
+            currency=currency,
+            day=when,
+            covers=[int(c) for c in covers.split(",") if c],
+            payment_id=payment_id,
+        )
+        return proposal_out(book, group, currency, when, found)
+
+    @app.put("/api/shared/payments/{payment_id}/allocations")
+    def put_allocations(payment_id: int, body: AllocationsBody) -> GroupOut:
+        """ "Also paid for…" on a payment another person made to the user: replaces who it is
+        for in one change (one undo); none given, all of it is the payer's again."""
+        with connection() as conn, errors():
+            group_id = ledger_store.payment_group(conn, payment_id)
+            subject = _group_name(conn, group_id)
+            with tracked(conn, "group_payment", f"group-{group_id}", subject):
+                ledger_store.set_allocations(conn, payment_id, dict(_unique(body.allocations)))
+            return group_response(conn, group_id)
+
+    @app.get("/api/shared/groups/{group_id}/cover-proposal")
+    def get_cover_proposal(group_id: int) -> CoverPlanOut:
+        """ "Yes" to the group's suggestion: each of its payments proposed in order (payer
+        first, each counting what the previous ones covered) and the balances after."""
+        with connection() as conn:
+            book = load_book(conn, load_flow(conn), today())
+        group = book.ledger.group(group_id)
+        state = book.states.get(group_id)
+        if group is None or state is None:
+            raise HTTPException(404, t("web.unknown_group"))
+        found = ledger_cover.cover_suggestion(state, book.ledger.me)
+        if found is None:
+            raise HTTPException(404, t("analysis.ledger.no_cover"))
+        plan = ledger_cover.propose_cover(group, book.ledger.me, book.rates, found)
+        return plan_out(book, group, found, plan)
+
+    @app.put("/api/shared/groups/{group_id}/cover")
+    def put_cover(group_id: int, body: CoverBody) -> GroupOut:
+        """ "Yes" confirmed: every payment's allocations replaced in ONE change (one undo)."""
+        with connection() as conn:
+            subject = _group_name(conn, group_id)
+            with tracked(conn, "group_payment", f"group-{group_id}", subject):
+                ids = [p.payment_id for p in body.payments]
+                if len(set(ids)) != len(ids):
+                    raise LinkError(t("analysis.ledger.allocation_twice"))
+                ledger_store.require_payments_of(conn, group_id, ids)
+                for item in body.payments:
+                    given = dict(_unique(item.allocations))
+                    ledger_store.set_allocations(conn, item.payment_id, given)
+            return group_response(conn, group_id)
+
+    @app.put("/api/shared/groups/{group_id}/cover-dismissed")
+    def put_covers_dismissed(group_id: int, body: DismissCoversBody) -> GroupOut:
+        """ "No" to the group's suggestion: kept for each of its payments, as one change."""
+        with connection() as conn:
+            subject = _group_name(conn, group_id)
+            with tracked(conn, "group_payment", f"group-{group_id}", subject):
+                ledger_store.require_payments_of(conn, group_id, body.payment_ids)
+                for payment_id in dict.fromkeys(body.payment_ids):
+                    ledger_store.set_cover_dismissed(conn, payment_id, body.dismissed)
+            return group_response(conn, group_id)
+
+    @app.put("/api/shared/payments/{payment_id}/cover-dismissed")
+    def put_cover_dismissed(payment_id: int, body: DismissCoverBody) -> GroupOut:
+        """ "Was that payment for someone else too?" answered "No" (kept; undoable)."""
+        with connection() as conn, errors():
+            group_id = ledger_store.payment_group(conn, payment_id)
+            subject = _group_name(conn, group_id)
+            with tracked(conn, "group_payment", f"group-{group_id}", subject):
+                ledger_store.set_cover_dismissed(conn, payment_id, body.dismissed)
+            return group_response(conn, group_id)
+
+    @app.post("/api/shared/groups/{group_id}/exchange-leftover")
+    def post_exchange_leftover(group_id: int, body: LeftoverBody) -> GroupOut:
+        """Whether a person's exchange leftovers count as settled in the group."""
+        with connection() as conn:
+            subject = _group_name(conn, group_id)
+            with tracked(conn, "group_member", f"group-{group_id}", subject):
+                ledger_store.set_leftover_settled(conn, group_id, body.contact_id, body.settled)
+            return group_response(conn, group_id)
 
     @app.patch("/api/shared/payments/{payment_id}")
     def patch_payment(payment_id: int, body: PaymentPatchBody) -> GroupOut:

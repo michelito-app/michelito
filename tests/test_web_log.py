@@ -11,9 +11,10 @@ from fastapi.testclient import TestClient
 
 from michelito import db
 from michelito.analysis import categories, rates
+from michelito.analysis.accounts import CASH_BOX_NAME
 from michelito.i18n import t
 from michelito.web.app import create_app
-from tests.helpers import store
+from tests.helpers import shown_name, store
 from tests.test_spending import _add_bank_rows, seed
 from tests.test_web_exchanges import _bank, _row
 
@@ -97,7 +98,8 @@ def _last(client: TestClient) -> dict:
 
 
 def _category_id(client: TestClient, name: str) -> int:
-    return next(c["id"] for c in client.get("/api/categories").json() if c["name"] == name)
+    shown = shown_name(name)
+    return next(c["id"] for c in client.get("/api/categories").json() if c["name"] == shown)
 
 
 def _patch(client: TestClient, fp: str, headers: dict = WRITE, **body):
@@ -295,7 +297,7 @@ def test_exchange_investment_and_cash_box_are_logged(client: TestClient) -> None
     assert (stored["kind"], stored["before"]["text"], stored["after"]["text"]) == (
         "cash_box",
         categories.CASH,
-        categories.CASH_BOX,
+        CASH_BOX_NAME,
     )
     box = client.get("/api/cash-box").json()
     assert _undo(client, stored["id"]).status_code == 200
@@ -306,7 +308,8 @@ def test_exchange_investment_and_cash_box_are_logged(client: TestClient) -> None
 def test_manual_cash_entries_are_logged_and_undo_brings_back_the_same_id(
     client: TestClient,
 ) -> None:
-    body = {"kind": "expense", "day": "2026-01-15", "amount_cents": 50000, "currency": "DOP"}
+    body = {"kind": "expense", "day": "2026-01-15", "amount_cents": 50000, "currency": "DOP",
+            "concept": "Corner store"}  # fmt: skip
     made = client.post("/api/cash-box/entries", json={**body, "note": "x"}, headers=WRITE)
     assert made.status_code == 201
     entry = _last(client)

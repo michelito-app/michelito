@@ -4,6 +4,7 @@ import { common } from './common'
 import { shell } from './shell'
 import { months } from './months'
 import { summary } from './summary'
+import { home } from './home'
 import { reports } from './reports'
 import { transactions } from './transactions'
 import { links } from './links'
@@ -30,6 +31,7 @@ export const AREAS = {
   shell,
   months,
   summary,
+  home,
   reports,
   transactions,
   links,
@@ -56,6 +58,7 @@ export const es = {
   ...shell,
   ...months,
   ...summary,
+  ...home,
   ...reports,
   ...transactions,
   ...links,

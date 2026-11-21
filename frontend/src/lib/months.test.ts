@@ -38,13 +38,9 @@ describe('resolveMonth', () => {
   it('uses the requested month if it exists', () => {
     expect(resolveMonth(OPTIONS, '2026-08')).toBe('2026-08')
   })
-  it('without a month (or an unknown one) picks the latest complete one', () => {
-    expect(resolveMonth(OPTIONS, null)).toBe('2026-09')
-    expect(resolveMonth(OPTIONS, '2020-01')).toBe('2026-09')
-  })
-  it('if all are partial it picks the latest', () => {
-    const partial = OPTIONS.map((o) => ({ ...o, partial: true }))
-    expect(resolveMonth(partial, null)).toBe('2026-10')
+  it('without a month (or an unknown one) picks the newest one, in progress', () => {
+    expect(resolveMonth(OPTIONS, null)).toBe('2026-10')
+    expect(resolveMonth(OPTIONS, '2020-01')).toBe('2026-10')
   })
   it('without months there is no month', () => {
     expect(resolveMonth([], '2026-09')).toBeNull()
@@ -63,10 +59,10 @@ describe('neighbors', () => {
 
 describe('returnTarget', () => {
   it('offers going back to the default month when another one is viewed', () => {
-    expect(returnTarget(OPTIONS, '2026-08')?.month).toBe('2026-09')
+    expect(returnTarget(OPTIONS, '2026-08')?.month).toBe('2026-10')
   })
   it('offers nothing when already on the default month', () => {
-    expect(returnTarget(OPTIONS, '2026-09')).toBeNull()
+    expect(returnTarget(OPTIONS, '2026-10')).toBeNull()
     expect(returnTarget([], '2026-09')).toBeNull()
   })
 })

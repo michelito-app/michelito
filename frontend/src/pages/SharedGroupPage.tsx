@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 import { LoadError } from '@/components/LoadError'
 import { AddExpenseButton } from '@/components/shared/AddExpenseButton'
 import { AddExpenseSheet } from '@/components/shared/AddExpenseSheet'
@@ -8,16 +8,17 @@ import { GroupTimeline } from '@/components/shared/GroupTimeline'
 import { ItemSheet } from '@/components/shared/ItemSheet'
 import { Avatar, BackButton, MenuButton, PageTitle } from '@/components/shared/parts'
 import { TONE_CLASS } from '@/components/shared/styles'
+import { CoverPlanSheet } from '@/components/shared/CoverPlanSheet'
 import { PaymentSheet } from '@/components/shared/PaymentSheet'
 import { UnattributedSheet } from '@/components/shared/UnattributedSheet'
 import { FOCUS, PANEL } from '@/components/summary/styles'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { ApiError } from '@/lib/api'
-import { balanceTone, groupSentence, groupSides, personBalanceText } from '@/lib/ledger'
+import { approxText, balanceTone, groupSentence, groupSides, memberBalanceText } from '@/lib/ledger'
 import { moneyList } from '@/lib/links'
-import type { Group, Payment, TimelineItem } from '@/lib/sharedApi'
-import { useGroup } from '@/lib/sharedQueries'
+import type { CoverSuggestion, Group, Payment, TimelineItem } from '@/lib/sharedApi'
+import { ledger, useGroup, useLedgerWrite } from '@/lib/sharedQueries'
 import { cn } from '@/lib/utils'
 
 type Open =
@@ -26,6 +27,7 @@ type Open =
   | { kind: 'pay'; person: number | null }
   | { kind: 'link'; payment: Payment }
   | { kind: 'item'; item: TimelineItem }
+  | { kind: 'plan' }
   | { kind: 'unattributed' }
 
 /** A group's page (`/shared/<id>`): Back, name and "⋯"; the one-sentence balance with "Record
@@ -35,7 +37,18 @@ export function SharedGroupPage() {
   const groupId = Number(id)
   const query = useGroup(Number.isInteger(groupId) ? groupId : null)
   const [open, setOpen] = useState<Open | null>(null)
-  const close = () => setOpen(null)
+  // `?cover=<payment>` ("To review"'s "Yes"): the group's suggestion reviewed in one sheet, once.
+  const [params, setParams] = useSearchParams()
+  const coverParam = Number(params.get('cover'))
+  const [coverOpened, setCoverOpened] = useState<number | null>(null)
+  const close = () => {
+    setOpen(null)
+    if (params.has('cover')) setParams({}, { replace: true })
+  }
+  if (coverParam && coverParam !== coverOpened && query.data) {
+    setCoverOpened(coverParam)
+    if (query.data.cover?.payment_ids.includes(coverParam)) setOpen({ kind: 'plan' })
+  }
 
   if (query.isPending) {
     return (
@@ -89,6 +102,10 @@ export function SharedGroupPage() {
 
       <Balance group={group} onPay={(person) => setOpen({ kind: 'pay', person })} />
 
+      {group.cover && (
+        <CoverNotice cover={group.cover} onYes={() => setOpen({ kind: 'plan' })} group={group} />
+      )}
+
       {group.unattributed.length > 0 && (
         <div
           data-testid="unattributed-band"
@@ -131,6 +148,9 @@ export function SharedGroupPage() {
           onLink={(payment) => setOpen({ kind: 'link', payment })}
         />
       )}
+      {open?.kind === 'plan' && group.cover && (
+        <CoverPlanSheet group={group} cover={group.cover} onClose={close} />
+      )}
     </div>
   )
 }
@@ -144,9 +164,16 @@ function Balance({ group, onPay }: { group: Group; onPay: (person: number | null
   return (
     <section aria-label={t('shared.totals.label')} className={cn(PANEL, 'flex flex-col gap-3 px-4 py-4 sm:px-5')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p data-testid="group-sentence" className={cn('text-[17px] font-bold', TONE_CLASS[tone])}>
-          {groupSentence(parts)}
-        </p>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p data-testid="group-sentence" className={cn('text-[17px] font-bold', TONE_CLASS[tone])}>
+            {groupSentence(parts)}
+          </p>
+          {group.total && (
+            <p data-testid="group-total" className="text-[13px] font-medium text-muted-foreground">
+              {approxText(group.total)}
+            </p>
+          )}
+        </div>
         {others.length > 0 && (
           <button
             type="button"
@@ -172,7 +199,8 @@ function Balance({ group, onPay }: { group: Group; onPay: (person: number | null
           className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:-mx-5 sm:px-5"
         >
           {others.map((member) => {
-            const balance = personBalanceText(member.balance)
+            const balance = memberBalanceText(member)
+            const total = approxText(member.total)
             return (
               <li key={member.id} className="shrink-0 snap-start">
                 <button
@@ -192,12 +220,63 @@ function Balance({ group, onPay }: { group: Group; onPay: (person: number | null
                   <span className={cn('text-[13px] font-semibold', TONE_CLASS[balanceTone(member.balance)])}>
                     {member.written_off ? t('shared.person.writtenOff') : balance}
                   </span>
+                  {total && !member.written_off && (
+                    <span className="text-[12px] text-muted-foreground">{total}</span>
+                  )}
                 </button>
               </li>
             )
           })}
         </ul>
       )}
+    </section>
+  )
+}
+
+interface CoverNoticeProps {
+  group: Group
+  cover: CoverSuggestion
+  onYes: () => void
+}
+
+/** "Ana paid RD$ 74,340 too much in 3 payments and Beto owes US$ 1,244.20. Were those payments
+ * for Beto too?": "Yes" opens the review of every payment (the user confirms all of them as one
+ * change); "No" is kept for each of those payments, as one change (undoable in the log). */
+function CoverNotice({ group, cover, onYes }: CoverNoticeProps) {
+  const write = useLedgerWrite()
+  return (
+    <section
+      aria-label={t('shared.cover.title')}
+      data-testid="cover-notice"
+      className="flex flex-col gap-2 rounded-xl border border-dashed border-up/40 bg-up-soft px-3.5 py-3 text-sm text-up-ink"
+    >
+      <p className="min-w-0 font-semibold break-words">{cover.text}</p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={t('shared.cover.yesLabel', { name: cover.payer_name })}
+          onClick={onYes}
+          className={cn(
+            'inline-flex min-h-11 items-center rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/85',
+            FOCUS,
+          )}
+        >
+          {t('shared.cover.yes')}
+        </button>
+        <button
+          type="button"
+          aria-label={t('shared.cover.noLabel', { name: cover.payer_name })}
+          disabled={write.isPending}
+          onClick={() => write.mutate(() => ledger.dismissCovers(group.id, cover.payment_ids))}
+          className={cn(
+            'inline-flex min-h-11 items-center rounded-xl border border-border bg-card px-4 font-semibold text-ink-2 hover:bg-muted',
+            FOCUS,
+          )}
+        >
+          {t('shared.cover.no')}
+        </button>
+      </div>
     </section>
   )
 }

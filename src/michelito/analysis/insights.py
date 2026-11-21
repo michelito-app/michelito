@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 
 from michelito.i18n import t
@@ -79,7 +79,10 @@ def edit_text(conn: sqlite3.Connection, month: str, text: str, now: str) -> None
 
 
 def is_fresh(
-    conn: sqlite3.Connection, found: Insight, data_hash: str, legacy_hash: Callable[[], str]
+    conn: sqlite3.Connection,
+    found: Insight,
+    data_hash: str,
+    legacy_hash: Callable[[], str | Sequence[str]],
 ) -> bool:
     """Whether the data is still what `found` analyzed: its hash is today's dossier hash
     (`data_hash`) or, for an insight saved before the English rename, the hash that release
@@ -87,7 +90,8 @@ def is_fresh(
     hash is replaced by `data_hash` (and committed), so the old one is checked only once."""
     if found.data_hash == data_hash:
         return True
-    if found.data_hash != legacy_hash():
+    older = legacy_hash()
+    if found.data_hash not in ((older,) if isinstance(older, str) else tuple(older)):
         return False
     with conn:
         conn.execute(

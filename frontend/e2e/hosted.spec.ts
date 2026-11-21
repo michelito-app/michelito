@@ -67,7 +67,7 @@ async function signIn(page: Page, info: TestInfo, name: string, open = true): Pr
 
 async function openSettings(page: Page, info: TestInfo) {
   if (info.project.name === 'hosted-mobile') {
-    await page.getByRole('button', { name: t('shell.nav.more') }).click()
+    await page.getByRole('button', { name: t('shell.nav.more'), exact: true }).click()
     await page.getByRole('dialog').getByRole('link', { name: t('auth.shell.settings') }).click()
   } else {
     await page.getByRole('link', { name: t('auth.shell.settings') }).click()

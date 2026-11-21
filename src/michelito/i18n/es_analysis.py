@@ -4,7 +4,7 @@ error details, seed category names and labels the UI shows."""
 MESSAGES: dict[str, str] = {
     # --- group A: links, transfers, exchanges, reversals, corrections, accounts, coverage,
     # interest, rates, bcrd ---
-    "analysis.accounts.cash_box_name": "Caja fuerte",
+    "analysis.accounts.cash_box_name": "Efectivo",
     "analysis.corrections.note_too_long": "la nota tiene más de {max} letras",
     "analysis.exchanges.needs_both_currencies": "un cambio necesita patas en RD$ y en US$",
     "analysis.exchanges.opposite_directions": (
@@ -101,14 +101,14 @@ MESSAGES: dict[str, str] = {
     "analysis.changelog_rules.role_return": "rendimiento",
     "analysis.changelog_rules.role_capital": "devolución de capital",
     "analysis.changelog_rules.role_mixed": "cobro mixto",
-    "analysis.changelog_rules.role_stored": "guardado en la caja",
-    "analysis.changelog_rules.role_deposit": "depósito de la caja",
+    "analysis.changelog_rules.role_stored": "pasado a tu efectivo",
+    "analysis.changelog_rules.role_deposit": "depositado de tu efectivo",
     "analysis.changelog_rules.role_reserved": "cubierto por la reserva",
     "analysis.changelog_rules.link": "vínculo",
     "analysis.changelog_rules.link_shared": "grupo compartido",
     "analysis.changelog_rules.link_exchange": "cambio",
     "analysis.changelog_rules.link_investment": "inversión",
-    "analysis.changelog_rules.link_cash_box": "caja fuerte",
+    "analysis.changelog_rules.link_cash_box": "efectivo",
     "analysis.changelog_rules.link_reserve": "reserva",
     "analysis.changelog_rules.entry": "movimiento",
     "analysis.changelog_rules.entry_initial": "saldo inicial",
@@ -220,29 +220,56 @@ MESSAGES: dict[str, str] = {
     "analysis.investments.reason.return": "¿Es un cobro de {title}?",
     # --- end group D ---
     # --- group E: cash_box, cash_box_store, reserves, reserve_store, reserve_suggestions ---
-    "analysis.cash_box.description_initial": "Saldo inicial de la caja fuerte",
-    "analysis.cash_box.description_income": "Entrada a la caja fuerte",
-    "analysis.cash_box.description_expense": "Salida de la caja fuerte",
+    "analysis.cash_box.description_initial": "Saldo inicial del efectivo",
+    "analysis.cash_box.description_income": "Entrada en efectivo",
+    "analysis.cash_box.description_expense": "Salida en efectivo",
     "analysis.cash_box.inflow_needs_income": (
-        "en la caja fuerte, una entrada va a una categoría de ingreso"
+        "en tu efectivo, una entrada va a una categoría de ingreso"
     ),
     "analysis.cash_box.outflow_needs_expense": (
-        "en la caja fuerte, una salida va a una categoría de gasto"
+        "en tu efectivo, una salida va a una categoría de gasto"
     ),
+    "analysis.cash_box.concept_required": "escribe el concepto (en qué fue)",
+    "analysis.cash_box.concept_too_long": "el concepto tiene más de {max} letras",
+    "analysis.cash_box.concept_invalid": "el concepto tiene caracteres no válidos",
+    "analysis.cash_box.count_invalid": (
+        "cuánto efectivo tienes: un monto de 0 o más, con hasta dos decimales"
+    ),
+    "analysis.cash_box.unrecorded_out": "Gastos en efectivo sin anotar",
+    "analysis.cash_box.unrecorded_in": "Efectivo sin anotar",
+    "analysis.cash_schedule.unknown_kind": "tipo desconocido: {kind} (es pago o cobro)",
+    "analysis.cash_schedule.unknown_frequency": "frecuencia desconocida: {frequency}",
+    "analysis.cash_schedule.start_range": "el inicio va del {first} al {last}",
+    "analysis.cash_schedule.end_or_count": "termina en una fecha o tras unas veces, no las dos",
+    "analysis.cash_schedule.end_range": (
+        "el final va después del inicio y hasta dentro de diez años"
+    ),
+    "analysis.cash_schedule.count_range": "las veces van de 1 a {max}",
+    "analysis.cash_schedule.unknown": "programación desconocida: {id}",
+    "analysis.cash_schedule.kind_fixed": "un pago no se convierte en cobro (ni al revés)",
+    "analysis.cash_schedule.not_occurrence": "ese movimiento no viene de una programación",
+    "analysis.changelog_rules.cash_schedule": "{kind} programado «{concept}» {amount}",
+    "analysis.changelog_rules.cash_schedule_paused": "en pausa",
+    "analysis.changelog_rules.cash_schedule_payment": "pago",
+    "analysis.changelog_rules.cash_schedule_collection": "cobro",
+    "analysis.changelog_rules.cash_skip": "no pasó el {day}",
+    "analysis.changelog_rules.cash_spent_direct": "lo gastaste directo",
+    "analysis.changelog_rules.cash_reconciliation": "cuadre de {month}",
+    "analysis.changelog_rules.cash_pending": "por confirmar",
     "analysis.cash_box.date_range": "la fecha va del {first} al {last}",
     "analysis.cash_box.unknown_kind": "tipo desconocido: {kind}",
     "analysis.cash_box.amount_positive": "el monto tiene que ser mayor que 0",
     "analysis.cash_box.amount_decimals": "el monto tiene más de dos decimales",
     "analysis.cash_box.currency": "la moneda es RD$ o US$",
-    "analysis.cash_box_store.unknown_entry": "movimiento de la caja desconocido: {id}",
+    "analysis.cash_box_store.unknown_entry": "movimiento de efectivo desconocido: {id}",
     "analysis.cash_box_store.initial_no_category": "el saldo inicial no lleva categoría",
     "analysis.cash_box_store.category_must_be_income": "la categoría tiene que ser de ingreso",
     "analysis.cash_box_store.category_must_be_expense": "la categoría tiene que ser de gasto",
     "analysis.cash_box_store.amount_needs_currency": (
-        "el monto que salió de la caja va con su moneda"
+        "el monto que salió de tu efectivo va con su moneda"
     ),
-    "analysis.cash_box_store.not_stored": "esa transacción no es un retiro guardado",
-    "analysis.cash_box_store.not_deposit": "esa transacción no es un depósito de la caja",
+    "analysis.cash_box_store.not_stored": "esa transacción no es un retiro pasado a tu efectivo",
+    "analysis.cash_box_store.not_deposit": "esa transacción no es un depósito de tu efectivo",
     "analysis.reserves.month_01": "enero",
     "analysis.reserves.month_02": "febrero",
     "analysis.reserves.month_03": "marzo",

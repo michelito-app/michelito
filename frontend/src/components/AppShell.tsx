@@ -22,6 +22,7 @@ import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { t } from '@/i18n'
 import { countVisit, isDemo, isHosted, productName, useMode } from '@/lib/demo'
 import { type NavMonthContext, navHref } from '@/lib/navMonth'
+import { useScrollToTopOnNewScreen } from '@/lib/scrollMemory'
 import { cn } from '@/lib/utils'
 
 const ICON = {
@@ -186,6 +187,7 @@ export function AppShell() {
   const mode = useMode()
   const demo = isDemo(mode)
   const { pathname } = useLocation()
+  useScrollToTopOnNewScreen()
   useEffect(() => {
     if (demo) countVisit(pathname)
   }, [demo, pathname])

@@ -21,11 +21,14 @@ import { shortDay } from '@/lib/links'
 import { useCashBox, useChangeCashBox } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { CashEntryForm } from './CashEntryForm'
+import { ReconcileForm } from './ReconcileForm'
+import { ScheduleList } from './ScheduleList'
 
 const SHOWN = 8
 
-/** The "Cash box" card in Accounts: balance per currency and ≈ RD$, warnings, buttons to write
- * entries and the list of money in and out. */
+/** The cash account card in Accounts: balance per currency and ≈ RD$, warnings, buttons to
+ * write entries and reconcile, the scheduled payments and collections, and the list of money in
+ * and out. */
 export function CashBoxCard({ today }: { today: string }) {
   const box = useCashBox()
   const section = useRef<HTMLElement>(null)
@@ -60,6 +63,7 @@ function Contents({ box, today }: { box: CashBox; today: string }) {
   const [form, setForm] = useState<CashEntryKind | null>(null)
   const [editing, setEditing] = useState<CashLine | null>(null)
   const [all, setAll] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
   const approx = approxText(box)
   const shown = all ? box.lines : box.lines.slice(0, SHOWN)
 
@@ -84,8 +88,15 @@ function Contents({ box, today }: { box: CashBox; today: string }) {
           </span>
         )}
         <span className="text-[13px] text-muted-foreground">
-          {t('cashBox.balanceHelp')}
+          {box.activated_on
+            ? t('cashBox.activeSince', { day: shortDay(box.activated_on) })
+            : t('cashBox.balanceHelp')}
         </span>
+        {box.last_reconciled && (
+          <span className="text-[13px] text-muted-foreground">
+            {t('cashBox.reconcile.last', { day: shortDay(box.last_reconciled) })}
+          </span>
+        )}
       </div>
       {box.negative.map((item) => (
         <div
@@ -94,8 +105,9 @@ function Contents({ box, today }: { box: CashBox; today: string }) {
           className="flex flex-col gap-2 rounded-lg bg-up-soft px-3 py-2.5 text-[13px] text-up-ink"
         >
           <p data-testid="cash-box-negative">{isNegative(item)}</p>
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Action onClick={() => open('initial')}>{t('cashBox.adjustInitial')}</Action>
+            <Action onClick={() => setReconciling(true)}>{t('cashBox.action.reconcile')}</Action>
           </div>
         </div>
       ))}
@@ -108,7 +120,9 @@ function Contents({ box, today }: { box: CashBox; today: string }) {
         <Action onClick={() => open('expense')}>{t('cashBox.action.expense')}</Action>
         <Action onClick={() => open('income')}>{t('cashBox.action.income')}</Action>
         <Action onClick={() => open('initial')}>{t('cashBox.action.initial')}</Action>
+        <Action onClick={() => setReconciling(true)}>{t('cashBox.action.reconcile')}</Action>
       </div>
+      {reconciling && <ReconcileForm box={box} onDone={() => setReconciling(false)} />}
       {form && (
         <CashEntryForm
           key={`${form}-${editing?.fingerprint ?? 'new'}`}
@@ -122,6 +136,7 @@ function Contents({ box, today }: { box: CashBox; today: string }) {
           }}
         />
       )}
+      <ScheduleList box={box} today={today} />
       {box.lines.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
           {t('cashBox.noLines')}

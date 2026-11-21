@@ -283,7 +283,14 @@ def _row_text(table: str, row: Row, columns: Sequence[str], whole: bool) -> str:
     if table == "cash_entries":
         kind = _ENTRY_LABELS.get(str(row.get("kind")), t("analysis.changelog_rules.entry"))
         money = _money(row.get("amount_cents"), row.get("currency"))
-        return t("analysis.changelog_rules.cash_entry", kind=kind, amount=money, day=row.get("day"))
+        text = t("analysis.changelog_rules.cash_entry", kind=kind, amount=money, day=row.get("day"))
+        if row.get("concept"):
+            text = f"{text} «{row['concept']}»"
+        if row.get("status") == "pending":
+            text = f"{text} ({t('analysis.changelog_rules.cash_pending')})"
+        return text
+    if table.startswith("cash_"):
+        return _cash_text(table, row)
     if table == "recurring_marks":
         status = _MARK_LABELS.get(str(row.get("status")), t("analysis.changelog_rules.mark_none"))
         cadence = str(row.get("cadence") or "")
@@ -313,6 +320,28 @@ def _row_text(table: str, row: Row, columns: Sequence[str], whole: bool) -> str:
     if table == "transaction_notes":
         return ", ".join(_note_text(c, row.get(c)) for c in columns) or _NOTHING
     return ", ".join(f"{c}: {row.get(c)}" for c in columns) or _NOTHING
+
+
+def _cash_text(table: str, row: Row) -> str:
+    """A row of the schema 23 cash tables, short."""
+    if table == "cash_schedules":
+        kind = t(f"analysis.changelog_rules.cash_schedule_{row.get('kind')}")
+        text = t(
+            "analysis.changelog_rules.cash_schedule",
+            kind=kind,
+            concept=row.get("concept"),
+            amount=_money(row.get("amount_cents"), row.get("currency")),
+        )
+        return text + (
+            f", {t('analysis.changelog_rules.cash_schedule_paused')}" if row.get("paused") else ""
+        )
+    if table == "cash_skips":
+        return t("analysis.changelog_rules.cash_skip", day=row.get("day"))
+    if table == "cash_spent_direct":
+        return t("analysis.changelog_rules.cash_spent_direct")
+    if table == "cash_reconciliations":
+        return t("analysis.changelog_rules.cash_reconciliation", month=row.get("month"))
+    return ", ".join(f"{k}: {v}" for k, v in row.items()) or _NOTHING
 
 
 def _ledger_text(table: str, row: Row) -> str:

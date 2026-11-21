@@ -289,7 +289,8 @@ def test_a_batch_on_another_transaction_of_the_merchant_contradicts_too(
 
 
 def test_cash_box_entries_follow_the_cash_box_category_rule(client: TestClient) -> None:
-    body = {"kind": "expense", "day": "2026-01-15", "amount_cents": 50000, "currency": "DOP"}
+    body = {"kind": "expense", "day": "2026-01-15", "amount_cents": 50000, "currency": "DOP",
+            "concept": "Corner store"}  # fmt: skip
     assert client.post("/api/cash-box/entries", json=body, headers=WRITE).status_code == 201
     income = {**body, "kind": "income", "day": "2026-01-16"}
     assert client.post("/api/cash-box/entries", json=income, headers=WRITE).status_code == 201
@@ -309,7 +310,7 @@ def test_cash_box_entries_follow_the_cash_box_category_rule(client: TestClient) 
 
     # A single one, from its detail view: same rule.
     single = _patch(client, out, category_id=_category_id(client, categories.SALARY))
-    assert single.status_code == 422 and "caja fuerte" in single.json()["detail"]  # spanish-ui
+    assert single.status_code == 422 and "tu efectivo" in single.json()["detail"]  # spanish-ui
     assert (
         _patch(client, out, category_id=_category_id(client, categories.RESTAURANTS)).status_code
         == 200

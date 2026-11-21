@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
 import {
   allocationCents,
-  allocationDraft,
+  proposalFields,
   coveredText,
   draftAmounts,
   draftOf,
@@ -134,13 +134,14 @@ describe('a payment on behalf of others', () => {
     expect(paymentLine({ ...payment, allocations: payment.allocations.slice(0, 1) })).toBe(line)
   })
 
-  it('starts each covered person at their balance and checks the typed amounts', () => {
-    const members = [
-      { id: JAVIER, balance: [{ currency: 'DOP', cents: 81_600 }] },
-      { id: GORDO, balance: [{ currency: 'DOP', cents: 81_600 }, { currency: 'USD', cents: 500 }] },
-    ]
-    expect(allocationDraft(members, [GORDO], 'DOP')).toEqual({ [GORDO]: '816.00' })
-    expect(allocationDraft(members, [GORDO], 'USD')).toEqual({ [GORDO]: '5.00' })
+  it('fills the fields from the proposal and checks the typed amounts', () => {
+    const proposal = {
+      allocations: [
+        { contact_id: JAVIER, name: 'Javier', cents: 73_295, owed_cents: 71_217, equivalent: null },
+        { contact_id: GORDO, name: 'El Gordo', cents: 4_008_705, owed_cents: 4_008_705, equivalent: null },
+      ],
+    }
+    expect(proposalFields(proposal)).toEqual({ [JAVIER]: '732.95', [GORDO]: '40087.05' })
     expect(allocationCents([JAVIER, GORDO], { [JAVIER]: '816', [GORDO]: '' })).toEqual({
       [JAVIER]: 81_600,
       [GORDO]: 0,

@@ -48,6 +48,7 @@ describe('to review', () => {
       'possible_rule',
       'possible_reserve',
       'possible_payment',
+      'possible_cover',
       'unconfirmed',
       'reversal',
     ])

@@ -22,8 +22,11 @@ export const log = {
   'log.kind.contact_merge': 'Personas unidas',
   'log.kind.exchange': 'Cambio de divisas',
   'log.kind.investment': 'Inversión',
-  'log.kind.cash_box': 'Caja fuerte',
-  'log.kind.cash_entry': 'Movimiento de la caja',
+  'log.kind.cash_box': 'Efectivo',
+  'log.kind.cash_entry': 'Movimiento de efectivo',
+  'log.kind.cash_schedule': 'Pago o cobro programado',
+  'log.kind.cash_occurrence': 'Pago o cobro confirmado',
+  'log.kind.cash_reconcile': 'Cuadre de efectivo',
   'log.kind.recurring': 'Recurrente',
   'log.kind.recurring_union': 'Unión de recurrentes',
   'log.kind.reviewed': 'Para revisar',
@@ -66,7 +69,7 @@ export const log = {
   'log.empty.filtered': 'Nada con estos filtros.',
   'log.empty.title': 'Todavía no hay cambios.',
   'log.empty.what':
-    'Aquí quedará cada cambio que hagas en el board: categoría (solo esa transacción o todo el comercio), nota, gasto único, compartidos, cambios de divisas, inversiones, caja fuerte, recurrentes, lo revisado en «Para revisar», palabras clave y borrar o cambiar el tipo de una categoría. Cada uno con lo que había antes, lo que quedó y «Deshacer».',
+    'Aquí quedará cada cambio que hagas en el board: categoría (solo esa transacción o todo el comercio), nota, gasto único, compartidos, cambios de divisas, inversiones, efectivo, recurrentes, lo revisado en «Para revisar», palabras clave y borrar o cambiar el tipo de una categoría. Cada uno con lo que había antes, lo que quedó y «Deshacer».',
   'log.empty.notLogged': 'No se registran el color, el nombre ni ocultar una categoría.',
   'log.more': 'Ver más ({count})',
 

@@ -212,7 +212,7 @@ test('with one statement every main view shows data, a suggestion or a designed 
   // Importing statements after the gate: in the menu (in "More" on the phone).
   await page.goto('/')
   if (info.project.name === 'hosted-mobile') {
-    await page.getByRole('button', { name: t('shell.nav.more') }).click()
+    await page.getByRole('button', { name: t('shell.nav.more'), exact: true }).click()
     await page.getByRole('dialog').getByRole('link', { name: t('shell.nav.import') }).click()
   } else {
     await page.getByRole('link', { name: t('shell.nav.import') }).click()

@@ -409,6 +409,13 @@ function Badges({ tx }: { tx: Tx }) {
           {t('transactions.badge.provisional')}
         </Badge>
       )}
+      {(tx.cash_state === 'pending' || tx.cash_state === 'unconfirmed') && (
+        <Badge data-testid="cash-state-badge" className="bg-muted text-muted-foreground">
+          {tx.cash_state === 'pending'
+            ? t('cashBox.lineDetail.pending')
+            : t('cashBox.lineDetail.unconfirmed')}
+        </Badge>
+      )}
       {tx.approved && (
         <Badge data-testid="approved-badge" className="bg-[#FDECEC] text-[#8A1F1F] dark:bg-[#3A1414] dark:text-[#F5A3A3]">
           {t('forwarding.badge.approved')}

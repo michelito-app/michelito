@@ -1,12 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { LOCALE } from '../src/i18n'
-import { openSummarySections } from './phone'
 import { escapeRegExp, literal, t } from './text'
 
-// On a phone the Summary's sections start closed: the 390 px checks look at them open.
-test.beforeEach(async ({ page }) => openSummarySections(page))
-
-// The Summary's layout with the made-up data of tests/e2e_server.py. February 2026 brings four
+// The month in detail (Reports, `?month=`) and the review list, with the made-up data of
+// tests/e2e_server.py. February 2026 brings four
 // warnings in «To review»; January 2026, none. What is missing to test (more categories, more
 // warnings, a long analysis) is added on top of the real response.
 const FEBRUARY = '2026-02'
@@ -58,53 +55,33 @@ async function fakeReview(page: Page, count: number) {
   await page.route('**/api/review?**', (route) => route.fulfill({ json: reviewItems(count) }))
 }
 
-test.describe('summary as a grid', () => {
+test.describe('the review list and the categories table', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('Categories and To review sit side by side with the same height', async ({ page }) => {
-    await fakeReview(page, 4)
-    await page.goto(`/?month=${FEBRUARY}`)
-    const categories = categoriesCard(page)
-    await expect(reviewCard(page)).toContainText('COMERCIO INVENTADO 4')
-    const left = (await categories.boundingBox())!
-    const right = (await reviewCard(page).boundingBox())!
-    expect(Math.abs(left.y - right.y)).toBeLessThanOrEqual(1)
-    expect(right.x).toBeGreaterThan(left.x + left.width)
-    // Neither column ends up longer than the other.
-    expect(Math.abs(left.height - right.height)).toBeLessThanOrEqual(1)
-  })
-
-  test('with nothing to review, the card is one line and Categories takes the width', async ({
+  test('the Summary counts what is to review; its list shows every item and «See less» folds it', async ({
     page,
   }) => {
-    await page.goto(`/?month=${JANUARY}`)
-    await expect(reviewCard(page)).toContainText(t('summary.review.empty'))
-    const card = (await reviewCard(page).boundingBox())!
-    expect(card.height).toBeLessThan(80)
-    const categories = (await categoriesCard(page).boundingBox())!
-    expect(categories.width).toBeGreaterThan(1000)
-  })
-
-  test('To review shows 4 and «See all» expands the rest', async ({ page }) => {
     await fakeReview(page, 7)
     await page.goto(`/?month=${FEBRUARY}`)
+    const count = page.locator('[data-card="review"]')
+    await expect(count.getByTestId('review-count')).toHaveText(t('home.review.count', { count: 7 }))
+    await expect(count).toContainText('COMERCIO INVENTADO 1')
+    await count.getByRole('link', { name: t('home.review.title') }).click()
+    await expect(page).toHaveURL(`/review?month=${FEBRUARY}`)
     const card = reviewCard(page)
     await expect(card).toContainText(t('review.cardTitle', { count: 7 }))
-    await expect(card.getByRole('listitem')).toHaveCount(4)
-    const more = card.getByRole('button', { name: t('summary.review.seeAll', { count: 7 }) })
-    await more.click()
     await expect(card.getByRole('listitem')).toHaveCount(7)
     await expect(card).toContainText('COMERCIO INVENTADO 7')
-    await expect(card.getByRole('button', { name: t('summary.review.seeLess') })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
+    const less = card.getByRole('button', { name: t('summary.review.seeLess') })
+    await expect(less).toHaveAttribute('aria-expanded', 'true')
+    await less.click()
+    await expect(card.getByRole('listitem')).toHaveCount(4)
   })
 
   test('Categories shows the top 8 by spending and «See the N» expands the rest', async ({
     page,
   }) => {
-    await page.route('**/api/summary**', async (route) => {
+    await page.route('**/api/summary?**', async (route) => {
       const response = await route.fetch()
       const body = await response.json()
       const extra = Array.from({ length: 8 }, (_, n) => ({
@@ -114,7 +91,7 @@ test.describe('summary as a grid', () => {
       }))
       await route.fulfill({ response, json: { ...body, categories: [...body.categories, ...extra] } })
     })
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/reports?month=${FEBRUARY}`)
     const categories = categoriesCard(page)
     await expect(categories.getByRole('link')).toHaveCount(8)
     const more = categories.getByRole('button', {
@@ -148,7 +125,7 @@ test.describe('month reading', () => {
         },
       }),
     )
-    await page.route('**/api/summary**', async (route) => {
+    await page.route('**/api/summary?**', async (route) => {
       const response = await route.fetch()
       const body = await response.json()
       const changes = [
@@ -162,7 +139,7 @@ test.describe('month reading', () => {
       ]
       await route.fulfill({ response, json: { ...body, changes } })
     })
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/reports?month=${FEBRUARY}`)
     const card = readingCard(page)
     const tabs = card.getByRole('tab')
     const insightTab = card.getByRole('tab', { name: t('summary.reading.tab.insight') })
@@ -202,7 +179,7 @@ test.describe('month reading', () => {
 
   test('with nothing to read, one line offers to copy the command', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-    await page.goto(`/?month=${JANUARY}`)
+    await page.goto(`/reports?month=${JANUARY}`)
     const card = readingCard(page)
     await expect(card).toContainText(t('summary.insight.noReading'))
     await expect(card.getByRole('tab')).toHaveCount(0)
@@ -218,7 +195,7 @@ test.describe('month reading', () => {
 
 /** Twelve made-up months: July and August atypical (neighbours) and December with two marks. */
 async function twelveMonths(page: Page) {
-  await page.route('**/api/summary**', async (route) => {
+  await page.route('**/api/summary?**', async (route) => {
     const response = await route.fetch()
     const body = await response.json()
     const months = Array.from({ length: 12 }, (_, n) => {
@@ -258,7 +235,7 @@ test.describe('last 12 months', () => {
     }) => {
       await page.setViewportSize({ width, height: 900 })
       await twelveMonths(page)
-      await page.goto(`/?month=${FEBRUARY}`)
+      await page.goto(`/reports?month=${FEBRUARY}`)
       const chart = page.getByRole('region', { name: t('summary.trendBars.title') })
       const marks = chart.getByTestId('trend-mark')
       await expect(marks).toHaveCount(4)
@@ -287,7 +264,7 @@ test.describe('last 12 months', () => {
   test('390 px: the detail of each month stays inside the screen', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await twelveMonths(page)
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/reports?month=${FEBRUARY}`)
     const columns = monthsList(page).getByRole('button')
     for (const index of [0, 5, 11]) {
       await columns.nth(index).focus()
@@ -304,7 +281,7 @@ test.describe('last 12 months', () => {
   test('tapping the chosen month shows and hides its detail', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await twelveMonths(page)
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/reports?month=${FEBRUARY}`)
     const chosen = monthsList(page).getByRole('button', {
       name: literal(monthPhrase(FEBRUARY), { start: true }),
     })
@@ -319,22 +296,22 @@ test.describe('last 12 months', () => {
 
 test.describe('month reading: why there are no changes', () => {
   test('month in progress: it compares once the accounts close', async ({ page }) => {
-    await page.goto(`/?month=${JANUARY}`)
+    await page.goto(`/reports?month=${JANUARY}`)
     await expect(readingCard(page)).toContainText(t('summary.reading.changes.partial'))
   })
 
   test('no complete earlier month: one is needed to compare', async ({ page }) => {
-    await page.goto('/?month=2025-12')
+    await page.goto('/reports?month=2025-12')
     await expect(readingCard(page)).toContainText(t('summary.reading.changes.notComparable'))
   })
 
   test('with a usual amount and no changes: everything within the usual', async ({ page }) => {
-    await page.route('**/api/summary**', async (route) => {
+    await page.route('**/api/summary?**', async (route) => {
       const response = await route.fetch()
       const body = await response.json()
       await route.fulfill({ response, json: { ...body, habitual_cents: 2_000_000, changes: [] } })
     })
-    await page.goto('/?month=2025-12')
+    await page.goto('/reports?month=2025-12')
     await expect(readingCard(page)).toContainText(t('summary.reading.changes.withinUsual'))
   })
 
@@ -344,7 +321,7 @@ test.describe('month reading: why there are no changes', () => {
       calls += 1
       return route.fulfill({ status: 500, json: { detail: 'made-up failure' } })
     })
-    await page.goto(`/?month=${JANUARY}`)
+    await page.goto(`/reports?month=${JANUARY}`)
     const card = readingCard(page)
     await expect(card).toContainText(t('summary.reading.loadError'))
     // The start of the «no reading yet» line, as before: no part of it shows.
@@ -363,7 +340,7 @@ test.describe('Categories amounts', () => {
   const FRESH = 'Made-up new one'
 
   async function wideCategories(page: Page) {
-    await page.route('**/api/summary**', async (route) => {
+    await page.route('**/api/summary?**', async (route) => {
       const response = await route.fetch()
       const body = await response.json()
       const base = body.categories[0]
@@ -387,7 +364,7 @@ test.describe('Categories amounts', () => {
     test(`${width} px: amounts with RD$, «new» and nothing leaves the row`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       await wideCategories(page)
-      await page.goto(`/?month=${FEBRUARY}`)
+      await page.goto(`/reports?month=${FEBRUARY}`)
       const categories = categoriesCard(page)
       const big = categories.getByRole('link', { name: literal(BIG) })
       await expect(big).toContainText('RD$ 150,827')

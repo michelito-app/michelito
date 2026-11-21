@@ -1,4 +1,4 @@
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { FOCUS, ROW_DIVIDER } from '@/components/summary/styles'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -7,8 +7,17 @@ import type { Selection } from '@/lib/accountFilter'
 import type { InvestmentRole, ReviewItem } from '@/lib/api'
 import { useLinkToReserve } from '@/lib/budgetQueries'
 import { useChangeInvestment, useDecideProvisional, useEditTransaction } from '@/lib/queries'
-import { confirmPossiblePayment, useLedgerWrite } from '@/lib/sharedQueries'
-import { amountText, itemHref, KIND_LABELS, metaText, openLabel, reviewedLabel } from '@/lib/review'
+import { itemPayments } from '@/lib/coverPlan'
+import { confirmPossiblePayment, ledger, useLedgerWrite } from '@/lib/sharedQueries'
+import {
+  amountText,
+  coverHref,
+  itemHref,
+  KIND_LABELS,
+  metaText,
+  openLabel,
+  reviewedLabel,
+} from '@/lib/review'
 import { cn } from '@/lib/utils'
 
 const ACTION = 'h-11 flex-[1_1_120px] rounded-xl text-sm font-semibold'
@@ -74,6 +83,8 @@ export function ReviewRow({ item, selection, busy, onReviewed, onOneOff }: Revie
           <InvestmentActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_payment' && item.group_id != null ? (
           <PaymentActions item={item} busy={busy} onReviewed={onReviewed} />
+        ) : item.kind === 'possible_cover' && item.group_id != null && item.payment_id != null ? (
+          <CoverActions item={item} busy={busy} />
         ) : item.kind === 'unconfirmed' || (item.kind === 'reversal' && item.provisional) ? (
           <UnconfirmedActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_reserve' && item.reserve_id != null ? (
@@ -290,6 +301,40 @@ function ReserveActions({ item, busy, onReviewed }: InvestmentActionsProps) {
 
 /** "Did Ana pay you?": yes records the payment with this credit and links it (one tap); "No"
  * marks it reviewed. */
+/** "Was that payment for B too?": "Yes" opens the group with that payment's "Also paid for…";
+ * "No" is kept in the ledger for that payment (undoable in the log). */
+function CoverActions({ item, busy }: Pick<InvestmentActionsProps, 'item' | 'busy'>) {
+  const write = useLedgerWrite()
+  const navigate = useNavigate()
+  const pending = busy || write.isPending
+  return (
+    <>
+      <Button
+        className={ACTION}
+        aria-label={t('review.row.coverLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => navigate(coverHref(item.group_id!, item.payment_id!))}
+      >
+        {t('review.row.cover')}
+      </Button>
+      <Button
+        variant="outline"
+        className={SECONDARY}
+        aria-label={t('review.row.notCoverLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => write.mutate(() => ledger.dismissCovers(item.group_id!, itemPayments(item)))}
+      >
+        {t('review.row.notPayment')}
+      </Button>
+      {write.isError && (
+        <p role="alert" className="basis-full text-[13px] text-up-ink">
+          {t('review.row.saveError', { message: write.error.message })}
+        </p>
+      )}
+    </>
+  )
+}
+
 function PaymentActions({ item, busy, onReviewed }: InvestmentActionsProps) {
   const pay = useLedgerWrite()
   const pending = busy || pay.isPending

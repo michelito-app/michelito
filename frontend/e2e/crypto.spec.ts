@@ -93,8 +93,8 @@ test('filtering, selecting several, moving them to crypto with a reason and undo
   // They are no longer other income: with the same filter the list is empty.
   await expect(page.getByRole('main')).toContainText(t('transactions.empty'))
 
-  // The Summary and Reports show them as their own income.
-  await page.goto(`/?month=${MONTH}`)
+  // The month detail and the months table in Reports show them as their own income.
+  await page.goto(`/reports?month=${MONTH}`)
   await expect(page.getByTestId('income-lines')).toContainText(`${CRYPTO} RD$ 40,500`)
   await page.goto('/reports')
   await expect(page.getByRole('row', { name: literal(CRYPTO, { start: true }) })).toContainText(

@@ -22,7 +22,7 @@ MESSAGES: dict[str, str] = {
     "web.body_too_large": "el cuerpo es demasiado grande",
     "web.unknown_accounts": "cuentas desconocidas: {keys}",
     # Transactions, shared groups and exchanges (`web.app`).
-    "web.cash_box_self_only": "un movimiento de la caja fuerte se corrige solo a sí mismo",
+    "web.cash_box_self_only": "un movimiento de tu efectivo se corrige solo a sí mismo",
     "web.expense_in_other_group": "el gasto ya está en otro grupo: quítalo de ese primero",
     "web.unknown_group": "grupo desconocido",
     "web.credit_or_manual": "manda un crédito (`credit`) o uno a mano (`manual`)",
@@ -69,7 +69,7 @@ MESSAGES: dict[str, str] = {
     # Batch category edit (`web.batch_edit`, `web.batch_routes`).
     "web.batch.skip.linked": "está en un vínculo que fija su categoría",
     "web.batch.skip.cash_box": (
-        "es de la caja fuerte: una entrada va a un ingreso y una salida a un gasto"
+        "es de tu efectivo: una entrada va a un ingreso y una salida a un gasto"
     ),
     "web.batch.skip.direction": "es un débito: no puede ser ingreso",
     "web.batch.skip.unchanged": "ya estaba en esa categoría",
@@ -92,6 +92,7 @@ MESSAGES: dict[str, str] = {
     "web.provisional.voided": "anulado por una alerta de reverso",
     "web.provisional.unknown": "no es una transacción pendiente de estado",
     "web.provisional.linked": "Quítala del grupo primero",
+    "web.provisional.in_cash": "Está en tu efectivo: toca «Lo gasté directo» primero",
     "web.review.reversal_linked": (
         "El banco avisó un reverso de esta compra. Quítala del grupo y descártala, o mantenla."
     ),
@@ -140,17 +141,18 @@ MESSAGES: dict[str, str] = {
     # Shared by the cash box and investment routes.
     # Cash box (`/api/cash-box`).
     "web.cash.unknown_entry": "movimiento desconocido",
-    "web.cash.box_name": "Caja fuerte",
-    "web.cash.from_box": "Vino de la caja fuerte",
+    "web.cash.initial_no_repeat": "el saldo inicial no se repite",
+    "web.cash.box_name": "Efectivo",
+    "web.cash.from_box": "Vino de tu efectivo",
     "web.cash.only_withdrawal": (
-        "solo un retiro (un débito de «Efectivo») se puede guardar en la caja"
+        "solo un retiro de cajero (un débito de la categoría «Efectivo») pasa a tu efectivo"
     ),
     "web.cash.only_bank_credit": (
         "solo un crédito de una cuenta bancaria (que no sea salario, pago de "
-        "tarjeta ni envío entre tus cuentas) puede venir de la caja"
+        "tarjeta ni envío entre tus cuentas) puede venir de tu efectivo"
     ),
     "web.cash.same_currency_amount": (
-        "en la misma moneda sale de la caja lo mismo que el depósito"
+        "en la misma moneda sale de tu efectivo lo mismo que el depósito"
     ),
     # Investments (`/api/investments`).
     "web.investment.unknown": "inversión desconocida",

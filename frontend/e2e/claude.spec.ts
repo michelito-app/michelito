@@ -1,9 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openSummarySections } from './phone'
 import { escapeRegExp, literal, t } from './text'
-
-// On a phone the Summary's sections start closed: the 390 px checks look at them open.
-test.beforeEach(async ({ page }) => openSummarySections(page))
 
 // "Copy for Claude" over the made-up data of tests/e2e_server.py. What is saved here is deleted
 // at the end: reports.spec.ts and summary-layout.spec.ts expect December and January without an
@@ -143,7 +139,7 @@ test('summary: without a clipboard the text stays selected to copy it by hand', 
       value: { writeText: () => Promise.reject(new Error('denied')) },
     })
   })
-  await page.goto(`/?month=${JANUARY}`)
+  await page.goto(`/reports?month=${JANUARY}`)
   const card = page.getByRole('region', { name: t('summary.reading.title') })
   await card.getByRole('button', { name: openerName(JANUARY_LABEL) }).click()
   const dialog = page.getByRole('dialog', { name: dialogName(JANUARY_LABEL) })
@@ -190,7 +186,7 @@ test('at 390 px the dialog fits and its touch targets are 44 px', async ({ page 
   await dialog.getByRole('button', { name: t('common.close') }).click()
   await expect(dialog).toHaveCount(0)
 
-  await page.goto(`/?month=${JANUARY}`)
+  await page.goto(`/reports?month=${JANUARY}`)
   const reading = page.getByRole('region', { name: t('summary.reading.title') })
   const fromSummary = reading.getByRole('button', { name: openerName(JANUARY_LABEL) })
   expect((await fromSummary.boundingBox())!.height).toBeGreaterThanOrEqual(44)

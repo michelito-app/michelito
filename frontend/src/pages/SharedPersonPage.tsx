@@ -10,7 +10,7 @@ import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { ApiError } from '@/lib/api'
-import { balanceTone, groupBalanceText, personBalanceText } from '@/lib/ledger'
+import { approxText, balanceTone, groupBalanceText, leftoverText, personBalanceText } from '@/lib/ledger'
 import { groupPath } from '@/lib/links'
 import type { Person } from '@/lib/sharedApi'
 import { useGroup, usePerson } from '@/lib/sharedQueries'
@@ -62,6 +62,11 @@ export function SharedPersonPage() {
           <p data-testid="person-balance" className={cn('text-[15px] font-semibold', TONE_CLASS[tone])}>
             {personBalanceText(person.balance)}
           </p>
+          {person.total && (
+            <p data-testid="person-total" className="text-[13px] text-muted-foreground">
+              {approxText(person.total)}
+            </p>
+          )}
         </div>
       </header>
       {person.groups.length > 0 && (
@@ -98,6 +103,11 @@ export function SharedPersonPage() {
                   {(row.written_off || row.archived) && (
                     <span className="text-[13px] text-muted-foreground">
                       {row.written_off ? t('shared.person.writtenOff') : t('shared.groups.archived')}
+                    </span>
+                  )}
+                  {row.leftover.length > 0 && (
+                    <span data-testid="person-leftover" className="text-[13px] text-muted-foreground">
+                      {leftoverText(row.leftover, true)}
                     </span>
                   )}
                 </span>

@@ -1124,11 +1124,42 @@ uv run michelito board [--port N] [--no-browser]
   (each person has a number of parts, 1 or more: total x parts / total parts in cents, the
   leftover cent to whoever paid) or by **exact amounts** (switching to them starts from the
   current split, so only the different one is edited), and **payments** between people. A
-  payment someone else makes to you can also be **on behalf of others** ("Also pays for…"): one
-  payment, with what it covers of each person (each one's balance to start, editable, adding up
-  to the payment); every balance, Pending and "To review" use those amounts, and the timeline
-  says it ("Javier → You · RD$ 1,632 (covers Gordo)"). If the bank's amount differs from
-  what was typed, the payer's own part takes the difference. Removing a person from a group says
+  payment someone else makes to you can also be **on behalf of others** ("Also pays for…" when
+  recording it, "Also paid for…" in an existing payment's detail): one payment, with what it
+  covers of each person, editable and adding up to the payment. The amounts proposed are **payer
+  first**: everything the payer owed you at that payment's position, then each other person in
+  the order checked, each up to what they owed then, converted at the payment month's rate
+  ("RD$ 40,087 = US$ 629.31 · rate 63.70 of Feb"); whatever is left stays with the payer (a
+  balance in their favour). Changing who an existing payment covers is one change in the log
+  (undo and redo); unchecking everyone gives it back to the payer alone. Every balance, Pending
+  and "To review" use those amounts, and the timeline says it ("Javier → You · RD$ 1,632
+  (covers Gordo)"). If the bank's amount differs from what was typed, the payer's own part takes
+  the difference. When someone paid more than they owed (an attributed payment whose rest is
+  still a balance in their favour, at least RD$ 50 / US$ 1) while another member who is not
+  written off still owes, the group and "To review" ask once for **all** of that person's
+  payments with an open excess: "Ana paid RD$ 74,340 too much in 3 payments and Beto owes
+  US$ 1,244.20. Were those payments for Beto too?" (not in an archived group, nor when
+  unattributed payments already cover what is owed). "Yes" opens one review: each payment, oldest
+  first, with what it would cover of each person (payer first, each one counting what the
+  earlier ones covered, conversions shown) and how the balances end up; "Confirm" applies all of
+  them as **one** change (one undo). A single payment can still be changed from its own detail.
+  "No" is kept for each of those payments, also as one change (undoable). Balances stay per currency; when a group or a person shows
+  more than one, one more line says "In total ≈ owed to you US$ X" (or "≈ you owe RD$ X") at the
+  current month's rate (the closest earlier one; no line without a rate), in the currency of the
+  larger side. A payment that settled claims in the other currency shows the rate it used. What
+  is left with a person in one currency **below RD$ 50 or US$ 1** after a converted payment is an
+  **exchange difference** (only when everything still open with that person in that currency
+  came from converted payments: a new expense in that currency is a real debt):
+  "Settled (exchange difference RD$ 21)"; it counts neither as pending (in the group, the
+  expense, Pending or Summary), nor in "To review", nor in what you are owed or owe (nor in the
+  "in total" line), and still shows in the person's detail. "Exchange differences" in the
+  group's menu turns it off per person (logged, undoable). A written-off person owes nothing
+  already, so for them it only applies to what you owe them. Schema 22 (`migrations_v22`) added
+  that per-person setting and the answered suggestions; every stored row and every balance
+  computed by this version is identical before and after it. **A change from the previous
+  release:** such small converted leftovers already in your groups now show as settled by
+  default; turning the setting off for that person shows the old balance again. Proposals and
+  the suggestion never count what unattributed payments already covered. Removing a person from a group says
   why they cannot leave (the expenses they paid or have a share in, and their payments); someone
   who only has shares can leave them too in one step ("Remove from N expense(s) and the group"):
   each of those expenses is split again among the rest **keeping its mode** (equal among the
@@ -1301,6 +1332,59 @@ uv run michelito board [--port N] [--no-browser]
   adds those inflows and outflows to the statements' transactions. Turning it into several boxes
   would need another account and another link with its key. The migration widens the link kinds by
   rebuilding `links` and `link_members` without losing rows.
+- **Cash account** (schema 23, shown as "Efectivo"; `analysis/cash_box.py`, `cash_schedule.py`,
+  `cash_activation.py`, `web/cash_routes.py`): the cash box above, promoted to one more account.
+  It is listed with the accounts (balance per currency); opening it shows its movements, the
+  scheduled payments and collections and "Reconcile cash". Same account and data: no movement is
+  migrated.
+  - **Concept**: a new inflow or outflow needs one (up to 60 characters, spaces collapsed); the
+    form autocompletes the ones written before and picking one brings its last category and
+    currency. The concept is the movement's description and, as comparable text, its merchant:
+    merchant rules and keywords apply ("The whole merchant" works) and Recurring groups by it. A
+    category equal to what the concept already gets is not stored as the entry's own. Entries
+    from before have no concept: they keep the generic description and only their own correction.
+  - **Scheduled payments and collections** (`cash_schedules`): kind, concept, amount, currency,
+    category, frequency (weekly on the start's weekday, every two weeks from the start, twice a
+    month on the 15th and the last day, monthly on the start's day or the month's last day), a
+    start and an optional end (a date or a number of times), and paused. On each due date up to
+    today an occurrence is written as a *pending* cash entry (`status = 'pending'`), once per
+    schedule and date (a unique index), on every load and on `sync`, outside the change log; it
+    counts from its day. "To review" asks "Did you pay …?": Paid, another amount, or Not paid
+    (deleted and remembered in `cash_skips`, so it is not created again). Unanswered for more than
+    7 days, a payment is kept as paid with a soft "unconfirmed" mark; a collection stops counting
+    (neither income nor balance) until it is confirmed. Pausing creates nothing; resuming starts
+    on the resume day (missed dates are not created). A new amount applies from the next
+    occurrence; editing the start, frequency or end never creates past dates (it continues from
+    today or the day after the last occurrence). Deleting a schedule keeps the past ones (one
+    still waiting can still be answered); undoing its creation removes the ones nobody answered.
+    A category that was deleted or changed kind falls back to the concept's usual one. "Repeat"
+    on a new entry makes it the first occurrence of a new schedule (one change, one undo).
+    "Today" is the local date in `MICHELITO_TIMEZONE` (default `America/Santo_Domingo`), not the
+    server's; the board and every CLI command run the pass first, and a failing pass never breaks
+    them.
+  - **Withdrawals** (`cash_activation`): the account is activated the first time something is
+    written in it (an entry, a schedule or a reconcile), on that day (`cash_settings`, never
+    undone; a box already in use when upgrading is activated from the day after the upgrade).
+    From then on every withdrawal `can_store` accepts is moved into cash automatically (the usual
+    `stored` mark, written by the same system pass when new statements or changes arrive); "I
+    spent it directly" removes it and is remembered (`cash_spent_direct`). Earlier withdrawals
+    never change. A provisional withdrawal (a bank alert) waits for its statement row; if one was
+    marked by the system, discarding or voiding the alert drops that mark (`cash_auto_marks`). The
+    account and its link are system data, outside the change log, so undoing the first change
+    never strands the automatic marks. A withdrawal then a cash expense is one spending: the expense.
+  - **Reconcile** (`cash_reconciliations`): monthly in "To review" (from the month after the
+    activation, until done that month) and on demand. You say how much cash you have per
+    currency; the difference with the balance up to today becomes one entry dated today: less
+    cash is an expense "Unrecorded cash expenses" (category Cash); more cash is income
+    "Unrecorded cash" (Other income), except in a currency with no initial balance yet, where it
+    becomes the initial balance. The initial balance is never edited; the result always equals
+    the count, so it also clears the negative-balance warning. One undo.
+  - The Summary and Transactions have a "+" (floating on a phone) for "I spent cash / I received
+    cash" (amount, concept, date, Repeat), and the Summary shows "Next: <concept> · RD$ 3,000 ·
+    <weekday>" when something is due within a week. The migration
+    (`migrations_v23.py`) only adds columns and tables, activates an existing box from tomorrow and
+    renames the account and the transfer category when they still had their original name; the
+    figures stay identical (`tests/test_schema_v23.py`).
 - **Log** (in the menu): every change made from the board, to go over it, undo it and learn from
   it. Every mutation that changes how a transaction looks or counts is recorded: category (only
   that one, in batch or the rule for the whole merchant), note, one-off, links (shared, exchanges,

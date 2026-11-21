@@ -12,6 +12,7 @@ from michelito.parsers import bhd_savings, popular_account
 from michelito.web.app import create_app
 from michelito.web.schemas import RecurringItemOut
 from tests import samples
+from tests.helpers import shown_name
 from tests.test_spending import _add_bank_rows, seed
 
 WRITE = {"X-Michelito": "1"}
@@ -151,7 +152,7 @@ def test_accounts_and_categories(client: TestClient) -> None:
     # It now has more fields (id, color, keywords…); `name` and `kind` are unchanged.
     assert [
         {"name": c["name"], "kind": c["kind"]} for c in client.get("/api/categories").json()
-    ] == [{"name": name, "kind": categories.kind_of(name)} for name in categories.ALL]
+    ] == [{"name": shown_name(name), "kind": categories.kind_of(name)} for name in categories.ALL]
 
 
 def test_summary_has_flow_fields_and_transactions_have_kind(client: TestClient) -> None:

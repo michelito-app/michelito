@@ -5,13 +5,22 @@ import { Action, ConfirmBox, Failure } from '@/components/transactions/linkParts
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { t } from '@/i18n'
 import type { LinkedTx } from '@/lib/api'
-import { displayName, differenceText, entryLine, paymentLine, splitLineText } from '@/lib/ledger'
+import {
+  displayName,
+  differenceText,
+  entryLine,
+  paymentLine,
+  rateText,
+  splitLineText,
+} from '@/lib/ledger'
 import { formatMoney, linkedAmount } from '@/lib/links'
 import { useUndo } from '@/lib/logQueries'
 import { longDay, shortDay } from '@/lib/months'
 import type { Entry, Group, Payment, TimelineItem } from '@/lib/sharedApi'
 import { lastLogId, ledger, useLedgerWrite } from '@/lib/sharedQueries'
 import { cn } from '@/lib/utils'
+import { coverStart, useCoverDraft } from '@/lib/coverDraft'
+import { AlsoPaidFor } from './AlsoPaidFor'
 import { ExpenseForm } from './ExpenseForm'
 import { Chip } from './parts'
 import { LIST_CARD } from './styles'
@@ -24,13 +33,17 @@ interface ItemSheetProps {
   onClose: () => void
   /** "Link" an unlinked payment (the payment sheet's second step). */
   onLink: (payment: Payment) => void
+  /** Open a payment's "Also paid for…" at once, with these people checked (the suggestion's
+   * "Yes"); null: the plain detail. */
+  cover?: readonly number[] | null
 }
 
 /** A timeline row's detail: the full split (or the payment's ends), the linked bank transaction
  * with "Open", and only the actions that apply: edit, accept a difference, link, unlink, assign
  * and delete (with undo, through the log). */
-export function ItemSheet({ group, item, onClose, onLink }: ItemSheetProps) {
+export function ItemSheet({ group, item, onClose, onLink, cover = null }: ItemSheetProps) {
   const [editing, setEditing] = useState(false)
+  const [covering, setCovering] = useState<readonly number[] | null>(cover)
   const [deleted, setDeleted] = useState<{ logId: number | null } | null>(null)
   const [confirming, setConfirming] = useState(false)
   const write = useLedgerWrite()
@@ -85,12 +98,29 @@ export function ItemSheet({ group, item, onClose, onLink }: ItemSheetProps) {
     )
   }
 
+  const canCover =
+    item.kind === 'payment' &&
+    item.to_me &&
+    item.from_contact !== null &&
+    group.members.filter((m) => !m.is_me).length > 1
+
+  if (covering && item.kind === 'payment' && canCover) {
+    return (
+      <BottomSheet title={t('shared.detail.alsoPaidFor')} onClose={onClose}>
+        <CoverBody group={group} payment={item} preselect={covering} onDone={() => setCovering(null)} />
+      </BottomSheet>
+    )
+  }
+
   return (
     <BottomSheet title={title} onClose={onClose}>
       {item.kind === 'entry' ? <EntryBody entry={item} /> : <PaymentBody group={group} payment={item} />}
       <div className="flex flex-wrap gap-2">
         {item.kind === 'entry' && (
           <Action onClick={() => setEditing(true)}>{t('shared.detail.edit')}</Action>
+        )}
+        {canCover && (
+          <Action onClick={() => setCovering([])}>{t('shared.detail.alsoPaidFor')}</Action>
         )}
         {item.kind === 'payment' && !item.transaction && (
           <Action onClick={() => onLink(item)}>{t('shared.payment.link')}</Action>
@@ -179,6 +209,11 @@ function PaymentBody({ group, payment }: { group: Group; payment: Payment }) {
         <p className="text-[15px] font-semibold break-words">{paymentLine(payment)}</p>
         <p className="text-[13px] text-muted-foreground">{longDay(payment.day)}</p>
         {difference && <p className="text-[13px] text-ink-2">{difference}</p>}
+        {payment.rate && (
+          <p data-testid="payment-rate" className="text-[13px] text-muted-foreground">
+            {t('shared.detail.rateUsed', { rate: rateText(payment.rate) })}
+          </p>
+        )}
         {payment.accepted && (
           <p className="text-[13px] text-muted-foreground">{t('shared.detail.accepted')}</p>
         )}
@@ -217,6 +252,62 @@ function PaymentBody({ group, payment }: { group: Group; payment: Payment }) {
       )}
       {payment.transaction && <BankLine tx={payment.transaction} />}
     </>
+  )
+}
+
+interface CoverBodyProps {
+  group: Group
+  payment: Payment
+  /** People to check when it covers nobody else yet (the suggestion's). */
+  preselect: readonly number[]
+  onDone: () => void
+}
+
+/** "Also paid for…" on a payment another person made to the user: check people, see the
+ * proposed amounts (payer first, converted), edit them and save, as one change in the log.
+ * Unchecking everyone gives it back to the payer alone. */
+function CoverBody({ group, payment, preselect, onDone }: CoverBodyProps) {
+  const write = useLedgerWrite()
+  const payer = group.members.find((m) => m.id === payment.from_contact) ?? null
+  // One base everywhere: what it settles (an accepted difference included), as the server checks.
+  const start = coverStart(payment, preselect)
+  const draft = useCoverDraft({
+    groupId: group.id,
+    payer,
+    amountCents: start.base,
+    currency: payment.currency,
+    day: payment.day,
+    paymentId: payment.id,
+    initialCovers: start.covers,
+    initialShares: start.shares,
+  })
+  if (!payer) return null
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[15px] font-semibold break-words">{paymentLine(payment)}</p>
+      <AlsoPaidFor
+        draft={draft}
+        payer={payer}
+        people={group.members.filter((m) => !m.is_me && m.id !== payer.id)}
+        currency={payment.currency}
+        legend={t('shared.detail.alsoPaidFor')}
+        hint={t('shared.detail.alsoPaidForHint', { name: payer.name })}
+      />
+      <Failure error={write.error} />
+      <div className="flex flex-wrap gap-2">
+        <Action
+          primary
+          disabled={!draft.ready || write.isPending}
+          onClick={() =>
+            draft.allocations &&
+            write.mutate(() => ledger.setAllocations(payment.id, draft.allocations!), { onSuccess: onDone })
+          }
+        >
+          {t('shared.detail.saveCovers')}
+        </Action>
+        <Action onClick={onDone}>{t('shared.group.removeCancel')}</Action>
+      </div>
+    </div>
   )
 }
 

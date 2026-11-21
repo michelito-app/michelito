@@ -14,6 +14,7 @@ import {
   undoSince,
 } from './ledger'
 import { escapeRegExp, literal, t } from './text'
+import type { Group } from '../src/lib/sharedApi'
 
 const FEBRUARY = '2026-02'
 const NEW_GROUP = 'Viaje de prueba' // spanish-data
@@ -447,9 +448,12 @@ test('a payment on behalf of others settles both people in one go', async ({ pag
   const amount = pay.getByLabel(t('shared.pay.amount'))
   await expect(amount).toHaveValue('300.00')
   await pay.getByRole('checkbox', { name: t('shared.pay.coversLabel', { name: 'Gordo Ficticio' }) }).check()
-  // Gordo's balance is added; each allocation starts at what they owe.
-  await expect(amount).toHaveValue('600.00')
+  // Payer first: the RD$ 300 typed are all Javier's own balance, nothing is left for Gordo.
+  await expect(amount).toHaveValue('300.00')
   const gordo = pay.getByLabel(t('shared.pay.allocationOf', { name: 'Gordo Ficticio' }))
+  await expect(gordo).toHaveValue('0.00')
+  // Paying RD$ 600 proposes Gordo's RD$ 300 after Javier's.
+  await amount.fill('600')
   await expect(gordo).toHaveValue('300.00')
   await expect(pay.getByLabel(t('shared.pay.allocationOf', { name: 'Javier Ficticio' }))).toHaveValue('300.00')
   const shortfall = pay.getByTestId('allocation-shortfall')
@@ -466,6 +470,214 @@ test('a payment on behalf of others settles both people in one go', async ({ pag
     `${line} ${t('shared.payment.covers', { names: 'Gordo Ficticio' })}`,
   )
   await expect(page.getByTestId('group-sentence')).toHaveText(t('shared.group.sentence.settled'))
+})
+
+/** The synthetic case of tests/ledger_cover_case.py: two US$ expenses the user paid, split among
+ * three; Ana paid three times in RD$ (really for herself and Beto) and Beto once. Each of Ana's
+ * payments is hers alone, so the last one's excess is a RD$ claim the other way while Beto still
+ * owes: owed US$ 629.31 and owing RD$ 40,108. The e2e server's rates: 63.10, 63.40, 63.70. */
+async function coverCase(page: Page) {
+  const group = await createGroup(page.request, COVER_GROUP, [
+    { name: 'Ana Viajera' }, // spanish-data
+    { name: 'Beto Viajero' }, // spanish-data
+  ])
+  const me = group.members.find((m) => m.is_me)!.id
+  const ana = group.members.find((m) => m.name === 'Ana Viajera')!.id
+  const beto = group.members.find((m) => m.name === 'Beto Viajero')!.id
+  for (const [cents, day] of [
+    [240_000, '2025-12-05'],
+    [142_800, '2025-12-10'],
+  ] as const) {
+    await addEntry(page.request, group.id, {
+      paid_by: me,
+      amount_cents: cents,
+      currency: 'USD',
+      day,
+      description: 'Hotel',
+      split: 'equal',
+      people: [me, ana, beto],
+    })
+  }
+  let fresh = group
+  for (const [from, cents, day] of [
+    [ana, 4_000_000, '2025-12-20'],
+    [ana, 4_000_000, '2026-01-15'],
+    [beto, 4_100_000, '2026-01-20'],
+    [ana, 4_082_000, '2026-02-10'],
+  ] as const) {
+    fresh = await addPayment(page.request, group.id, {
+      from_contact: from,
+      to_contact: me,
+      amount_cents: cents,
+      currency: 'DOP',
+      day,
+    })
+  }
+  return fresh
+}
+
+const COVER_GROUP = 'Viaje en dólares' // spanish-data
+const COVER_SENTENCE = `${t('shared.group.sentence.owed', { amount: 'US$ 629.31' })} · ${t('shared.group.sentence.owe', { amount: 'RD$ 40,108' })}`
+
+test('one person paid for several in RD$: To review proposes it and both end settled', async ({
+  page,
+}) => {
+  const group = await coverCase(page)
+  await page.goto(`/shared/${group.id}`)
+  await expect(page.getByTestId('group-sentence')).toHaveText(COVER_SENTENCE)
+  await expect(page.getByTestId('group-total')).toHaveText(t('shared.total.owe', { amount: 'RD$ 21' }))
+  await expect(page.getByTestId('cover-notice')).toContainText('¿Ese pago también era por Beto Viajero?') // spanish-data
+
+  // The review list lives on /review (the Summary only counts it).
+  await page.goto(`/review?month=${FEBRUARY}`)
+  const card = page.getByRole('region', { name: literal(t('summary.review.title')) })
+  const yes = card.getByRole('button', { name: t('summary.review.coverLabel', { merchant: COVER_GROUP }) })
+  const seeAll = card.getByRole('button', { name: new RegExp(escapeRegExp(t('summary.review.seeAll', { count: 0 }).split('(')[0])) })
+  if ((await yes.count()) === 0 && (await seeAll.count()) > 0) await seeAll.click()
+  await yes.click()
+
+  await expect(page).toHaveURL(new RegExp(`/shared/${group.id}\\?cover=`))
+  const sheet = dialog(page, t('shared.plan.title'))
+  // Payer first: Ana's own US$ 11.18 (RD$ 712.17 at 63.70) and the rest is hers; Beto's US$ 629.31.
+  const payments = sheet.getByTestId('plan-payment')
+  await expect(payments).toHaveCount(1)
+  await expect(payments.first()).toContainText('RD$ 733')
+  await expect(payments.first()).toContainText(
+    t('shared.rate.conversion', {
+      amount: 'RD$ 40,087',
+      converted: 'US$ 629.31',
+      rate: t('shared.rate.line', { value: '63.70', month: 'feb' }),
+    }),
+  )
+  const after = sheet.getByRole('list', { name: t('shared.plan.after') })
+  await expect(after).toContainText(t('shared.leftover.settled', { amount: 'RD$ 21' }))
+  await noSidewaysScroll(page, 'cover plan')
+  await sheet.getByRole('button', { name: t('shared.plan.confirm') }).click()
+  await expect(sheet).toHaveCount(0)
+
+  // The payment's detail: who it covers and the rate it settled with.
+  await page.getByTestId('timeline-payment').first().click()
+  const detail = dialog(page, t('shared.detail.payment'))
+  await expect(detail.getByRole('list', { name: t('shared.detail.coveredFor') })).toContainText('Beto Viajero')
+  await expect(detail.getByTestId('payment-rate')).toHaveText(
+    t('shared.detail.rateUsed', { rate: t('shared.rate.line', { value: '63.70', month: 'feb' }) }),
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('group-sentence')).toHaveText(t('shared.group.sentence.settled'))
+  await expect(page.getByTestId('cover-notice')).toHaveCount(0)
+  const cards = page.getByRole('list', { name: t('shared.group.cards') })
+  await expect(cards.getByRole('button', { name: /^Ana Viajera/ })).toContainText(
+    t('shared.leftover.settled', { amount: 'RD$ 21' }),
+  )
+  await expect(cards.getByRole('button', { name: /^Beto Viajero/ })).toContainText(t('shared.balance.settled'))
+})
+
+/** The shape of the owner's group (made-up figures, tests/ledger_cover_case.py `spread_group`)
+ * at the e2e server's February rate: Ana pays three times in RD$, really for herself and Beto,
+ * who paid once; each of her payments is hers alone. */
+async function spreadCase(page: Page) {
+  const group = await createGroup(page.request, SPREAD_GROUP, [
+    { name: 'Ana Viajera' }, // spanish-data
+    { name: 'Beto Viajero' }, // spanish-data
+  ])
+  const me = group.members.find((m) => m.is_me)!.id
+  const ana = group.members.find((m) => m.name === 'Ana Viajera')!.id
+  const beto = group.members.find((m) => m.name === 'Beto Viajero')!.id
+  for (const [cents, day] of [
+    [382_800, '2026-01-10'],
+    [191_415, '2026-01-20'],
+  ] as const) {
+    await addEntry(page.request, group.id, {
+      paid_by: me,
+      amount_cents: cents,
+      currency: 'USD',
+      day,
+      description: 'Hotel',
+      split: 'equal',
+      people: [me, ana, beto],
+    })
+  }
+  for (const [from, cents, day] of [
+    [ana, 12_500_000, '2026-02-03'],
+    [beto, 4_100_000, '2026-02-05'],
+    [ana, 2_500_000, '2026-02-08'],
+    [ana, 4_150_000, '2026-02-12'],
+  ] as const) {
+    await addPayment(page.request, group.id, { from_contact: from, to_contact: me, amount_cents: cents, currency: 'DOP', day })
+  }
+  return group
+}
+
+const SPREAD_GROUP = 'Viaje largo' // spanish-data
+
+test('three payments for two people: one suggestion, one review and one change settle it', async ({
+  page,
+}) => {
+  const group = await spreadCase(page)
+  await page.goto(`/shared/${group.id}`)
+  const notice = page.getByTestId('cover-notice')
+  await expect(notice).toContainText('de más en 3 pagos') // spanish-data
+  await expect(notice).toContainText('¿Esos pagos también eran por Beto Viajero?') // spanish-data
+  await notice.getByRole('button', { name: t('shared.cover.yesLabel', { name: 'Ana Viajera' }) }).click()
+
+  const sheet = dialog(page, t('shared.plan.title'))
+  await expect(sheet.getByTestId('plan-payment')).toHaveCount(3)
+  await expect(sheet.getByTestId('plan-payment').first()).toContainText(
+    t('shared.plan.payment', { day: '3 feb', amount: 'RD$ 125,000' }),
+  )
+  await noSidewaysScroll(page, 'three payments plan')
+  const mark = await logMark(page.request)
+  await sheet.getByRole('button', { name: t('shared.plan.confirm') }).click()
+  await expect(sheet).toHaveCount(0)
+
+  // One change in the log; the user owes Ana nothing and Beto owes what her payments did not cover.
+  const response = await page.request.get('/api/log?limit=20')
+  const items = ((await response.json()) as { items: { id: number }[] }).items
+  expect(items.filter((e) => e.id > mark)).toHaveLength(1)
+  const fresh = (await (await page.request.get(`/api/shared/groups/${group.id}`)).json()) as Group
+  expect(fresh.i_owe).toEqual([])
+  expect(fresh.owed_to_me).toHaveLength(1)
+  const left = fresh.owed_to_me[0]
+  expect(left.currency).toBe('USD')
+  await expect(page.getByTestId('group-sentence')).toHaveText(
+    t('shared.group.sentence.owed', { amount: `US$ ${(left.cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}` }),
+  )
+  await expect(page.getByTestId('cover-notice')).toHaveCount(0)
+})
+
+test('«No» keeps the payment as it was; the leftover toggle brings the RD$ 21 back', async ({ page }) => {
+  const group = await coverCase(page)
+  await page.goto(`/shared/${group.id}`)
+  const notice = page.getByTestId('cover-notice')
+  await notice.getByRole('button', { name: t('shared.cover.noLabel', { name: 'Ana Viajera' }) }).click()
+  await expect(notice).toHaveCount(0)
+  await expect(page.getByTestId('group-sentence')).toHaveText(COVER_SENTENCE)
+
+  // Covering Beto from the payment's detail, then counting Ana's exchange leftover again.
+  await page.getByTestId('timeline-payment').first().click()
+  const detail = dialog(page, t('shared.detail.payment'))
+  await detail.getByRole('button', { name: t('shared.detail.alsoPaidFor') }).click()
+  const sheet = dialog(page, t('shared.detail.alsoPaidFor'))
+  await sheet.getByRole('checkbox', { name: t('shared.pay.coversLabel', { name: 'Beto Viajero' }) }).check()
+  await expect(sheet.getByLabel(t('shared.pay.allocationOf', { name: 'Beto Viajero' }))).toHaveValue('40087.05')
+  await sheet.getByRole('button', { name: t('shared.detail.saveCovers') }).click()
+  await expect(dialog(page, t('shared.detail.payment'))).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('group-sentence')).toHaveText(t('shared.group.sentence.settled'))
+
+  await page.getByRole('button', { name: t('shared.menuOf', { name: COVER_GROUP }) }).click()
+  const menu = dialog(page, COVER_GROUP)
+  await menu.getByRole('button', { name: t('shared.group.leftover') }).click()
+  const toggle = dialog(page, t('shared.group.leftover')).getByRole('checkbox', {
+    name: new RegExp(escapeRegExp(t('shared.group.leftoverPerson', { name: 'Ana Viajera' }))),
+  })
+  await expect(toggle).toBeChecked()
+  await toggle.click() // saved at once (and logged): it shows unchecked when the group is back
+  await expect(toggle).not.toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('group-sentence')).toHaveText(
+    t('shared.group.sentence.owe', { amount: 'RD$ 21' }),
+  )
 })
 
 test('the log: one row per change, a sentence that links to the group, undo and redo toggle it', async ({
@@ -557,7 +769,7 @@ test('To review proposes the credit as her payment; one tap records and links it
   page,
 }) => {
   const group = await owingGroup(page)
-  await page.goto(`/?month=${FEBRUARY}`)
+  await page.goto(`/review?month=${FEBRUARY}`)
   const card = page.getByRole('region', { name: literal(t('summary.review.title')) })
   const yes = card.getByRole('button', {
     name: new RegExp(`^${escapeRegExp(t('summary.review.paymentLabel', { merchant: '' }))}TOKE DE PERSONA`),

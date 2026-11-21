@@ -66,6 +66,7 @@ COSTS: tuple[tuple[re.Pattern[str], int], ...] = (
     (re.compile(r"/api/insights/.+"), 5),
     (re.compile(r"/api/dossier"), 4),
     (re.compile(r"/api/summary"), 3),
+    (re.compile(r"/api/summary/pace"), 3),
     (re.compile(r"/api/demo/sample-statement"), 3),
 )
 # No database and no work: they neither wait for a turn nor spend budget.

@@ -491,6 +491,9 @@ class TxOut(BaseModel):
     provisional: bool = False
     # Hosted email forwarding: it entered because the person approved an unverified email.
     approved: bool = False
+    # A scheduled cash occurrence nobody answered: "pending" (in "To review") or
+    # "unconfirmed" (a payment kept as paid after a week); empty otherwise.
+    cash_state: str = ""
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
@@ -499,6 +502,7 @@ class TxOut(BaseModel):
             fingerprint=v.fingerprint,
             provisional=v.provisional,
             approved=v.approved,
+            cash_state=v.cash_state,
             day=v.day.isoformat(),
             merchant=v.merchant,
             description=v.description,

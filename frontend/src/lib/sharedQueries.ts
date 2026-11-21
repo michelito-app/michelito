@@ -8,6 +8,8 @@ import { type LogPage, logPath } from './log'
 import { queryKeys } from './queries'
 import type {
   Contacts,
+  CoverBody,
+  CoverPlan,
   EntryBody,
   Group,
   MemberUsage,
@@ -15,6 +17,8 @@ import type {
   PaymentBody,
   PaymentPatch,
   Person,
+  Proposal,
+  ShareBody,
   SharedHome,
 } from './sharedApi'
 
@@ -27,6 +31,55 @@ export const sharedKeys = {
   expenseCandidates: [...queryKeys.transactions, 'shared', 'expense-candidates'] as const,
   paymentCandidates: (query: PaymentQuery) =>
     [...queryKeys.transactions, 'shared', 'payment-candidates', paymentQueryString(query)] as const,
+  proposal: (query: ProposalQuery) =>
+    [...queryKeys.transactions, 'shared', 'proposal', query.group_id, proposalQueryString(query)] as const,
+}
+
+/** What "Also pays for…" asks the server to propose (`ledger.propose_allocations`). */
+export interface ProposalQuery {
+  group_id: number
+  from_contact: number
+  amount_cents: number
+  currency: string
+  day: string
+  covers: readonly number[] // in the order they were checked
+  payment_id?: number | null // an existing payment: at its own position
+}
+
+function proposalQueryString(query: ProposalQuery): string {
+  const params = new URLSearchParams({
+    from_contact: String(query.from_contact),
+    amount_cents: String(query.amount_cents),
+    currency: query.currency,
+    day: query.day,
+    covers: query.covers.join(','),
+  })
+  if (query.payment_id != null) params.set('payment_id', String(query.payment_id))
+  return params.toString()
+}
+
+/** "Yes" to the group's suggestion: each payment proposed in order and the balances after. */
+export function useCoverPlan(groupId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...sharedKeys.group(groupId), 'cover-plan'] as const,
+    queryFn: () => request<CoverPlan>(groupPath(groupId, '/cover-proposal')),
+    enabled,
+  })
+}
+
+/** The proposed allocations (payer first, then the others in order, converted); none while
+ * nobody else is checked. */
+export function useProposal(query: ProposalQuery | null) {
+  return useQuery({
+    queryKey: sharedKeys.proposal(
+      query ?? { group_id: 0, from_contact: 0, amount_cents: 0, currency: '', day: '', covers: [] },
+    ),
+    queryFn: () =>
+      request<Proposal>(
+        `/api/shared/groups/${query!.group_id}/allocation-proposal?${proposalQueryString(query!)}`,
+      ),
+    enabled: query !== null,
+  })
 }
 
 export function useSharedHome() {
@@ -127,6 +180,15 @@ export const ledger = {
   patchPayment: (paymentId: number, body: PaymentPatch) =>
     request<Group>(`/api/shared/payments/${paymentId}`, patch(body)),
   deletePayment: (paymentId: number) => request<Group>(`/api/shared/payments/${paymentId}`, DELETE),
+  setAllocations: (paymentId: number, allocations: ShareBody[]) =>
+    request<Group>(`/api/shared/payments/${paymentId}/allocations`, put({ allocations })),
+  /** "No" to a suggestion: every payment of it, as one change. */
+  dismissCovers: (id: number, paymentIds: readonly number[], dismissed = true) =>
+    request<Group>(groupPath(id, '/cover-dismissed'), put({ payment_ids: paymentIds, dismissed })),
+  /** "Yes" confirmed: every payment's allocations, as one change. */
+  applyCover: (id: number, body: CoverBody) => request<Group>(groupPath(id, '/cover'), put(body)),
+  setLeftover: (id: number, contactId: number, settled: boolean) =>
+    request<Group>(groupPath(id, '/exchange-leftover'), post({ contact_id: contactId, settled })),
   createContact: (name: string, alias?: string) =>
     request<{ id: number }>('/api/shared/contacts', post({ name, alias })),
   renameContact: (id: number, name: string) =>

@@ -74,7 +74,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow, holders:
             built = dossier.build(conn, found.month, accounts=accounts, flow=flow)
         except (ValueError, LookupError):
             return False  # the month has no data anymore or an account stopped existing
-        return insights.is_fresh(conn, found, built.data_hash, lambda: built.legacy_hash)
+        return insights.is_fresh(conn, found, built.data_hash, lambda: built.older_hashes)
 
     def out(
         conn: sqlite3.Connection, flow: Sequence[Movement], found: insights.Insight

@@ -66,32 +66,6 @@ test('a row opens its screen and "Back" returns to Pending', async ({ page }) =>
   await expect(heading(page)).toBeVisible()
 })
 
-test('the Summary widget has the figures of every month and leads to Pending', async ({
-  page,
-}) => {
-  await page.goto('/?month=2026-02') // the made-up pending items are from December
-  const widget = page.getByRole('region', { name: t('summary.pendingCard.title') })
-  await expect(widget).toContainText(t('summary.pendingCard.note').split(';')[0])
-  await expect(widget.getByTestId('pending-card-owe')).toHaveText('RD$ 12,620')
-  const owed = await widget.getByTestId('pending-card-owed').textContent()
-  const net = await widget.getByTestId('pending-card-net').textContent()
-
-  await widget.getByRole('link', { name: t('summary.pendingCard.link') }).click()
-  await expect(page).toHaveURL(/\/pending$/)
-  await expect(page.getByTestId('pending-owed')).toHaveText(owed ?? '')
-  await expect(page.getByTestId('pending-net')).toHaveText(net ?? '')
-  await expect(lists(page).owed.getByRole('link', { name: /^Luis/ })).toBeVisible()
-})
-
-test('the Summary widget keeps the chosen accounts', async ({ page }) => {
-  await page.goto(`/?month=2026-02&accounts=${encodeURIComponent(VISA)}`)
-  const widget = page.getByRole('region', { name: t('summary.pendingCard.title') })
-  await expect(widget.getByTestId('pending-card-owe')).toHaveText('RD$ 0')
-  await widget.getByRole('link', { name: t('summary.pendingCard.link') }).click()
-  await expect(page).toHaveURL(/\/pending\?accounts=/)
-  await expect(lists(page).owe).toContainText(t('pending.oweEmpty'))
-})
-
 test('with only the VISA its expenses stay and no exchange', async ({ page }) => {
   await page.goto(`/pending?accounts=${encodeURIComponent(VISA)}`)
   const { owed, owe } = lists(page)

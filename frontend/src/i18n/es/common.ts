@@ -34,9 +34,9 @@ export const common = {
     other: '{count} pasaron a {category}',
   },
   'common.selection.skipped.cashBox': {
-    one: '{count} no se cambió: es de la caja fuerte (una entrada va a un ingreso; una salida, a un gasto)',
+    one: '{count} no se cambió: es de tu efectivo (una entrada va a un ingreso; una salida, a un gasto)',
     other:
-      '{count} no se cambiaron: son de la caja fuerte (una entrada va a un ingreso; una salida, a un gasto)',
+      '{count} no se cambiaron: son de tu efectivo (una entrada va a un ingreso; una salida, a un gasto)',
   },
   'common.selection.skipped.linked': {
     one: '{count} no se cambió: está en un vínculo',

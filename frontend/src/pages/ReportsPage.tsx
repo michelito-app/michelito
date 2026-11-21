@@ -5,11 +5,13 @@ import { AccountPicker } from '@/components/filters/AccountPicker'
 import { LoadError } from '@/components/LoadError'
 import { CompareTable } from '@/components/reports/CompareTable'
 import { InsightsSection } from '@/components/reports/InsightsSection'
+import { MonthDetail } from '@/components/reports/MonthDetail'
 import { ReviewHistory } from '@/components/reports/ReviewHistory'
 import { PANEL } from '@/components/summary/styles'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { scopeText } from '@/lib/accountFilter'
+import { resolveMonth } from '@/lib/months'
 import { useComparison, useMonths } from '@/lib/queries'
 import { FROM_PARAM, orderedRange, parseRange, type Range, TO_PARAM } from '@/lib/reports'
 import { useAccountSelection } from '@/lib/useAccountSelection'
@@ -17,12 +19,25 @@ import { cn } from '@/lib/utils'
 
 /** Reports screen: compare months, saved analyses and the "To review" history, with the chosen
  * accounts (the same as the Summary's). The range lives in the URL (`from`, `to`). */
+const MONTH_PARAM = 'month'
+
 export function ReportsPage() {
   const [params, setParams] = useSearchParams()
   const { selection, accounts, ready, select } = useAccountSelection()
   const months = useMonths(selection, ready)
   const range = months.data ? parseRange(params, months.data) : { from: null, to: null }
   const comparison = useComparison(range, selection, ready && months.isSuccess)
+  const month = months.data ? resolveMonth(months.data, params.get(MONTH_PARAM)) : null
+
+  // The month of the detail travels in the URL (`month`), next to the range.
+  function changeMonth(next: string | null) {
+    setParams((current) => {
+      const copy = new URLSearchParams(current)
+      if (next) copy.set(MONTH_PARAM, next)
+      else copy.delete(MONTH_PARAM)
+      return copy
+    })
+  }
 
   function changeRange(next: Range) {
     const ordered = orderedRange(next)
@@ -53,6 +68,15 @@ export function ReportsPage() {
         </p>
       </header>
       <div className="flex min-w-0 flex-col gap-6">
+        {ready && months.data && month && (
+          <MonthDetail
+            month={month}
+            months={months.data}
+            onMonth={changeMonth}
+            selection={selection}
+            accounts={accounts}
+          />
+        )}
         {months.isError ? (
           <LoadError what={t('summary.page.months')} error={months.error} onRetry={() => months.refetch()} />
         ) : comparison.isError ? (

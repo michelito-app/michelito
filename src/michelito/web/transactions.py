@@ -50,6 +50,7 @@ class TxView:
     links: RowLinks = RowLinks()
     provisional: bool = False  # from a bank alert, its statement has not arrived yet
     approved: bool = False  # hosted: it entered because the person approved an email
+    cash_state: str = ""  # an unanswered scheduled cash occurrence: "pending" or "unconfirmed"
 
     @property
     def suggested_one_off(self) -> bool:
@@ -134,6 +135,7 @@ def list_transactions(
             gross=m.gross,
             links=rows.get(m.fingerprint, RowLinks()),
             provisional=m.provisional,
+            cash_state=m.cash_state,
         )
         for m in selected
     ]

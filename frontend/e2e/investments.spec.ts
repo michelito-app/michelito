@@ -56,7 +56,7 @@ async function openTransaction(page: Page, name: RegExp) {
 test.describe.configure({ mode: 'serial' })
 
 test('a debit is marked as an investment: it does not reduce what you kept', async ({ page }) => {
-  await page.goto(`/?month=${DECEMBER}`)
+  await page.goto(`/reports?month=${DECEMBER}`)
   const kpis = page.getByRole('region', { name: t('summary.kpi.sectionLabel') })
   await expect(kpis.getByTestId('invested-note')).toHaveText(investedNote('RD$ 50,000'))
 
@@ -84,7 +84,7 @@ test('a debit is marked as an investment: it does not reduce what you kept', asy
   // The link decides its category.
   await expect(page.getByRole('main').locator('header')).toContainText('MB A 0000000066')
 
-  await page.goto(`/?month=${DECEMBER}`)
+  await page.goto(`/reports?month=${DECEMBER}`)
   await expect(kpis.getByTestId('invested-note')).toHaveText(investedNote('RD$ 350,000'))
 })
 
@@ -134,7 +134,7 @@ test('a return and a mixed repayment are linked', async ({ page }) => {
 })
 
 test('«To review» proposes another contribution and confirming it is one tap', async ({ page }) => {
-  await page.goto(`/?month=${DECEMBER}`)
+  await page.goto(`/review?month=${DECEMBER}`)
   const card = page.getByRole('region', { name: literal(t('summary.review.title')) })
   await expect(card).toContainText(t('review.kind.possibleContribution'))
   // The reason comes from the backend's catalog (src/michelito/i18n/es_analysis.py).
@@ -148,6 +148,7 @@ test('«To review» proposes another contribution and confirming it is one tap',
     })
     .click()
   await expect(card).not.toContainText(t('review.kind.possibleContribution'))
+  await page.goto(`/reports?month=${DECEMBER}`)
   const kpis = page.getByRole('region', { name: t('summary.kpi.sectionLabel') })
   await expect(kpis.getByTestId('invested-note')).toHaveText(investedNote('RD$ 450,000'))
   await kpis.getByRole('link', { name: investedNote('RD$ 450,000') }).click()
@@ -312,7 +313,7 @@ test('at 390 px nothing scrolls sideways and touch targets are 44 px', async ({ 
       ],
     }),
   )
-  await page.goto(`/?month=${DECEMBER}`)
+  await page.goto(`/review?month=${DECEMBER}`)
   const card = page.getByRole('region', { name: literal(t('summary.review.title')) })
   const actions = (['review.row.returnLabel', 'review.row.capitalLabel', 'review.row.notInvestmentLabel'] as const)
     .map((key) => escapeRegExp(startOf(t(key, { merchant: HOLE }))))

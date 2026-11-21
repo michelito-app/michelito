@@ -31,7 +31,9 @@ from pathlib import Path
 
 from michelito import db, importer, ingest
 from michelito.analysis import (
+    cash_activation,
     cash_box_store,
+    cash_schedule_store,
     catalog,
     categories,
     ledger,
@@ -74,6 +76,13 @@ PROVISIONALS = (
     (2, "FARMACIA INVENTADA", Decimal("640.00")),
     (4, "GASOLINERA FICTICIA", Decimal("1500.00")),
 )
+# Cash written by hand (schema 23): (days before today, concept, RD$ amount), and a weekly cash
+# payment that started three weeks ago.
+CASH_EXPENSES = (
+    (8, "Colmado Ficticio", Decimal("850.00")),
+    (3, "Propina", Decimal("200.00")),
+)
+CASH_WEEKLY = ("Limpieza", Decimal("3000.00"))
 # spanish-data: end
 _OPENING = {
     (mv.CHECKING[3], "DOP"): Decimal("60000.00"),
@@ -462,3 +471,28 @@ def _link(conn, today: date) -> None:  # noqa: ANN001
         stored = [m for m in movements if m.description == mv.ATM and m.amount >= 10000]
         for atm in stored:
             cash_box_store.store(conn, atm.fingerprint)
+        _cash(conn, today)
+
+
+def _cash(conn, today: date) -> None:  # noqa: ANN001
+    """The cash account: a couple of expenses with their concept, a weekly cash payment whose
+    occurrences are paid but the last one (left pending for "To review"), and the account
+    activated today (no withdrawal already in the data changes)."""
+    for back, concept, amount in CASH_EXPENSES:
+        day = today - timedelta(days=back)
+        cash_box_store.add_entry(conn, "expense", day, amount, "DOP", today=today, concept=concept)
+    concept, amount = CASH_WEEKLY
+    draft = cash_schedule_store.ScheduleDraft(
+        kind="payment",
+        concept=concept,
+        amount=amount,
+        currency="DOP",
+        category_id=None,
+        frequency="weekly",
+        start=today - timedelta(days=21),
+    )
+    cash_schedule_store.add(conn, draft, today)
+    made = cash_schedule_store.materialize(conn, today)
+    for entry_id in made[:-1]:
+        cash_schedule_store.answer(conn, entry_id, "confirm", today=today)
+    cash_activation.activate(conn, today)

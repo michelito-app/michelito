@@ -21,6 +21,18 @@ import {
   showCashBox,
   wouldBeNegative,
 } from './cashBox'
+import {
+  cashReviewCount,
+  cashSource,
+  countsBody,
+  fold,
+  frequencyText,
+  knownConcept,
+  matchConcepts,
+  scheduleBody,
+  upcomingText,
+} from './cashBox'
+import type { CashConcept } from './api'
 
 function box(overrides: Partial<CashBox> = {}): CashBox {
   return {
@@ -36,6 +48,13 @@ function box(overrides: Partial<CashBox> = {}): CashBox {
     negative: [],
     uncounted: [],
     lines: [],
+    balances_today: [],
+    schedules: [],
+    occurrences: [],
+    upcoming: null,
+    activated_on: null,
+    reconcile_due: false,
+    last_reconciled: null,
     ...overrides,
   }
 }
@@ -58,6 +77,9 @@ function line(overrides: Partial<CashLine> = {}): CashLine {
     note: 'Corner store',
     in_flow: true,
     group: null,
+    concept: null,
+    schedule_id: null,
+    state: '',
     ...overrides,
   }
 }
@@ -131,7 +153,12 @@ describe('cash box texts', () => {
 
 describe('forms', () => {
   it('builds the body of an entry or the error', () => {
-    const draft = { ...emptyDraft('expense', '2026-01-20'), amount: '1,500.50', note: ' x ' }
+    const draft = {
+      ...emptyDraft('expense', '2026-01-20'),
+      amount: '1,500.50',
+      note: ' x ',
+      concept: ' Corner store ',
+    }
     expect(entryBody(draft, '2026-02-07')).toEqual({
       kind: 'expense',
       day: '2026-01-20',
@@ -139,7 +166,17 @@ describe('forms', () => {
       currency: 'DOP',
       category_id: null,
       note: 'x',
+      concept: 'Corner store',
     })
+    expect(entryBody({ ...draft, concept: '  ' }, '2026-02-07')).toBe(t('cashBox.error.concept'))
+    // An entry written before concepts can be edited without one.
+    expect(entryBody({ ...draft, concept: '' }, '2026-02-07', true)).not.toBeTypeOf('string')
+    expect(entryBody({ ...draft, repeat: true, frequency: 'weekly' }, '2026-02-07')).toMatchObject({
+      repeat: { frequency: 'weekly' },
+    })
+    expect(
+      entryBody({ ...draft, repeat: true, endMode: 'after', times: '0' }, '2026-02-07'),
+    ).toBe(t('cashBox.error.times', { max: 1000 }))
     expect(entryBody({ ...draft, amount: '0' }, '2026-02-07')).toBe(t('cashBox.error.amount'))
     expect(entryBody({ ...draft, day: '' }, '2026-02-07')).toBe(t('cashBox.error.day'))
     const range = t('cashBox.error.dayRange', { first: '2000-01-01', last: '2026-03-10' })
@@ -210,5 +247,112 @@ describe('delete', () => {
     expect(deleteWarning('Ana')).toBe(
       t('cashBox.delete.warningInGroup', { base: t('cashBox.delete.warning'), group: 'Ana' }),
     )
+  })
+})
+
+describe('the cash account (schema 23)', () => {
+  const concepts: CashConcept[] = [
+    {
+      concept: 'Corner store',
+      kind: 'expense',
+      currency: 'DOP',
+      category_id: 4,
+      last_day: '2026-02-01',
+    },
+    { concept: 'Rent', kind: 'income', currency: 'USD', category_id: 9, last_day: '2026-01-01' },
+  ]
+
+  it('matches concepts without case or accents, of the same kind', () => {
+    expect(fold('  Cáfe   DEL  día ')).toBe('cafe del dia') // spanish-ui
+    expect(matchConcepts(concepts, 'expense', 'corner').map((c) => c.concept)).toEqual([
+      'Corner store',
+    ])
+    expect(matchConcepts(concepts, 'expense', 'rent')).toEqual([])
+    expect(knownConcept(concepts, 'income', ' rent ')?.currency).toBe('USD')
+    expect(knownConcept(concepts, 'income', 'ren')).toBeNull()
+  })
+
+  it('describes frequencies and the next one due', () => {
+    expect(frequencyText('weekly', '2026-11-27')).toContain('viernes') // spanish-ui
+    expect(frequencyText('monthly', '2026-01-31')).toBe(t('cashBox.frequencyShort.monthlyLast'))
+    expect(frequencyText('monthly', '2026-01-15')).toBe(
+      t('cashBox.frequencyShort.monthly', { day: 15 }),
+    )
+    const text = upcomingText({
+      schedule_id: 1,
+      kind: 'payment',
+      concept: 'Cleaning',
+      day: '2026-11-27',
+      amount_cents: 300_000,
+      currency: 'DOP',
+    })
+    const day = 'vie' // spanish-ui
+    expect(text).toBe(t('cashBox.upcoming', { concept: 'Cleaning', amount: 'RD$ 3,000', day }))
+  })
+
+  it('builds a schedule body', () => {
+    const draft = {
+      ...emptyDraft('income', '2026-11-01'),
+      amount: '3000',
+      concept: 'Rent',
+      frequency: 'monthly' as const,
+      endMode: 'on' as const,
+      endDay: '2027-11-01',
+    }
+    expect(scheduleBody(draft)).toEqual({
+      kind: 'collection',
+      concept: 'Rent',
+      amount_cents: 300_000,
+      currency: 'DOP',
+      category_id: null,
+      frequency: 'monthly',
+      start_day: '2026-11-01',
+      end_day: '2027-11-01',
+      max_count: null,
+    })
+    expect(scheduleBody({ ...draft, concept: '' })).toBe(t('cashBox.error.concept'))
+  })
+
+  it('builds the reconcile counts', () => {
+    expect(countsBody({ DOP: '1,500', USD: '' })).toEqual([
+      { currency: 'DOP', amount_cents: 150_000 },
+    ])
+    expect(countsBody({ DOP: '0' })).toEqual([{ currency: 'DOP', amount_cents: 0 }])
+    expect(countsBody({})).toBe(t('cashBox.error.count'))
+    expect(countsBody({ DOP: '-5' })).toBe(t('cashBox.error.count'))
+  })
+
+  it('counts what to review', () => {
+    expect(cashReviewCount(undefined)).toBe(0)
+    expect(cashReviewCount(box({ reconcile_due: true }))).toBe(1)
+  })
+})
+
+describe('the cash schedules in «Upcoming»', () => {
+  it('gives each active schedule with its next date, signed', () => {
+    const base = {
+      concept: 'Cleaning',
+      amount_cents: 300_000,
+      currency: 'DOP' as const,
+      category: 'x',
+      category_id: null,
+      frequency: 'weekly' as const,
+      start_day: '2026-11-06',
+      end_day: null,
+      max_count: null,
+      finished: false,
+    }
+    const source = cashSource(
+      [
+        { ...base, id: 1, kind: 'payment', paused: false, next_due: '2026-11-27' },
+        { ...base, id: 2, kind: 'collection', paused: false, next_due: '2026-11-25' },
+        { ...base, id: 3, kind: 'payment', paused: true, next_due: null },
+      ],
+      '/accounts',
+    )
+    expect(source('2026-11-21')).toEqual([
+      { key: 'cash|1', name: 'Cleaning', day: '2026-11-27', amount: '−RD$ 3,000', href: '/accounts' },
+      { key: 'cash|2', name: 'Cleaning', day: '2026-11-25', amount: '+RD$ 3,000', href: '/accounts' },
+    ])
   })
 })

@@ -46,11 +46,12 @@ import webbrowser
 from collections import Counter
 from collections.abc import Sequence
 from contextlib import closing, suppress
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from michelito import (
+    cash_pass,
     cli_demo,
     cli_hosted,
     cli_insights,
@@ -452,6 +453,7 @@ def _cmd_sync(args: argparse.Namespace, paths: config.Paths) -> int:
         print(f"  {_format_extract(stats)}")
     outcome = _run_parse(paths, args.retry)
     print(f"Parsing: {_format_parse(outcome)}\n")
+    _safe_cash_refresh(paths)
     result = _run_report(paths)
     print(result.text)
     payments = _safe_due_payments(paths)
@@ -470,8 +472,12 @@ def _cmd_sync(args: argparse.Namespace, paths: config.Paths) -> int:
 
 
 def _open_db(paths: config.Paths):  # noqa: ANN202 - returns sqlite3.Connection
+    """The database, with the cash pass already run (`cash_pass`): the same figures as the
+    board."""
     config.ensure_private_dir(paths.root)
-    return db.connect(paths.database)
+    conn = db.connect(paths.database)
+    cash_pass.run(conn, paths.holders)
+    return conn
 
 
 def _run_extract(paths: config.Paths, source_name: str | None) -> list[extract.ExtractStats]:
@@ -510,7 +516,14 @@ def _run_parse(paths: config.Paths, retry: bool) -> Counter[str]:
 
 def _run_report(paths: config.Paths) -> report.Report:
     with closing(_open_db(paths)) as conn:
-        return report.build_report(conn, date.today())
+        return report.build_report(conn, config.local_today())
+
+
+def _safe_cash_refresh(paths: config.Paths) -> None:
+    """The cash pass after new statements: opening the database runs it (`_open_db`), and it
+    never breaks sync."""
+    with closing(_open_db(paths)):
+        pass
 
 
 def _safe_due_payments(paths: config.Paths) -> list[DuePayment]:
@@ -523,7 +536,7 @@ def _safe_due_payments(paths: config.Paths) -> list[DuePayment]:
 
 
 def _run_due_payments(paths: config.Paths) -> list[DuePayment]:
-    today = date.today()
+    today = config.local_today()
     with closing(_open_db(paths)) as conn:
         return upcoming_payments(account_views(conn, today), today)
 

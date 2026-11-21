@@ -4,9 +4,11 @@
 import { t } from '@/i18n'
 import type { CurrencyCents } from './api'
 import { formatMoney } from './links'
+import { monthName } from './months'
 import { fold } from './picker'
 import { joinPhrases } from './summary'
 import type {
+  Approx,
   BankName,
   Contact,
   Effect,
@@ -16,6 +18,9 @@ import type {
   PartsBody,
   Payment,
   Person,
+  Proposal,
+  Proposed,
+  RateUsed,
   ShareBody,
   SplitLine,
   SplitMode,
@@ -411,21 +416,6 @@ export function coveredText(
   return t('shared.payment.covers', { names })
 }
 
-/** What a "Paid for others" payment starts with: each covered person's balance (what they owe
- * the user, in `currency`), the payer's own included. */
-export function allocationDraft(
-  members: readonly Pick<Member, 'id' | 'balance'>[],
-  people: readonly number[],
-  currency: string,
-): Record<number, string> {
-  return Object.fromEntries(
-    people.map((id) => {
-      const owed = members.find((m) => m.id === id)?.balance.find((b) => b.currency === currency)?.cents ?? 0
-      return [id, centsField(Math.max(owed, 0))]
-    }),
-  )
-}
-
 /** The typed allocations in cents (blank counts as 0); null if any is not an amount. */
 export function allocationCents(
   people: readonly number[],
@@ -581,4 +571,67 @@ export function chosenOf(option: PeopleOption): ChosenPerson {
     case 'create':
       return { key: `n${fold(option.name)}`, label: option.name, person: { name: option.name } }
   }
+}
+
+// --- Two currencies, exchange leftovers and paying for others ------------------------------
+
+/** "In total ≈ owed to you US$ 54" / "In total ≈ you owe RD$ 21" (null: no line). */
+export function approxText(total: Approx | null | undefined): string | null {
+  if (!total) return null
+  if (total.cents === 0) return t('shared.total.even')
+  const amount = formatMoney(Math.abs(total.cents), total.currency)
+  return total.cents > 0 ? t('shared.total.owed', { amount }) : t('shared.total.owe', { amount })
+}
+
+/** "Settled (exchange difference RD$ 22)" when the leftovers are all that is left; next to a
+ * balance, "(exchange difference RD$ 22 settled)". Null: no leftover. */
+export function leftoverText(leftover: readonly CurrencyCents[] | undefined, settled: boolean): string | null {
+  const parts = (leftover ?? []).filter((part) => part.cents !== 0)
+  if (parts.length === 0) return null
+  const amount = parts.map((part) => formatMoney(Math.abs(part.cents), part.currency)).join(' + ')
+  return settled ? t('shared.leftover.settled', { amount }) : t('shared.leftover.also', { amount })
+}
+
+/** A person's balance with its exchange leftover, if any. */
+export function memberBalanceText(member: Pick<Member, 'balance'> & { leftover?: CurrencyCents[] }): string {
+  const settled = member.balance.every((part) => part.cents === 0)
+  const leftover = leftoverText(member.leftover, settled)
+  if (settled) return leftover ?? personBalanceText(member.balance)
+  const text = personBalanceText(member.balance)
+  return leftover ? `${text} ${leftover}` : text
+}
+
+/** "rate 63.70 of Feb" (the month's first three letters). */
+export function rateText(rate: RateUsed): string {
+  return t('shared.rate.line', {
+    value: Number(rate.value).toFixed(2),
+    month: monthName(rate.month).slice(0, 3),
+  })
+}
+
+/** "RD$ 40,087.05 = US$ 629.31 · rate 63.70 of Feb" for a proposed part in the other currency. */
+export function conversionText(
+  part: Pick<Proposed, 'cents' | 'equivalent'>,
+  currency: string,
+  rate: RateUsed | null,
+): string | null {
+  if (!part.equivalent || !rate || part.cents <= 0) return null
+  return t('shared.rate.conversion', {
+    amount: formatMoney(part.cents, currency),
+    converted: formatMoney(part.equivalent.cents, part.equivalent.currency),
+    rate: rateText(rate),
+  })
+}
+
+/** `cents` from one currency to the other at a rate (RD$ per US$), to the cent, for display
+ * (the server converts for real). */
+export function convertCents(cents: number, from: string, to: string, rate: RateUsed): number {
+  const value = Number(rate.value)
+  if (from === to || !(value > 0)) return cents
+  return Math.round(from === 'DOP' ? cents / value : cents * value)
+}
+
+/** The proposal as the editable fields (person → amount text), the payer first. */
+export function proposalFields(proposal: Pick<Proposal, 'allocations'>): Record<number, string> {
+  return Object.fromEntries(proposal.allocations.map((part) => [part.contact_id, centsField(part.cents)]))
 }

@@ -1,6 +1,7 @@
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
-import type { Account } from '@/lib/api'
+import type { Account, CashBox } from '@/lib/api'
+import { balanceText, CASH_BOX_KEY } from '@/lib/cashBox'
 import { amountText, cutLine, groupAccounts, isCreditCard, statusText } from '@/lib/accounts'
 import { categoryColor } from '@/lib/categories'
 import { payNote } from '@/lib/interest'
@@ -11,12 +12,20 @@ interface AccountListProps {
   selected: string
   today: string
   onSelect: (key: string) => void
+  /** The cash account («Efectivo»), listed with the others (null while it loads). */
+  cash?: CashBox | null
 }
 
 const GROUP_TITLE = 'text-[13px] font-semibold tracking-[0.04em] text-muted-foreground uppercase'
 
 /** Accounts grouped by kind; each one is a button that picks the panel's account. */
-export function AccountList({ accounts, selected, today, onSelect }: AccountListProps) {
+export function AccountList({
+  accounts,
+  selected,
+  today,
+  onSelect,
+  cash = null,
+}: AccountListProps) {
   const { cards, others } = groupAccounts(accounts)
   // The chip colour follows the order of the whole list, not the group's.
   const color = (account: Account) => categoryColor(accounts.indexOf(account))
@@ -38,7 +47,10 @@ export function AccountList({ accounts, selected, today, onSelect }: AccountList
         ))
       )}
       <h2 className={cn(GROUP_TITLE, 'mt-3')}>{t('accounts.list.others')}</h2>
-      {others.length === 0 ? (
+      {cash && (
+        <CashButton cash={cash} pressed={selected === CASH_BOX_KEY} onSelect={onSelect} />
+      )}
+      {others.length === 0 && !cash ? (
         <EmptyGroup title={t('accounts.list.noOthers')} />
       ) : (
         others.map((account) => (
@@ -117,6 +129,39 @@ function AccountButton({ account, chip, pressed, today, onSelect }: AccountButto
           {payNote(account.to_pay, today)}
         </span>
       )}
+    </button>
+  )
+}
+
+interface CashButtonProps {
+  cash: CashBox
+  pressed: boolean
+  onSelect: (key: string) => void
+}
+
+/** «Efectivo»: its balance per currency; it opens its movements, schedules and reconcile. */
+function CashButton({ cash, pressed, onSelect }: CashButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      data-testid="cash-account"
+      onClick={() => onSelect(CASH_BOX_KEY)}
+      className={cn(
+        'flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl bg-card px-5 py-[18px] text-left text-foreground transition-colors',
+        pressed
+          ? 'border-2 border-primary px-[19px] py-[17px]'
+          : 'border border-border hover:border-[#D6D6D0]',
+        FOCUS,
+      )}
+    >
+      <span className="flex min-w-0 flex-col">
+        <span className="text-[15px] font-semibold">{t('cashBox.title')}</span>
+        <span className="text-xs text-muted-foreground">{t('accounts.list.cashHint')}</span>
+      </span>
+      <span className="text-base font-bold tabular-nums [overflow-wrap:anywhere]">
+        {balanceText(cash.balances)}
+      </span>
     </button>
   )
 }

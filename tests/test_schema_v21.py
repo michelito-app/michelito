@@ -239,7 +239,7 @@ def test_schema_20_migrates_with_identical_balances(
         )
     assert before == GOLDEN
     with closing(connect(path)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 21
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION >= 21
         assert _balances(conn) == before == GOLDEN
         sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'ledger_entries'").fetchone()
         assert "'parts'" in sql[0]

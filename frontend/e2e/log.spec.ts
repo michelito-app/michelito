@@ -82,7 +82,7 @@ test.describe('log', () => {
 
   test('the same category twice proposes the rule in "To review"', async ({ page }) => {
     await setCategory(page, '2026-02')
-    await page.goto('/?month=2026-02')
+    await page.goto('/review?month=2026-02')
     const review = page.getByRole('region', { name: REVIEW })
     await expect(review).toContainText(RULE_KIND)
     // The reason comes from the backend catalog (web.review.rule_reason).
@@ -113,7 +113,7 @@ test.describe('log', () => {
     const detail = await openGym(page, '2026-01')
     await expect(detail.getByLabel(t('transactions.filters.category'))).toHaveValue(OTHER)
     await expect(detail.getByLabel(t('transactions.detail.note'))).toHaveValue('')
-    await page.goto('/?month=2026-02')
+    await page.goto('/review?month=2026-02')
     await expect(page.getByRole('region', { name: REVIEW })).not.toContainText(RULE_KIND)
   })
 })

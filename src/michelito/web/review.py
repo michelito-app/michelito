@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from functools import cached_property
 
-from michelito.analysis import investments, ledger, ledger_suggest, reserves, review
+from michelito.analysis import investments, ledger, ledger_cover, ledger_suggest, reserves, review
 from michelito.analysis import links as link_data
 from michelito.analysis.accounts import BANK_KINDS, AccountInfo
 from michelito.analysis.changelog_rules import RuleSuggestion
@@ -17,6 +17,7 @@ from michelito.analysis.recurring_marks import Mark
 from michelito.analysis.reserves import Reserve
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
+from michelito.web import ledger_view
 from michelito.web import recurring as recurring_view
 
 HISTORY_MONTHS = 12
@@ -54,6 +55,16 @@ class Context:
             return {}
         states = ledger.states(self.book, self.rates)
         return ledger_suggest.reverse_suggestions(self.flow, self.links, self.book, states)
+
+    @cached_property
+    def covers(self) -> list[tuple[ledger.Group, ledger_cover.CoverSuggestion]]:
+        """ "Was that payment for someone else too?", one per group at most (computed once)."""
+        found = []
+        for state in ledger.states(self.book, self.rates).values():
+            suggestion = ledger_cover.cover_suggestion(state, self.book.me)
+            if suggestion is not None:
+                found.append((state.group, suggestion))
+        return found
 
     # Provisionals missing from their statement (`live_store.unmatched`): fingerprint -> the
     # closing date of the statement they should have been in; and the user's decisions.
@@ -99,6 +110,7 @@ def month_items(ctx: Context, month: str) -> list[ReviewView]:
     found = [i for i in found if i.fingerprint not in shown]
     found = [
         *proposed,
+        *_cover_items(ctx, month),
         *_unconfirmed_items(ctx, mine, month),
         *_reversal_items(ctx, mine, month),
         *_rule_items(ctx, mine, month),
@@ -261,6 +273,41 @@ def _payment_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[r
                 group_id=found.group_id,
                 contact_id=found.contact_id,
                 payment_id=found.payment_id,
+            )
+        )
+    return items
+
+
+COVER_KEY = "ledger-payment-{id}"  # the item's key when the payment is not linked to the bank
+
+
+def _cover_items(ctx: Context, month: str) -> list[review.Item]:
+    """ "Ana paid RD$ 38,440 too much and Beto owes US$ 629.31. Was that payment for Beto too?"
+    in the month of that payment (not tied to the chosen accounts: it is the group's). "No"
+    dismisses it in the ledger (`ledger_store.set_cover_dismissed`), so it never comes back
+    as reviewed here."""
+    items = []
+    for group, found in ctx.covers if ctx.book.groups else ():
+        payment = found.payment
+        if payment.day.strftime("%Y-%m") != month:
+            continue
+        text = ledger_view.cover_text(ctx.book, found)
+        items.append(
+            review.Item(
+                kind="possible_cover",
+                fingerprint=payment.fingerprint or COVER_KEY.format(id=payment.id),
+                day=payment.day,
+                merchant=group.name,
+                description=text,
+                account="",
+                amount=found.excess,
+                currency=payment.currency,
+                amount_dop=to_dop(found.excess, payment.currency, rate_for(ctx.rates, month)),
+                reason=text,
+                group_id=group.id,
+                contact_id=found.payer,
+                payment_id=payment.id,
+                payment_ids=tuple(p.id for p in found.payments),
             )
         )
     return items

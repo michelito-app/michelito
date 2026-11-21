@@ -36,6 +36,7 @@ MESSAGES: dict[str, str] = {
     ),
     "analysis.ledger.allocation_not_me": "un pago no puede ser por ti",
     "analysis.ledger.allocations_add_up": "lo que cubre por cada persona tiene que sumar el pago",
+    "analysis.ledger.allocation_twice": "una persona aparece dos veces en lo que cubre el pago",
     "analysis.ledger.unknown_split": "la división es «iguales», «montos exactos» o «por partes»",
     "analysis.ledger.split_needs_people": "marca al menos una persona",
     "analysis.ledger.exact_must_add_up": "los montos exactos tienen que sumar el total",
@@ -111,6 +112,52 @@ MESSAGES: dict[str, str] = {
     "analysis.changelog_ledger.payment_unlinked": (
         "Desenlazaste un pago del grupo {group} de tu banco"
     ),
+    "analysis.changelog_ledger.covering_changed": (
+        "Cambiaste a quién cubre un pago del grupo {group}: también a {names}"
+    ),
+    "analysis.changelog_ledger.covering_removed": (
+        "Quitaste a {names} de un pago del grupo {group}"
+    ),
+    "analysis.changelog_ledger.covering_amounts": (
+        "Cambiaste cuánto cubre de cada persona un pago del grupo {group}"
+    ),
+    "analysis.changelog_ledger.cover_dismissed": (
+        "Respondiste que un pago del grupo {group} no era por nadie más"
+    ),
+    "analysis.changelog_ledger.cover_asked": (
+        "Volviste a preguntar si un pago del grupo {group} era por alguien más"
+    ),
+    "analysis.changelog_ledger.leftover_on": (
+        "Las diferencias de cambio de {names} cuentan como saldadas en {group}"
+    ),
+    "analysis.changelog_ledger.leftover_off": (
+        "Las diferencias de cambio de {names} vuelven a contar en {group}"
+    ),
+    "analysis.ledger.cover_reason_one": (
+        "{payer} pagó {excess} de más y {names} debe {owed}. ¿Ese pago también era por {names}?"
+    ),
+    "analysis.ledger.cover_reason_many": (
+        "{payer} pagó {excess} de más y {names} deben {owed}. ¿Ese pago también era por {names}?"
+    ),
+    "analysis.ledger.cover_reason_one_payments": (
+        "{payer} pagó {excess} de más en {count} pagos y {names} debe {owed}. "
+        "¿Esos pagos también eran por {names}?"
+    ),
+    "analysis.ledger.cover_reason_many_payments": (
+        "{payer} pagó {excess} de más en {count} pagos y {names} deben {owed}. "
+        "¿Esos pagos también eran por {names}?"
+    ),
+    "analysis.changelog_ledger.covering_changed_many": (
+        "Cambiaste a quién cubren {count} pagos del grupo {group}: también a {names}"
+    ),
+    "analysis.changelog_ledger.cover_dismissed_many": (
+        "Respondiste que {count} pagos del grupo {group} no eran por nadie más"
+    ),
+    "analysis.changelog_ledger.cover_asked_many": (
+        "Volviste a preguntar si {count} pagos del grupo {group} eran por alguien más"
+    ),
+    "analysis.ledger.cover_other_group": "ese pago no es de este grupo",
+    "analysis.ledger.no_cover": "no hay nada que proponer en este grupo",
     "analysis.changelog_ledger.contact_added": "Agregaste a {name} a tus personas",
     "analysis.changelog_ledger.contact_renamed": "Renombraste a {old} como {new}",
     "analysis.changelog_ledger.alias_added": "Agregaste «{alias}» como otro nombre de {name}",

@@ -19,7 +19,7 @@ Nothing here is used to write new data under an old name.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 # Install layout and keyring.
 DATA_DIR = "~/finanzas-data"
@@ -250,17 +250,58 @@ DOSSIER_KEYS: Mapping[str, str] = {
 _OLD_DOSSIER_KEYS = {new: old for old, new in DOSSIER_KEYS.items()}
 # The values a dossier stores that changed, new -> old, by (new) data key. A movement's kind is
 # a category kind and a "to review" kind a review kind; the two sets do not overlap.
+# Schema 23 renamed what said «Caja fuerte» (the cash account, its transfer category and the
+# descriptions of entries without a concept): an insight saved before still hashes the old text.
+# By what was renamed (`cash_renames`, written by `migrations_v23` only when it renamed it): the
+# dossier keys whose values change, new -> old.
+CASH_RENAMES: Mapping[str, tuple[tuple[str, ...], Mapping[str, str]]] = {
+    "account": (("accounts", "account"), {"Efectivo": "Caja fuerte"}),
+    "category": (("category",), {"Pasado a efectivo": "Caja fuerte"}),
+    "descriptions": (
+        ("description",),
+        {
+            "Saldo inicial del efectivo": "Saldo inicial de la caja fuerte",
+            "Entrada en efectivo": "Entrada a la caja fuerte",
+            "Salida en efectivo": "Salida de la caja fuerte",
+        },
+    ),
+}
 _OLD_DOSSIER_VALUES: Mapping[str, Mapping[str, str]] = {
     "kind": {new: old for old, new in (*CATEGORY_KINDS.items(), *REVIEW_KINDS.items())},
     "side": {new: old for old, new in WHAT_HAPPENED_SIDES.items()},
 }
 
 
-def dossier_data(data: Mapping[str, object]) -> dict[str, object]:
+def old_cash_names(data: object, renamed: Iterable[str]) -> object:
+    """The dossier data with the names schema 23 renamed put back (only those in `renamed`)."""
+    wanted: dict[str, dict[str, str]] = {}
+    for what in renamed:
+        keys, names = CASH_RENAMES[what]
+        for key in keys:
+            wanted.setdefault(key, {}).update(names)
+    if not wanted:
+        return data
+    return _renamed(data, None, wanted)
+
+
+def _renamed(value: object, key: str | None, wanted: Mapping[str, Mapping[str, str]]) -> object:
+    if isinstance(value, Mapping):
+        return {k: _renamed(v, k, wanted) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_renamed(item, key, wanted) for item in value]
+    if isinstance(value, str) and key is not None:
+        return wanted.get(key, {}).get(value, value)
+    return value
+
+
+def dossier_data(data: Mapping[str, object], renamed: Iterable[str] = ()) -> dict[str, object]:
     """A dossier's data as the release before the English rename wrote it: Spanish keys, the old
-    kind and side values, cash fingerprints `caja-<id>` and the cash box key `manual:caja-fuerte`.
-    Used only to recompute the hash an insight saved back then stores."""
-    return {_OLD_DOSSIER_KEYS[key]: _old_value(key, value) for key, value in data.items()}
+    kind and side values, cash fingerprints `caja-<id>` and the cash box key `manual:caja-fuerte`
+    (and, with `renamed`, the names schema 23 renamed in this database). Used only to recompute
+    the hash an insight saved back then stores."""
+    source = old_cash_names(data, renamed)
+    assert isinstance(source, Mapping)
+    return {_OLD_DOSSIER_KEYS[key]: _old_value(key, value) for key, value in source.items()}
 
 
 def _old_value(key: str, value: object) -> object:

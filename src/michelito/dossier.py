@@ -67,12 +67,25 @@ class Dossier:
     data: dict[str, Any]
     markdown: str
     data_hash: str
+    renamed: frozenset[str] = frozenset()  # what schema 23 renamed here (`cash_renames`)
 
     @cached_property
     def legacy_hash(self) -> str:
         """The hash the release before the English rename computed for the same data (what an
         insight saved back then stores)."""
-        return _digest(legacy.dossier_data(_hashed(self.data)))
+        return _digest(legacy.dossier_data(_hashed(self.data), self.renamed))
+
+    @cached_property
+    def older_hashes(self) -> tuple[str, ...]:
+        """The hashes earlier releases computed for the same data: before the English rename
+        and, if schema 23 renamed the cash names here, schemas 18 to 22 (English keys, old cash
+        names). An insight saved back then is still fresh."""
+        found = [self.legacy_hash]
+        if self.renamed:
+            old = legacy.old_cash_names(_hashed(self.data), self.renamed)
+            assert isinstance(old, dict)
+            found.append(_digest(old))
+        return tuple(found)
 
 
 def build(
@@ -139,7 +152,12 @@ def build(
             "exchanges_pending": _money(built.exchanges_pending),
         },
     }
-    return Dossier(month, data, to_markdown(data), data_hash(data))
+    return Dossier(month, data, to_markdown(data), data_hash(data), _renamed(conn))
+
+
+def _renamed(conn: sqlite3.Connection) -> frozenset[str]:
+    """What schema 23 renamed in this database (`migrations_v23`)."""
+    return frozenset(str(row[0]) for row in conn.execute("SELECT what FROM cash_renames"))
 
 
 def data_hash(data: dict[str, Any]) -> str:

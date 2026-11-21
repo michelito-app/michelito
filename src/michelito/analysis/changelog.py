@@ -59,6 +59,12 @@ TRACKED = (
     "link_members",
     "link_manual",
     "cash_entries",
+    # The cash account (schema 23): schedules, skips, "I spent it directly" and reconciles.
+    "cash_schedules",
+    "cash_skips",
+    "cash_spent_direct",
+    "cash_reconciliations",
+    "cash_auto_marks",
     "transaction_notes",
     "merchant_categories",
     "category_keywords",
@@ -81,6 +87,7 @@ TRACKED = (
     "ledger_splits",
     "ledger_payments",
     "ledger_allocations",  # schema 21
+    "ledger_dismissals",  # schema 22
     "ledger_links",
     "ledger_settings",
     "provisional_decisions",
@@ -821,6 +828,11 @@ def undo(conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None =
             raise UndoBlocked(t("analysis.changelog.would_change_later_undo"))
     if draft.entry_id is None:  # should not happen: the state was the *after*
         raise UndoBlocked(t("analysis.changelog.nothing_to_undo"))
+    # A schedule that disappeared takes with it the occurrences the system created later and
+    # nobody answered (they are not rows of the entry: removed outside the log, like they came).
+    from michelito.analysis import cash_schedule_store  # noqa: PLC0415 (it imports this module)
+
+    cash_schedule_store.drop_orphans(conn)
     return draft.entry_id
 
 

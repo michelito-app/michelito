@@ -2,6 +2,7 @@
 import type { Catalog } from '../index'
 
 export const reports = {
+  'reports.month.title': 'Detalle del mes',
   // lib/insights.ts
   'reports.insight.saved': 'Guardado el {day} de {year}',
   'reports.insight.edited': 'Editado el {day} de {year}',

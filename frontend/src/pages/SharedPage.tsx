@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import type { LinkedTx } from '@/lib/api'
 import {
+  approxText,
   balanceTone,
   groupBalanceText,
   groupSides,
@@ -235,8 +236,13 @@ function PersonRow({ person, from }: { person: Person; from: { from: string } })
             {t('shared.people.inGroups', { count: person.group_count })}
           </span>
         </span>
-        <span className={cn('shrink-0 text-right text-sm font-semibold', TONE_CLASS[tone])}>
-          {personBalanceText(person.balance)}
+        <span className="flex shrink-0 flex-col items-end text-right">
+          <span className={cn('text-sm font-semibold', TONE_CLASS[tone])}>
+            {personBalanceText(person.balance)}
+          </span>
+          {person.total && (
+            <span className="text-[12px] text-muted-foreground">{approxText(person.total)}</span>
+          )}
         </span>
       </Link>
     </li>
@@ -275,8 +281,13 @@ function GroupList({
                       .join(' · ')}
                   </span>
                 </span>
-                <span className={cn('shrink-0 text-right text-sm font-semibold', TONE_CLASS[tone])}>
-                  {groupBalanceText(parts)}
+                <span className="flex shrink-0 flex-col items-end text-right">
+                  <span className={cn('text-sm font-semibold', TONE_CLASS[tone])}>
+                    {groupBalanceText(parts)}
+                  </span>
+                  {group.total && (
+                    <span className="text-[12px] text-muted-foreground">{approxText(group.total)}</span>
+                  )}
                 </span>
               </button>
             </li>

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, StrictBool
+from pydantic import BaseModel, Field, StrictBool
 
 from michelito.analysis.review import Kind
 from michelito.web.review import ReviewView
@@ -28,6 +28,7 @@ class ReviewItemOut(BaseModel):
     group_id: int | None = None  # possible payment: the group
     contact_id: int | None = None  # possible payment: who pays (null: unattributed)
     payment_id: int | None = None  # possible payment: the unlinked payment it reconciles
+    payment_ids: list[int] = Field(default_factory=list)  # possible cover: all its payments
     provisional: bool = False  # still provisional (from a bank alert): it can be discarded
 
     @classmethod
@@ -52,6 +53,7 @@ class ReviewItemOut(BaseModel):
             group_id=item.group_id,
             contact_id=item.contact_id,
             payment_id=item.payment_id,
+            payment_ids=list(item.payment_ids),
             provisional=item.provisional,
         )
 

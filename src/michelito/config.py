@@ -5,12 +5,31 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from michelito import legacy
 
 DATA_DIR_ENV = "MICHELITO_DATA_DIR"
+# The user's time zone: "today" (scheduled cash occurrences, the 7-day rules, the date ranges)
+# is the local date there, whatever the server's clock says.
+TIMEZONE_ENV = "MICHELITO_TIMEZONE"
+DEFAULT_TIMEZONE = "America/Santo_Domingo"
+
+
+def local_today(now: datetime | None = None) -> date:
+    """Today in the user's zone (`TIMEZONE_ENV`, by default Santo Domingo); an unknown zone
+    falls back to the default one."""
+    name = os.environ.get(TIMEZONE_ENV) or DEFAULT_TIMEZONE
+    try:
+        zone = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo(DEFAULT_TIMEZONE)
+    moment = now or datetime.now(UTC)
+    return moment.astimezone(zone).date()
+
+
 DEFAULT_DATA_DIR = "~/michelito-data"
 DATABASE_FILE = "michelito.db"
 HOLDERS_FILE = "holders.txt"

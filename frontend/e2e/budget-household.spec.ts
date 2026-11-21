@@ -41,7 +41,6 @@ const ACTIVATE = t('budget.activate.button')
 const NEW_RESERVE = t('budget.reserves.new')
 const RESERVES = t('budget.reserves.title')
 const SUGGESTIONS = t('budget.suggestions.label')
-const UPCOMING = t('summary.budgetCard.upcomingLabel')
 
 async function activate(page: Page) {
   await page.goto('/budget?month=2025-12')
@@ -69,14 +68,16 @@ test('activating the budget, editing a cap and seeing a category over it', async
     .getByTestId('budget-line')
   await expect(lines.first()).toHaveAccessibleName(RENT)
 
-  // The Summary card counts the categories over their cap.
+  // The Summary card shows the categories closest to their cap (past it, in terracotta) and leads
+  // to Budget.
   await page.goto('/?month=2025-12')
-  const card = page.getByRole('region', { name: t('summary.budgetCard.title'), exact: true })
-  // "1 category over (+RD$": the overview without its budget prefix and without the rest of
-  // the amount.
-  const over = t('budget.overview.over', { count: 1, amount: 'RD$' })
-  const overText = over.slice(over.indexOf(': ') + 2, -1)
-  await expect(card.getByTestId('budget-status')).toContainText(new RegExp(escapeRegExp(overText)))
+  const card = page.locator('[data-card="budget"]')
+  const rentLine = card.locator('li', { hasText: RENT })
+  await expect(rentLine.locator('.text-up')).toContainText(
+    t('home.budget.over', { amount: 'RD$ 5,000' }).replace('RD$ ', 'RD$\u00a0'),
+  )
+  await card.getByRole('link', { name: t('home.budget.title') }).click()
+  await expect(page).toHaveURL(/\/budget\?month=2025-12$/)
 
   await undo(page, RENT, `${RENT} · tope RD$ 25,000 → tope RD$ 20,000`) // spanish-data
   await undo(page, BUDGET_LOG, ACTIVATED)
@@ -131,7 +132,9 @@ test('creating a reserve from a suggestion and linking an expense to it', async 
   ).toBeVisible()
 })
 
-test('a reserve due soon shows in the Summary\'s "Upcoming large expenses"', async ({ page }) => {
+test('a reserve due soon: the month detail in Reports says what is left after setting aside', async ({
+  page,
+}) => {
   await page.goto('/budget')
   await page.getByRole('button', { name: NEW_RESERVE }).click()
   const form = page.getByRole('form', { name: t('budget.form.newLabel') })
@@ -146,20 +149,15 @@ test('a reserve due soon shows in the Summary\'s "Upcoming large expenses"', asy
   const reserve = page.getByRole('listitem', { name: SCHOOL, exact: true })
   await expect(reserve).toContainText(t('budget.scheduleText.once', { month: MARCH_2026 }))
 
-  await page.goto('/')
-  const upcoming = page.getByRole('group', { name: UPCOMING })
-  await expect(upcoming).toContainText(SCHOOL)
-  await expect(upcoming).toContainText('RD$ 45,000')
+  await page.goto('/reports')
   // The net figure says what is left after setting aside (the main number does not change).
   await expect(page.getByTestId('reserves-note')).toContainText(
     t('budget.afterReserves', { monthly: 'RD$ 22,500', left: '' }).split(': ')[0],
   )
 
   await undo(page, SCHOOL.split(' ')[0], `${SCHOOL} · — → RD$ 45,000 · una vez, en 2026-03`) // spanish-data
-  await page.goto('/')
-  await expect(page.getByRole('group', { name: UPCOMING })).toContainText(
-    t('summary.budgetCard.noUpcoming'),
-  )
+  await page.goto('/reports')
+  await expect(page.getByTestId('reserves-note')).toHaveCount(0)
 })
 
 test('at 390 px Budget does not scroll sideways and touch targets are 44 px', async ({

@@ -9,6 +9,10 @@
   survive `parse --retry` and a fingerprint is in at most one link.
 - Hand-made entries go in `cash_entries`; their category, note and "one-off" flag in
   `transaction_notes` by their fingerprint (`cash-<id>`), like the corrections of any other.
+- Schema 23: an entry's `concept` is its merchant. The category given when it is written is
+  stored as that entry's own correction only when it differs from what the concept already gets
+  (`implied_ref`: the merchant rule, then a keyword, then the default), so a later merchant rule
+  still reaches the entries that simply took the usual category.
 """
 
 from __future__ import annotations
@@ -17,16 +21,21 @@ import sqlite3
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from michelito.analysis import catalog, corrections, links
+from michelito import config
+from michelito.analysis import catalog, categories, corrections, links
 from michelito.analysis.accounts import CASH_BOX_KEY, CASH_BOX_NAME, CASH_KIND
 from michelito.analysis.cash_box import (
     CURRENCIES,
+    DEFAULT_CATEGORY,
     ENTRY_CATEGORY_KIND,
     CashBoxError,
     EntryKind,
+    EntryStatus,
     ManualEntry,
+    check_concept,
     check_day,
     check_entry,
+    concept_merchant,
     entry_fingerprint,
 )
 from michelito.i18n import t
@@ -42,9 +51,33 @@ def load_entries(conn: sqlite3.Connection) -> tuple[ManualEntry, ...]:
             amount=Decimal(row["amount_cents"]) / 100,
             currency=row["currency"],
             account_key=row["account_key"],
+            concept=row["concept"],
+            schedule_id=row["schedule_id"],
+            occurrence_day=None
+            if row["occurrence_day"] is None
+            else date.fromisoformat(row["occurrence_day"]),
+            status=row["status"],
         )
         for row in rows
     )
+
+
+def implied_ref(
+    fixes: corrections.Corrections, known: catalog.Catalog, kind: str, concept: str | None
+) -> str:
+    """The category an income or expense entry with that concept gets without a correction of
+    its own: the concept's merchant rule (of the right kind), else the longest keyword in it (of
+    the right kind), else the default one. Without a concept (an entry from before schema 23),
+    the default one: rules and keywords never reached those."""
+    wanted = ENTRY_CATEGORY_KIND[kind]
+    if concept:
+        rule = fixes.category_for("", concept_merchant(concept), kinds=(wanted,))
+        if rule is not None:
+            return rule
+        for hit in known.keyword_hits(categories.clean(concept)):
+            if hit.category.kind == wanted:
+                return hit.category.ref
+    return DEFAULT_CATEGORY[kind]
 
 
 def entry(conn: sqlite3.Connection, entry_id: int) -> ManualEntry:
@@ -81,6 +114,15 @@ def ensure_box(conn: sqlite3.Connection, account_key: str = CASH_BOX_KEY) -> int
     return int(cursor.lastrowid or 0)
 
 
+def ensure_system_box(conn: sqlite3.Connection) -> int:
+    """`ensure_box` in a transaction of its own, before the user's change starts: the account
+    and its link are system data, like `cash_settings`, never part of a change-log entry. So
+    undoing the first change never deletes the link that the automatic withdrawals (written
+    outside the log) are members of."""
+    with conn:
+        return ensure_box(conn)
+
+
 # --- Hand-made entries ----------------------------------------------------------------------
 
 
@@ -95,23 +137,43 @@ def add_entry(
     note: str | None = None,
     account_key: str = CASH_BOX_KEY,
     today: date | None = None,
+    concept: str | None = None,
+    schedule_id: int | None = None,
+    status: EntryStatus | None = None,
 ) -> int:
     """Records a hand-made entry (the caller opens the transaction). `category`: id or reference,
-    only on an inflow (income) or an outflow (expense); without it, the default one. `today`: to
-    validate the date (`cash_box.check_day`; by default, the system's). Returns the id."""
+    only on an inflow (income) or an outflow (expense); without it, the one its concept implies
+    (`implied_ref`). `today`: to validate the date (`cash_box.check_day`; by default, the
+    system's). `concept` (income and expense only) is validated with `check_concept`.
+    `schedule_id`: the occurrence of that schedule on `day` (`status` says whether it waits for an
+    answer). Returns the id."""
     check_entry(kind, amount, currency)
-    check_day(day, today or date.today())
+    check_day(day, today or config.local_today())
+    text = None if concept is None or kind == "initial" else check_concept(concept)
     category_id = _category(conn, kind, category)
     ensure_box(conn, account_key)
     now = _now()
     cursor = conn.execute(
         "INSERT INTO cash_entries (account_key, kind, day, amount_cents, currency, created_at, "
-        "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (account_key, kind, day.isoformat(), _cents(amount), currency, now, now),
+        "updated_at, concept, schedule_id, occurrence_day, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            account_key,
+            kind,
+            day.isoformat(),
+            _cents(amount),
+            currency,
+            now,
+            now,
+            text,
+            schedule_id,
+            None if schedule_id is None else day.isoformat(),
+            status,
+        ),
     )
     found = int(cursor.lastrowid or 0)
     fingerprint = entry_fingerprint(found)
-    if category_id is not None:
+    if category_id is not None and not _is_implied(conn, kind, text, category_id):
         corrections.set_transaction_category(conn, fingerprint, category_id)
     if note is not None and kind != "initial":
         corrections.set_note(conn, fingerprint, note)
@@ -128,30 +190,42 @@ def update_entry(
     category: str | int | None = None,
     note: str | None = None,
     today: date | None = None,
+    concept: str | None = None,
 ) -> None:
-    """Changes day, amount and currency (the kind does not change); `category` and `note` when
-    given (an empty note deletes it)."""
+    """Changes day, amount and currency (the kind does not change); `category`, `note` and
+    `concept` when given (an empty note deletes it; a concept cannot be removed)."""
     current = entry(conn, entry_id)
     check_entry(current.kind, amount, currency)
-    check_day(day, today or date.today())
+    check_day(day, today or config.local_today())
+    text = current.concept
+    if concept is not None and current.kind != "initial":
+        text = check_concept(concept)
     category_id = _category(conn, current.kind, category)
     conn.execute(
-        "UPDATE cash_entries SET day = ?, amount_cents = ?, currency = ?, updated_at = ? "
-        "WHERE id = ?",
-        (day.isoformat(), _cents(amount), currency, _now(), entry_id),
+        "UPDATE cash_entries SET day = ?, amount_cents = ?, currency = ?, concept = ?, "
+        "updated_at = ? WHERE id = ?",
+        (day.isoformat(), _cents(amount), currency, text, _now(), entry_id),
     )
     fingerprint = entry_fingerprint(entry_id)
     if category_id is not None:
-        corrections.set_transaction_category(conn, fingerprint, category_id)
+        implied = _is_implied(conn, current.kind, text, category_id)
+        corrections.set_transaction_category(conn, fingerprint, None if implied else category_id)
     if note is not None and current.kind != "initial":
         corrections.set_note(conn, fingerprint, note)
 
 
-def delete_entry(conn: sqlite3.Connection, entry_id: int) -> None:
+def delete_entry(conn: sqlite3.Connection, entry_id: int, *, remember: bool = True) -> None:
     """Deletes the entry and everything stored by its fingerprint: its note and category, its
-    review marks and its place in a shared group (the group entry it was is deleted too)."""
-    entry(conn, entry_id)
+    review marks and its place in a shared group (the group entry it was is deleted too). A
+    scheduled occurrence is remembered as skipped (`cash_skips`): it is not materialized again."""
+    found = entry(conn, entry_id)
     fingerprint = entry_fingerprint(entry_id)
+    if remember and found.schedule_id is not None and found.occurrence_day is not None:
+        conn.execute(
+            "INSERT INTO cash_skips (schedule_id, day, created_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(schedule_id, day) DO NOTHING",
+            (found.schedule_id, found.occurrence_day.isoformat(), _now()),
+        )
     conn.execute(
         "DELETE FROM ledger_entries WHERE id IN "
         "(SELECT entry_id FROM ledger_links WHERE fingerprint = ?)",
@@ -161,6 +235,25 @@ def delete_entry(conn: sqlite3.Connection, entry_id: int) -> None:
     for table in ("link_members", "transaction_notes", "one_off_dismissals", "review_marks"):
         conn.execute(f"DELETE FROM {table} WHERE fingerprint = ?", (fingerprint,))
     conn.execute("DELETE FROM cash_entries WHERE id = ?", (entry_id,))
+
+
+def set_status(conn: sqlite3.Connection, entry_id: int, status: EntryStatus) -> None:
+    """Answers a scheduled occurrence (`confirmed`) or leaves it waiting (`pending`)."""
+    cursor = conn.execute(
+        "UPDATE cash_entries SET status = ?, updated_at = ? WHERE id = ? AND status IS NOT NULL",
+        (status, _now(), entry_id),
+    )
+    if cursor.rowcount == 0:
+        raise LookupError(t("analysis.cash_box_store.unknown_entry", id=entry_id))
+
+
+def _is_implied(conn: sqlite3.Connection, kind: str, concept: str | None, category_id: int) -> bool:
+    """`category_id` is what the entry would get anyway (so it is not stored as its own)."""
+    known = catalog.load(conn)
+    found = known.by_id(category_id)
+    if found is None:
+        return False
+    return found.ref == implied_ref(corrections.load(conn, known), known, kind, concept)
 
 
 def _category(conn: sqlite3.Connection, kind: str, category: str | int | None) -> int | None:

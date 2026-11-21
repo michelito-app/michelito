@@ -1,11 +1,11 @@
-import { Archive, HandCoins, Pencil, UsersRound, X } from 'lucide-react'
+import { Archive, ArrowLeftRight, HandCoins, Pencil, UsersRound, X } from 'lucide-react'
 import { useId, useState } from 'react'
 import { FOCUS } from '@/components/summary/styles'
 import { Action, Failure, FIELD, LoadFailure } from '@/components/transactions/linkParts'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
-import { personBalanceText, resplitText } from '@/lib/ledger'
+import { memberBalanceText, personBalanceText, resplitText } from '@/lib/ledger'
 import { useQuery } from '@tanstack/react-query'
 import { shortDay } from '@/lib/months'
 import type { Group, Member } from '@/lib/sharedApi'
@@ -16,7 +16,7 @@ import { LIST_CARD } from './styles'
 import { PeoplePicker } from './PeoplePicker'
 import type { ChosenPerson } from '@/lib/ledger'
 
-type View = 'menu' | 'rename' | 'people' | 'writeOff'
+type View = 'menu' | 'rename' | 'people' | 'writeOff' | 'leftover'
 
 /** The group's "⋯": rename, people, "They won't pay me" (per person, or everyone left) and
  * archive. */
@@ -28,6 +28,7 @@ export function GroupMenu({ group, onClose }: { group: Group; onClose: () => voi
     rename: t('shared.group.rename'),
     people: t('shared.group.people'),
     writeOff: t('shared.group.writeOff'),
+    leftover: t('shared.group.leftover'),
   }
   return (
     <BottomSheet title={titles[view]} onClose={onClose}>
@@ -42,6 +43,9 @@ export function GroupMenu({ group, onClose }: { group: Group; onClose: () => voi
             </MenuItem>
             <MenuItem icon={<HandCoins size={18} />} onClick={() => setView('writeOff')}>
               {t('shared.group.writeOff')}
+            </MenuItem>
+            <MenuItem icon={<ArrowLeftRight size={18} />} onClick={() => setView('leftover')}>
+              {t('shared.group.leftover')}
             </MenuItem>
             <MenuItem
               icon={<Archive size={18} />}
@@ -60,6 +64,7 @@ export function GroupMenu({ group, onClose }: { group: Group; onClose: () => voi
       {view === 'rename' && <Rename group={group} onDone={onClose} />}
       {view === 'people' && <People group={group} />}
       {view === 'writeOff' && <WriteOff group={group} />}
+      {view === 'leftover' && <Leftover group={group} />}
     </BottomSheet>
   )
 }
@@ -238,6 +243,44 @@ function RemovePerson({ group, member, onDone }: { group: Group; member: Member;
   )
 }
 
+/** Per person: whether what is left below RD$ 50 or US$ 1 after a payment in the other currency
+ * counts as settled (logged, undoable). */
+function Leftover({ group }: { group: Group }) {
+  const write = useLedgerWrite()
+  const others = group.members.filter((m) => !m.is_me)
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[13px] text-muted-foreground">{t('shared.group.leftoverHint')}</p>
+      <ul className={LIST_CARD}>
+        {others.map((member) => (
+          <li key={member.id}>
+            <label className="flex min-h-12 cursor-pointer items-center gap-3 px-3.5 text-sm">
+              <input
+                type="checkbox"
+                checked={member.leftover_settled}
+                disabled={write.isPending}
+                onChange={(event) => {
+                  // Read now: by the time the write runs React has put the controlled value back.
+                  const settled = event.target.checked
+                  write.mutate(() => ledger.setLeftover(group.id, member.id, settled))
+                }}
+                className="size-5 shrink-0 cursor-pointer accent-primary"
+              />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">
+                  {t('shared.group.leftoverPerson', { name: member.name })}
+                </span>
+                <span className="text-[13px] text-muted-foreground">{memberBalanceText(member)}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <Failure error={write.error} />
+    </div>
+  )
+}
+
 function WriteOff({ group }: { group: Group }) {
   const write = useLedgerWrite()
   const others = group.members.filter((m) => !m.is_me)
@@ -252,9 +295,10 @@ function WriteOff({ group }: { group: Group }) {
                 type="checkbox"
                 checked={member.written_off}
                 disabled={write.isPending}
-                onChange={(event) =>
-                  write.mutate(() => ledger.writeOff(group.id, member.id, event.target.checked))
-                }
+                onChange={(event) => {
+                  const writtenOff = event.target.checked
+                  write.mutate(() => ledger.writeOff(group.id, member.id, writtenOff))
+                }}
                 className="size-5 shrink-0 cursor-pointer accent-primary"
               />
               <span className="flex min-w-0 flex-col">

@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { useSearchParams } from 'react-router'
+import { useLocation, useSearchParams } from 'react-router'
 import { AccountList } from '@/components/accounts/AccountList'
 import { CashBoxCard } from '@/components/cashBox/CashBoxCard'
 import { StatementsPanel } from '@/components/accounts/StatementsPanel'
@@ -8,8 +8,8 @@ import { PANEL } from '@/components/summary/styles'
 import { t } from '@/i18n'
 import { Skeleton } from '@/components/ui/skeleton'
 import { resolveAccount } from '@/lib/accounts'
-import { CASH_KIND, localToday } from '@/lib/cashBox'
-import { useAccounts } from '@/lib/queries'
+import { CASH_BOX_ID, CASH_BOX_KEY, CASH_KIND, localToday } from '@/lib/cashBox'
+import { useAccounts, useCashBox } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 /** Accounts screen: the chosen account lives in the URL (`?account=<key>`); by default, the
@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils'
 export function AccountsPage() {
   const [params, setParams] = useSearchParams()
   const accounts = useAccounts()
+  const cash = useCashBox()
+  const location = useLocation()
   const panel = useRef<HTMLElement>(null)
 
   if (accounts.isError) {
@@ -26,10 +28,14 @@ export function AccountsPage() {
   }
   if (accounts.isPending) return <PageSkeleton />
 
-  // The cash box has no statements: it gets its own card, below.
+  // The cash account has no statements: picking it shows its own card in the panel's place
+  // (also when a link arrives with #cash-box).
   const withStatements = accounts.data.filter((a) => a.kind !== CASH_KIND)
+  const cashChosen =
+    params.get('account') === CASH_BOX_KEY ||
+    (params.get('account') === null && location.hash === `#${CASH_BOX_ID}`)
   const selected = resolveAccount(withStatements, params.get('account'))
-  if (selected === null) return <NoAccounts />
+  if (selected === null && !cashChosen) return <NoAccounts />
 
   function select(key: string) {
     setParams({ account: key })
@@ -48,13 +54,19 @@ export function AccountsPage() {
       <div className="flex flex-wrap items-start gap-6">
         <AccountList
           accounts={withStatements}
-          selected={selected.key}
+          selected={cashChosen || selected === null ? CASH_BOX_KEY : selected.key}
           today={today}
           onSelect={select}
+          cash={cash.data ?? null}
         />
-        <StatementsPanel ref={panel} account={selected} today={today} />
+        {cashChosen || selected === null ? (
+          <div className="flex min-w-0 flex-[3_1_560px] flex-col">
+            <CashBoxCard today={today} />
+          </div>
+        ) : (
+          <StatementsPanel ref={panel} account={selected} today={today} />
+        )}
       </div>
-      <CashBoxCard today={today} />
     </>
   )
 }

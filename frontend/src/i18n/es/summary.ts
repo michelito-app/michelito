@@ -158,6 +158,9 @@ export const summary = {
   'summary.review.paymentLabel': 'Sí, registrar y enlazar el pago: {merchant}',
   'summary.review.payment': 'Sí, registrar',
   'summary.review.notPaymentLabel': 'No es un pago: {merchant}',
+  'summary.review.coverLabel': 'Sí, repartir el pago en {merchant}',
+  'summary.review.cover': 'Sí, repartir',
+  'summary.review.notCoverLabel': 'No, era solo suyo: {merchant}',
   'summary.review.notInvestmentLabel': 'No es de la inversión: {merchant}',
   // components/summary/TrendBars.tsx
   'summary.trendBars.monthInProgress': '{month} (en curso)',
@@ -184,7 +187,7 @@ export const summary = {
   'summary.categories.column.spent': 'Gasto',
   'summary.categories.column.versus': 'vs. habitual',
   'summary.categories.seeAll': 'Ver las {count}',
-  // components/summary/CoverageChips.tsx
+  // components/cards/CoveragePill.tsx
   'summary.coverage.label': 'Datos por cuenta',
   // components/summary/InsightCard.tsx
   'summary.insight.editInReports': 'Editar en Reportes',
@@ -199,36 +202,11 @@ export const summary = {
   'summary.interestCard.yearTitle': 'Intereses {year}',
   'summary.interestCard.noInterest': 'Sin intereses este año',
   'summary.interestCard.unconverted': '{amount} sin tasa: no se suman al total en RD$',
-  // components/summary/PendingCard.tsx
-  'summary.pendingCard.title': 'Pendientes',
-  'summary.pendingCard.link': 'Ver pendientes',
-  'summary.pendingCard.loadError': 'No se pudieron cargar los pendientes: {message}',
-  'summary.pendingCard.note': 'De todos los meses; ninguno se resta de tus gastos',
   // components/summary/RateEditor.tsx
   'summary.rateEditor.invalid': 'Escribe un número mayor que cero, con hasta 4 decimales.',
   'summary.rateEditor.saveError': 'No se pudo guardar la tasa: {message}',
   'summary.rateEditor.label': 'Tasa de {month} (RD$ por US$)',
   'summary.rateEditor.saving': 'Guardando…',
-  // components/summary/RecurringCard.tsx
-  'summary.recurringCard.more': {
-    one: '{count} aviso más en Recurrentes',
-    other: '{count} avisos más en Recurrentes',
-  },
-  'summary.recurringCard.title': 'Recurrentes',
-  'summary.recurringCard.seeAll': 'Ver todos',
-  'summary.recurringCard.loadError': 'No se pudieron cargar los recurrentes: {message}',
-  'summary.recurringCard.empty': 'Sin cargos recurrentes detectados',
-  'summary.recurringCard.perMonth': 'al mes',
-  'summary.recurringCard.noChanges': 'Sin cambios este mes',
-  'summary.recurringCard.upcoming': 'Próximos cobros (estimado)',
-  // components/summary/BudgetCard.tsx
-  'summary.budgetCard.title': 'Presupuesto',
-  'summary.budgetCard.link': 'Ver presupuesto',
-  'summary.budgetCard.loadError': 'No se pudo cargar el presupuesto: {message}',
-  'summary.budgetCard.inactive': 'Sin activar: pon un tope por categoría en Presupuesto.',
-  'summary.budgetCard.upcomingLabel': 'Próximos gastos grandes',
-  'summary.budgetCard.upcomingTitle': 'Próximos gastos grandes (60 días)',
-  'summary.budgetCard.noUpcoming': 'Ninguna reserva vence pronto.',
   // components/summary/ByAccount.tsx
   'summary.byAccount.title': 'Por cuenta',
   // components/summary/WhatHappened.tsx
@@ -241,21 +219,4 @@ export const summary = {
     '{label} está en curso. Se compara cuando todas las cuentas cierran el mes.',
   'summary.page.empty': 'Todavía no hay estados. Corre {command}.',
   'summary.page.loading': 'Cargando el resumen',
-
-  // Phone layout: the main card, the indicator strip and the collapsible sections.
-  'summary.mobile.kept': 'Lo que te quedó',
-  'summary.mobile.in': 'Entró',
-  'summary.mobile.out': 'Salió',
-  'summary.mobile.indicators': 'Indicadores del mes',
-  'summary.mobile.spending': 'Gastos',
-  'summary.mobile.savings': 'Ahorrado',
-  'summary.mobile.budget': 'Presupuesto',
-  'summary.mobile.owed': 'Te deben',
-  'summary.mobile.owedNote': 'en compartidos y pendientes',
-  'summary.mobile.oneOffs': 'Gastos únicos',
-  'summary.mobile.section.reading': 'Lectura del mes',
-  'summary.mobile.section.trend': 'Últimos meses',
-  'summary.mobile.section.categories': 'Categorías',
-  'summary.mobile.section.upcoming': 'Presupuesto y próximos gastos grandes',
-  'summary.mobile.section.details': 'Detalle del mes',
 } as const satisfies Catalog

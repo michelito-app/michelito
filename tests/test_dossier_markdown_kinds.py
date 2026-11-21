@@ -26,6 +26,7 @@ OLD_CATEGORY_KINDS = {new: old for old, new in legacy.CATEGORY_KINDS.items()}
 OLD_REVIEW_KINDS = {
     **{new: old for old, new in legacy.REVIEW_KINDS.items()},
     "possible_payment": "pago_posible",  # spanish-data
+    "possible_cover": "pago_por_otros",  # spanish-data (schema 22: paid for others)
 }
 
 

@@ -19,6 +19,7 @@ export const KIND_LABELS: Record<ReviewKind, string> = {
   possible_rule: t('review.kind.possibleRule'),
   possible_reserve: t('review.kind.possibleReserve'),
   possible_payment: t('review.kind.possiblePayment'),
+  possible_cover: t('review.kind.possibleCover'),
   unconfirmed: t('review.kind.unconfirmed'),
   reversal: t('review.kind.reversal'),
 }
@@ -51,12 +52,22 @@ export function originalAmountText(item: ReviewItem): string | null {
 
 /** "6 Feb · VISA DEMO ···4242"; a bank account goes short (see `shortAccountLabel`). */
 export function metaText(item: ReviewItem): string {
+  if (!item.account_label) return shortDay(item.day)
   return `${shortDay(item.day)} · ${shortAccountLabel(item.account_label)}`
 }
 
-/** Transactions of the movement's month, with its detail open and the chosen accounts. */
+/** Transactions of the movement's month, with its detail open and the chosen accounts; a
+ * "paid for others?" item opens its group with that payment's "Also paid for…". */
 export function itemHref(item: ReviewItem, selection: Selection = null): string {
+  if (item.kind === 'possible_cover' && item.group_id != null && item.payment_id != null) {
+    return coverHref(item.group_id, item.payment_id)
+  }
   return transactionsHref({ month: item.month, tx: item.fingerprint }, selection)
+}
+
+/** The group's page with a payment's "Also paid for…" open (the suggestion's "Yes"). */
+export function coverHref(groupId: number, paymentId: number): string {
+  return `/shared/${groupId}?cover=${paymentId}`
 }
 
 /** Accessible name of the link that opens the movement. */

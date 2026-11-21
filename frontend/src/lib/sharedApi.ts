@@ -38,12 +38,26 @@ export interface Contacts {
   recent_payers: number[] // who paid recently, most recent first
 }
 
+/** "In total ≈": balances in two currencies as one, at the current month's rate (positive: owed
+ * to the user). */
+export interface Approx {
+  currency: string
+  cents: number
+}
+
+/** A rate used (RD$ per US$, as stored: "63.7000") and the month it comes from. */
+export interface RateUsed {
+  value: string
+  month: string
+}
+
 export interface PersonGroup {
   group_id: number
   group_name: string
   archived: boolean
   balance: CurrencyCents[]
   written_off: boolean
+  leftover: CurrencyCents[] // exchange leftovers taken as settled, signed
 }
 
 /** A contact across groups (the People row and the person view). */
@@ -54,6 +68,7 @@ export interface Person {
   balance: CurrencyCents[]
   group_count: number
   groups: PersonGroup[]
+  total: Approx | null // with a balance in two currencies
 }
 
 export interface GroupRow {
@@ -66,6 +81,7 @@ export interface GroupRow {
   people: string[] // every member but the user
   last_day: string | null
   unattributed: number
+  total: Approx | null // with balances in two currencies
 }
 
 export interface Total {
@@ -88,6 +104,9 @@ export interface Member {
   is_me: boolean
   written_off: boolean
   balance: CurrencyCents[] // what they owe the user in this group (net)
+  leftover: CurrencyCents[] // exchange leftovers taken as settled, signed
+  leftover_settled: boolean // the per-person toggle
+  total: Approx | null // with a balance in two currencies
 }
 
 export interface SplitLine {
@@ -137,6 +156,7 @@ export interface Payment {
   from_me: boolean
   to_me: boolean
   amount_cents: number // received
+  settles_cents: number // what it settles: what was sent once a difference was accepted
   currency: string
   sent_cents: number | null
   difference_cents: number | null // sent − received (null: unknown or equal)
@@ -146,6 +166,7 @@ export interface Payment {
   unconverted: boolean
   transaction: LinkedTx | null
   allocations: Allocation[] // who it is for, the payer first ("Paid for others")
+  rate: RateUsed | null // the rate it settled claims in the other currency with
 }
 
 /** Who a payment settles with: the person and how much. */
@@ -183,6 +204,65 @@ export interface MemberUsage {
 
 export type TimelineItem = Entry | Payment
 
+/** "Ana paid RD$ 38,440 too much and Beto owes US$ 629.31. Was that payment for Beto too?" */
+export interface CoverSuggestion {
+  payment_id: number // the oldest of them
+  payment_ids: number[] // every payment of the payer it is about, oldest first
+  payer_id: number
+  payer_name: string
+  covers: number[]
+  names: string[]
+  excess_cents: number
+  currency: string
+  owed: CurrencyCents[]
+  text: string
+}
+
+/** One proposed allocation: what it covers of that person (payment's currency), what they owed
+ * then and, when their claims are in the other currency, the part converted. */
+export interface Proposed {
+  contact_id: number
+  name: string
+  cents: number
+  owed_cents: number
+  equivalent: CurrencyCents | null
+}
+
+/** One payment of a suggestion with its proposed allocations (the payer first). */
+export interface CoverPayment {
+  payment_id: number
+  day: string
+  amount_cents: number // what it settles
+  currency: string
+  allocations: Proposed[]
+  rate: RateUsed | null
+}
+
+/** A person's balance in the group once the plan is applied. */
+export interface CoverAfter {
+  contact_id: number
+  name: string
+  balance: CurrencyCents[]
+  leftover: CurrencyCents[]
+}
+
+/** "Yes" to a suggestion: each payment's proposal, in order, and the balances after. */
+export interface CoverPlan {
+  text: string
+  payments: CoverPayment[]
+  after: CoverAfter[]
+}
+
+export interface CoverBody {
+  payments: { payment_id: number; allocations: ShareBody[] }[]
+}
+
+export interface Proposal {
+  currency: string
+  allocations: Proposed[] // the payer first
+  rate: RateUsed | null // the payment month's rate, when a claim is in the other currency
+}
+
 export interface Group {
   id: number
   name: string
@@ -195,6 +275,8 @@ export interface Group {
   excess: CurrencyCents[]
   unattributed: Payment[]
   timeline: TimelineItem[] // most recent first
+  total: Approx | null // with balances in two currencies
+  cover: CoverSuggestion | null // "Was that payment for someone else too?"
 }
 
 // --- Requests ------------------------------------------------------------------------------

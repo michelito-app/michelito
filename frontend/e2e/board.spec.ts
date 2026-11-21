@@ -15,6 +15,7 @@ const JANUARY = 'enero' // spanish-ui
 const FEBRUARY_NAME = 'febrero' // spanish-ui
 const JANUARY_TITLE = 'Enero 2026' // spanish-ui
 const DECEMBER_TITLE = 'Diciembre 2025' // spanish-ui
+const FEBRUARY_TITLE = 'Febrero 2026' // spanish-ui
 const JANUARY_PHRASE = 'enero 2026' // spanish-ui
 const DECEMBER_PHRASE = 'diciembre 2025' // spanish-ui
 const JAN_15 = '15 ene' // spanish-ui
@@ -65,7 +66,7 @@ test('summary: the first category opens the filtered transactions', async ({ pag
   await page.goto(`/?month=${MONTH}`)
   await expect(page.getByRole('heading', { level: 1, name: JANUARY_TITLE })).toBeVisible()
 
-  await page.getByRole('region', { name: t('summary.categories.title') }).getByRole('link').first().click()
+  await page.locator('[data-card="categories"]').getByRole('listitem').first().getByRole('link').click()
 
   await expect(page).toHaveURL(/category=/)
   const category = new URL(page.url()).searchParams.get('category')!
@@ -81,7 +82,7 @@ test("summary: the month's flow shows income, spending and what was left", async
   // does not count. Before it was Spending 16,573, Left 85,428 and 84 %: the demo gained a loan
   // payment (AUT PAGO, RD$ 2,000, spending) and a transfer to third parties (MB a, RD$ 3,000,
   // which only subtracts from what was left).
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/reports?month=${MONTH}`)
   const scope = t('months.headerScope', {
     last: 31,
     month: JANUARY,
@@ -101,7 +102,7 @@ test("summary: the month's flow shows income, spending and what was left", async
 test('summary: the spending link opens the month\'s spending grouped by category', async ({
   page,
 }) => {
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/reports?month=${MONTH}`)
   const kpis = page.getByRole('region', { name: KPIS })
   await kpis.getByRole('link', { name: t('summary.kpi.spendingLink'), exact: true }).click()
 
@@ -120,7 +121,7 @@ test('summary: the spending link opens the month\'s spending grouped by category
 test('summary: transfers to third parties subtract from what was left and open their list', async ({
   page,
 }) => {
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/reports?month=${MONTH}`)
   const kpis = page.getByRole('region', { name: KPIS })
   await expect(kpis).toContainText(kpi(t('summary.kpi.thirdParty'), 'RD\\$\\s*3,000'))
   await expect(kpis).toContainText(t('summary.net.lessThirdParty'))
@@ -159,12 +160,12 @@ test('transactions: the category picker lists the new categories in their group'
 })
 
 test('summary: if a bank account ends earlier, the income says through when', async ({ page }) => {
-  await page.route('**/api/summary**', async (route) => {
+  await page.route('**/api/summary?**', async (route) => {
     const response = await route.fetch()
     const body = await response.json()
     await route.fulfill({ response, json: { ...body, income_through: '2026-01-15', savings_rate: null } })
   })
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/reports?month=${MONTH}`)
   const kpis = page.getByRole('region', { name: KPIS })
   // The cut-off note keeps its words together (non-breaking spaces).
   const through = escapeRegExp(t('summary.income.through', { day: JAN_15 })).replace(/ /g, ' ')
@@ -182,7 +183,7 @@ test('summary: an atypical month is flagged and «What happened» links its tran
 }) => {
   // The made-up data does not have enough months for the usual: December is flagged by hand
   // with what the server would send (see tests/test_anomalies.py for the rule).
-  await page.route('**/api/summary**', async (route) => {
+  await page.route('**/api/summary?**', async (route) => {
     const response = await route.fetch()
     const body = await response.json()
     const trend = body.trend.map((point: { month: string }) =>
@@ -206,7 +207,7 @@ test('summary: an atypical month is flagged and «What happened» links its tran
     ]
     await route.fulfill({ response, json: { ...body, trend, what_happened } })
   })
-  await page.goto('/?month=2025-12')
+  await page.goto('/reports?month=2025-12')
   const chart = page.getByRole('region', { name: t('summary.trendBars.title') })
   await expect(chart).toContainText(
     `▲▼ ${t('summary.atypical.legend', { percent: 30, floor: 'RD$ 10,000' })}`,
@@ -238,7 +239,7 @@ test('summary: an atypical month is flagged and «What happened» links its tran
 })
 
 test('summary: a normal month has no «What happened»', async ({ page }) => {
-  await page.goto('/?month=2025-12')
+  await page.goto('/reports?month=2025-12')
   await expect(page.getByRole('heading', { level: 1, name: DECEMBER_TITLE })).toBeVisible()
   await expect(page.getByRole('region', { name: t('summary.trendBars.title') })).not.toContainText(
     ATYPICAL,
@@ -247,7 +248,7 @@ test('summary: a normal month has no «What happened»', async ({ page }) => {
 })
 
 test('summary: clicking a bar of the last 12 months opens that month', async ({ page }) => {
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/reports?month=${MONTH}`)
   await expect(page.getByRole('heading', { level: 1, name: JANUARY_TITLE })).toBeVisible()
   const months = page
     .getByRole('region', { name: t('summary.trendBars.title') })
@@ -255,7 +256,7 @@ test('summary: clicking a bar of the last 12 months opens that month', async ({ 
 
   // Hovering shows the month's detail.
   await months.getByRole('button').first().hover()
-  await expect(page.getByText(new RegExp(`^${DECEMBER_PHRASE}$`, 'i'))).toBeVisible()
+  await expect(page.getByTestId('trend-tip')).toContainText(new RegExp(`^${DECEMBER_PHRASE}`, 'i'))
 
   // The first column is the chart's oldest month (December 2025 in the made-up data).
   await months.getByRole('button').first().click()
@@ -268,7 +269,7 @@ test('summary: clicking a bar of the last 12 months opens that month', async ({ 
   )
 
   // With the keyboard: from January, Shift+Tab to December and Enter.
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/reports?month=${MONTH}`)
   await months.getByRole('button', { name: new RegExp(`^${JANUARY_PHRASE}`) }).focus()
   await page.keyboard.press('Shift+Tab')
   await expect(months.getByRole('button', { name: new RegExp(`^${DECEMBER_PHRASE}`) })).toBeFocused()
@@ -277,25 +278,25 @@ test('summary: clicking a bar of the last 12 months opens that month', async ({ 
   await expect(page.getByRole('heading', { level: 1, name: DECEMBER_TITLE })).toBeVisible()
 })
 
-test('summary: «Back to» returns to the latest complete month and goes away', async ({ page }) => {
-  // In the made-up data the latest complete month is December 2025; January is incomplete.
+test('summary: «Back to» returns to the current month and goes away', async ({ page }) => {
+  // The Summary opens the newest month, in progress (February 2026 in the made-up data).
   const backTo = literal(t('months.backTo', { month: '' }))
   await page.goto('/')
-  await expect(page.getByRole('heading', { level: 1, name: DECEMBER_TITLE })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: FEBRUARY_TITLE })).toBeVisible()
   await expect(page.getByRole('button', { name: backTo })).toHaveCount(0)
 
-  await page.getByRole('button', { name: t('months.next') }).click()
+  await page.getByRole('button', { name: t('months.previous') }).click()
   await expect(page.getByRole('heading', { level: 1, name: JANUARY_TITLE })).toBeVisible()
 
-  await page.getByRole('button', { name: t('months.backTo', { month: DECEMBER_TITLE }) }).click()
-  await expect(page.getByRole('heading', { level: 1, name: DECEMBER_TITLE })).toBeVisible()
+  await page.getByRole('button', { name: t('months.backTo', { month: FEBRUARY_TITLE }) }).click()
+  await expect(page.getByRole('heading', { level: 1, name: FEBRUARY_TITLE })).toBeVisible()
   await expect(page).not.toHaveURL(/month=/)
   await expect(page.getByRole('button', { name: backTo })).toHaveCount(0)
 })
 
 test('summary: the KPI figures never break across two lines', async ({ page }) => {
   // Large amounts (millions) to force the case that used to split "RD$ / 1,274,490".
-  await page.route('**/api/summary**', async (route) => {
+  await page.route('**/api/summary?**', async (route) => {
     const response = await route.fetch()
     const body = await response.json()
     await route.fulfill({
@@ -313,7 +314,7 @@ test('summary: the KPI figures never break across two lines', async ({ page }) =
   })
   for (const width of [1440, 1232, 1000, 768, 390]) {
     await page.setViewportSize({ width, height: 900 })
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     const values = page.getByText(/^(RD|US)\$ [\d,.]+$/)
     await expect(values.first()).toBeVisible()
     const lines = await values.evaluateAll((els) =>
@@ -326,6 +327,8 @@ test('summary: the KPI figures never break across two lines', async ({ page }) =
     )
     for (const line of lines) expect(line, `${width}px: ${line.text}`).toMatchObject({ oneLine: true, fits: true })
   }
+  // A summary request still in flight must not outlive the test (it would fail the next one).
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
 test.describe('corrections', () => {
@@ -344,7 +347,7 @@ test.describe('corrections', () => {
       t('transactions.badge.corrected'),
     )
 
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     const categories = page.getByRole('region', { name: t('summary.categories.title') })
     await expect(categories.getByRole('link', { name: literal(HEALTH) })).toContainText('300')
     // Restaurants went down from 2,150 to 1,850.
@@ -375,7 +378,7 @@ test.describe('corrections', () => {
       t('transactions.totals.income', { amount: 'RD$ 90,001' }),
     )
 
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     await expect(page.getByRole('region', { name: KPIS })).toContainText(
       kpi(t('summary.kpi.income'), 'RD\\$\\s*90,001'),
     )
@@ -389,7 +392,7 @@ test.describe('corrections', () => {
     await detail.getByRole('button', { name: t('transactions.save') }).click()
     await expect(page.getByRole('status').filter({ hasText: t('transactions.saved') })).toBeVisible()
 
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     await expect(page.getByRole('region', { name: KPIS })).toContainText(
       kpi(t('summary.kpi.oneOffs'), 'RD\\$\\s*2,400'),
     )
@@ -631,7 +634,7 @@ test.describe('interest', () => {
         },
       })
     })
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     const card = page.getByRole('region', { name: t('summary.interestCard.title') })
     await expect(card).toContainText(t('summary.interestCard.yearTitle', { year: 2026 }))
     await expect(card).toContainText('RD$ 287')
@@ -649,7 +652,7 @@ test.describe('interest', () => {
   })
 
   test('summary: a year without interest says so', async ({ page }) => {
-    await page.goto('/?month=2025-12')
+    await page.goto('/reports?month=2025-12')
     const card = page.getByRole('region', { name: t('summary.interestCard.title') })
     await expect(card).toContainText(t('summary.interestCard.yearTitle', { year: 2025 }))
     await expect(card).toContainText(t('summary.interestCard.noInterest'))
@@ -686,15 +689,13 @@ test.describe('recurring', () => {
     await expect(page.getByRole('region', { name: t('recurring.dismissed.label') })).toHaveCount(0)
   })
 
-  test('summary of February 2026: the card warns about the increase and links to Recurring', async ({
+  test('summary of February 2026: «Upcoming» warns about the increase and leads to Recurring', async ({
     page,
   }) => {
     await page.goto('/?month=2026-02')
-    const card = page.getByRole('region', { name: t('summary.recurringCard.title') })
-    await expect(card).toContainText(
-      PRICE_UP,
-    )
-    await card.getByRole('link', { name: t('summary.recurringCard.seeAll') }).click()
+    const card = page.locator('[data-card="upcoming"]')
+    await expect(card).toContainText(PRICE_UP)
+    await card.getByRole('link', { name: t('home.upcoming.title') }).click()
     await expect(page).toHaveURL(/\/recurring$/)
     await expect(page.getByRole('heading', { level: 1, name: t('recurring.title') })).toBeVisible()
   })
@@ -728,7 +729,7 @@ test.describe('suggested one-off expenses (in «To review»)', () => {
 
   test('summary: the card fits in 390 px', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     await expect(card(page)).toContainText(
       new RegExp(`${escapeRegExp(t('summary.review.title'))} \\(\\d+\\)`),
     )
@@ -740,7 +741,7 @@ test.describe('suggested one-off expenses (in «To review»)', () => {
 
   test('summary: at 390 px the name takes one line; day and account below', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     const link = card(page).getByRole('link', { name: openLabel('AGENCIA FICTICIA') })
     await expect(card(page)).toContainText('6 feb · VISA DEMO ···4242')
     const name = link.getByTitle(/AGENCIA FICTICIA/)
@@ -754,7 +755,7 @@ test.describe('suggested one-off expenses (in «To review»)', () => {
   test('summary: the suggestion opens the purchase in Transactions; Back returns', async ({
     page,
   }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     await card(page).getByRole('link', { name: openLabel('AGENCIA FICTICIA') }).click()
     await expect(page).toHaveURL(new RegExp(`/transactions\\?month=${FEBRUARY}&tx=`))
     const detail = page.getByRole('complementary')
@@ -762,19 +763,19 @@ test.describe('suggested one-off expenses (in «To review»)', () => {
     await expect(detail).toContainText(NEW_MERCHANT)
 
     await page.goBack()
-    await expect(page).toHaveURL(new RegExp(`/\\?month=${FEBRUARY}$`))
+    await expect(page).toHaveURL(new RegExp(`/review\\?month=${FEBRUARY}$`))
     await expect(card(page)).toContainText('AGENCIA FICTICIA')
   })
 
   test('summary: «Not a one-off» removes it; «Suggest again» brings it back', async ({ page }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     await expect(card(page)).toContainText('AGENCIA FICTICIA')
     await card(page)
       .getByRole('button', { name: t('summary.oneOffs.dismissLabel', { merchant: 'AGENCIA FICTICIA' }) })
       .click()
     await expect(card(page)).not.toContainText('AGENCIA FICTICIA')
     // The button is not part of the link: it does not leave the Summary.
-    await expect(page).toHaveURL(new RegExp(`/\\?month=${FEBRUARY}$`))
+    await expect(page).toHaveURL(new RegExp(`/review\\?month=${FEBRUARY}$`))
 
     await page.goto(`/transactions?month=${FEBRUARY}`)
     const list = page.getByRole('region', { name: LIST })
@@ -788,9 +789,10 @@ test.describe('suggested one-off expenses (in «To review»)', () => {
   })
 
   test('summary: «It is a one-off» moves it to the one-offs figure', async ({ page }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/reports?month=${FEBRUARY}`)
     const kpis = page.getByRole('region', { name: KPIS })
     await expect(kpis).toContainText(kpi(t('summary.kpi.oneOffs'), 'RD\\$\\s*0'))
+    await page.goto(`/review?month=${FEBRUARY}`)
     await card(page)
       .getByRole('button', {
         name: t('summary.oneOffs.confirmLabel', { merchant: 'AGENCIA FICTICIA' }),
@@ -798,7 +800,9 @@ test.describe('suggested one-off expenses (in «To review»)', () => {
       })
       .click()
     await expect(card(page)).not.toContainText('AGENCIA FICTICIA')
-    await expect(page).toHaveURL(new RegExp(`/\\?month=${FEBRUARY}$`))
+    await expect(page).toHaveURL(new RegExp(`/review\\?month=${FEBRUARY}$`))
+    await expect(card(page)).toContainText('DEPOSITO CAMBIO FICTICIO')
+    await page.goto(`/reports?month=${FEBRUARY}`)
     await expect(kpis).toContainText(kpi(t('summary.kpi.oneOffs'), 'RD\\$\\s*45,000'))
   })
 })
@@ -809,7 +813,7 @@ test.describe('to review', () => {
   const card = (page: Page) => page.getByRole('region', { name: literal(t('summary.review.title')) })
 
   test('summary: gathers unusual income, large transfers and price increases', async ({ page }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     await expect(card(page)).toContainText(t('review.kind.unusualIncome'))
     await expect(card(page)).toContainText('DEPOSITO CAMBIO FICTICIO')
     await expect(card(page)).toContainText(t('review.kind.largeThirdParty'))
@@ -825,13 +829,13 @@ test.describe('to review', () => {
   })
 
   test('summary: with only the VISA, the card ones remain', async ({ page }) => {
-    await page.goto(`/?month=${FEBRUARY}&accounts=demo%3Acredit_card`)
+    await page.goto(`/review?month=${FEBRUARY}&accounts=demo%3Acredit_card`)
     await expect(card(page)).toContainText('STREAMING FICTICIO')
     await expect(card(page)).not.toContainText('DEPOSITO CAMBIO FICTICIO')
   })
 
   test('summary: «✓ Reviewed» removes it and it does not come back on reload', async ({ page }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     await card(page)
       .getByRole('button', { name: t('summary.review.reviewedLabel', { merchant: 'STREAMING FICTICIO' }) })
       .click()
@@ -842,7 +846,7 @@ test.describe('to review', () => {
   })
 
   test('summary: the transaction opens its detail in Transactions', async ({ page }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
+    await page.goto(`/review?month=${FEBRUARY}`)
     const label = `${before(message('review.openLabel'), 'merchant')}DEPOSITO CAMBIO FICTICIO`
     await card(page).getByRole('link', { name: literal(label) }).click()
     await expect(page).toHaveURL(new RegExp(`/transactions\\?month=${FEBRUARY}&tx=`))
@@ -862,7 +866,7 @@ test('bank accounts with a short name in Transactions and in «By account»', as
   await expect(row).not.toContainText(FULL)
   await expect(row.getByTitle(FULL).first()).toBeAttached()
 
-  await page.goto('/?month=2026-01')
+  await page.goto('/reports?month=2026-01')
   const byAccount = page.getByRole('region', { name: t('summary.byAccount.title') })
   await expect(byAccount.getByRole('link', { name: literal(`${checking} ···7770`) })).toHaveAttribute(
     'title',
@@ -917,7 +921,7 @@ test.describe('chosen accounts', () => {
   }
 
   test('one card: the KPIs change and Transactions shows only that card', async ({ page }) => {
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     const kpis = page.getByRole('region', { name: KPIS })
     const spending = kpi(t('summary.kpi.spending'), 'RD\\$\\s*18,573')
     await expect(kpis).toContainText(spending)
@@ -972,7 +976,7 @@ test.describe('chosen accounts', () => {
   test('only bank accounts: no interest and with the line of what was paid to your cards', async ({
     page,
   }) => {
-    await page.goto(`/?month=${MONTH}`)
+    await page.goto(`/reports?month=${MONTH}`)
     await expect(page.getByRole('region', { name: t('summary.interestCard.title') })).toBeVisible()
     await page.getByRole('button', { name: PICKER }).click()
     await page.getByRole('dialog').getByRole('button', { name: t('shell.accounts.banksOnly') }).click()
@@ -1031,15 +1035,15 @@ test.describe('chosen accounts', () => {
     await expect(page.getByRole('button', { name: PICKER })).toContainText(VISA)
   })
 
-  test('Recurring: «See all» carries the accounts and the screen uses the same picker', async ({
+  test('Recurring: «Upcoming» carries the accounts and the screen uses the same picker', async ({
     page,
   }) => {
     await page.goto('/recurring')
     const all = await page.locator('main header').first().innerText()
     await page.goto(`/?month=${MONTH}&accounts=demo%3Acredit_card`)
     await page
-      .getByRole('region', { name: t('summary.recurringCard.title') })
-      .getByRole('link', { name: t('summary.recurringCard.seeAll') })
+      .locator('[data-card="upcoming"]')
+      .getByRole('link', { name: t('home.upcoming.title') })
       .click()
     await expect(page).toHaveURL(/\/recurring\?accounts=demo%3Acredit_card/)
     await expect(page.getByRole('button', { name: PICKER })).toContainText(VISA)
@@ -1188,10 +1192,7 @@ test.describe('shared expenses from a transaction, and notes', () => {
   test('Pending lists the group and opens its page; Transactions filters the shared ones with something pending', async ({
     page,
   }) => {
-    await page.goto(`/?month=${FEBRUARY}`)
-    const widget = page.getByRole('region', { name: t('summary.pendingCard.title') })
-    await widget.getByRole('link', { name: t('summary.pendingCard.link') }).click()
-    await expect(page).toHaveURL(/\/pending$/)
+    await page.goto('/pending')
     const owed = page.getByRole('region', { name: t('pending.figure.owed') })
     const row = owed.getByRole('link', { name: new RegExp(GROUP) })
     await expect(row).toContainText('RD$ 2,000')

@@ -93,6 +93,11 @@ def test_screens_show_the_stories(api: TestClient) -> None:
     # spanish-data: end
     cash = api.get("/api/cash-box").json()
     assert cash["exists"] and cash["lines"]
+    # The cash account: concepts, a weekly payment with its last occurrence still to confirm.
+    assert {line["concept"] for line in cash["lines"]} >= {generate.CASH_WEEKLY[0]}
+    assert [s["frequency"] for s in cash["schedules"]] == ["weekly"]
+    assert len(cash["occurrences"]) >= 1
+    assert cash["activated_on"] is not None
     review = api.get("/api/review", params={"month": "2026-10"}).json()
     assert {"duplicate", "unusual_income", "large_third_party"} <= {r["kind"] for r in review}
     accounts = api.get("/api/accounts").json()

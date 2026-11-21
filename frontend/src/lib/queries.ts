@@ -6,8 +6,12 @@ import {
   type BatchBody,
   type BatchResult,
   type Candidate,
+  type AnswerAction,
   type CashBox,
+  type CashConcept,
+  type CashCount,
   type CashEntryBody,
+  type ScheduleBody,
   type Category,
   type CategoryBody,
   type CategoryPatch,
@@ -764,8 +768,23 @@ export function useCashBox() {
   })
 }
 
+/** The concepts written before (autocomplete of the cash forms). */
+export function useCashConcepts(enabled = true) {
+  return useQuery({
+    queryKey: [...CASH_BOX_KEY, 'concepts'],
+    queryFn: () => request<CashConcept[]>('/api/cash-box/concepts'),
+    enabled,
+  })
+}
+
 export type CashBoxChange =
   | { action: 'add'; body: CashEntryBody }
+  | { action: 'schedule-add'; body: ScheduleBody }
+  | { action: 'schedule-update'; id: number; body: ScheduleBody }
+  | { action: 'schedule-pause'; id: number; paused: boolean }
+  | { action: 'schedule-delete'; id: number }
+  | { action: 'answer'; id: number; answer: AnswerAction; amount_cents?: number }
+  | { action: 'reconcile'; counts: CashCount[] }
   | { action: 'update'; id: number; body: Omit<CashEntryBody, 'kind'> }
   | { action: 'delete'; id: number }
   | { action: 'store'; fingerprint: string }
@@ -779,6 +798,24 @@ function cashBoxRequest(change: CashBoxChange): Promise<CashBox | Tx | undefined
   switch (change.action) {
     case 'add':
       return request<CashBox>('/api/cash-box/entries', json('POST', change.body))
+    case 'schedule-add':
+      return request<CashBox>('/api/cash-box/schedules', json('POST', change.body))
+    case 'schedule-update':
+      return request<CashBox>(`/api/cash-box/schedules/${change.id}`, json('PUT', change.body))
+    case 'schedule-pause':
+      return request<CashBox>(
+        `/api/cash-box/schedules/${change.id}/paused`,
+        json('PUT', { paused: change.paused }),
+      )
+    case 'schedule-delete':
+      return request<CashBox>(`/api/cash-box/schedules/${change.id}`, { method: 'DELETE' })
+    case 'answer':
+      return request<CashBox>(
+        `/api/cash-box/occurrences/${change.id}`,
+        json('POST', { action: change.answer, amount_cents: change.amount_cents ?? null }),
+      )
+    case 'reconcile':
+      return request<CashBox>('/api/cash-box/reconcile', json('POST', { counts: change.counts }))
     case 'update':
       return request<CashBox>(`/api/cash-box/entries/${change.id}`, json('PUT', change.body))
     case 'delete':

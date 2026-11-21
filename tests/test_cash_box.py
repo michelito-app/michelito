@@ -93,7 +93,7 @@ class TestStoredWithdrawal:
         before = _summary(conn)
         _write(conn, cash_box_store.store, big.fingerprint)
         stored = _flow(conn)[big.fingerprint]
-        assert (stored.category, stored.kind, stored.link) == (
+        assert (stored.ref, stored.kind, stored.link) == (
             cat.CASH_BOX,
             "transfer",
             "cash_box",
@@ -287,7 +287,7 @@ class TestDeposit:
         _write(conn, cash_box_store.store, big.fingerprint)
         _write(conn, cash_box_store.deposit, deposit.fingerprint)
         moved = _flow(conn)[deposit.fingerprint]
-        assert (moved.category, moved.kind) == (cat.CASH_BOX, "transfer")
+        assert (moved.ref, moved.kind) == (cat.CASH_BOX, "transfer")
         after = _summary(conn)
         assert after.income == before.income - D(5000)
         assert after.to_cash_box == D(20000)  # the deposit does not take from the line

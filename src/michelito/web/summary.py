@@ -181,6 +181,7 @@ def month_options(
     movements: Sequence[Movement],
     accounts: Sequence[AccountInfo],
     selected: Collection[str] | None = None,
+    today: date | None = None,
 ) -> list[MonthOption]:
     """From the newest month with expenses to the oldest, without gaps.
 
@@ -190,6 +191,9 @@ def month_options(
 
     With `selected` (account keys) the months are the same, so the picker does not change, but
     a month is partial according to the chosen accounts (see `_coverage_accounts`).
+
+    With `today`: when the newest month with expenses is the one before today's, today's month
+    (in progress, nothing spent yet) comes first, so the Summary can open it on the 1st.
     """
     found = {m.month for m in movements if m.kind == "expense"}
     first_card = _first_card_month(movements, accounts)
@@ -198,6 +202,10 @@ def month_options(
     if not found:
         return []
     newest = max(found)
+    if today is not None:
+        current = f"{today.year:04d}-{today.month:02d}"
+        if spending.months_back(current, 2)[0] == newest:
+            newest = current
     span = _month_span(min(found), newest)
     chosen = selection(accounts, selected)
     if chosen is None:
@@ -247,6 +255,7 @@ def build_summary(
     selected: Collection[str] | None = None,
     groups: Mapping[int, ledger.GroupState] | None = None,
     exchange_states: Mapping[int, ExchangeState] | None = None,
+    today: date | None = None,
 ) -> Summary:
     """The month's summary. Takes every kind of movement (`spending.load_all`).
 
@@ -260,10 +269,11 @@ def build_summary(
     here only the movements and the accounts are trimmed.
 
     `groups` (`ledger.states`) and `exchange_states` (`exchanges.states`): for "Owed to you" and
-    "Pending exchanges"; without them, zero.
+    "Pending exchanges"; without them, zero. `today`: as in `month_options` (today's month with
+    nothing spent yet is a month).
     """
     chosen = selection(accounts, selected)
-    options = month_options(movements, accounts, chosen)
+    options = month_options(movements, accounts, chosen, today)
     option = next((o for o in options if o.month == month), None)
     if option is None:
         raise LookupError(t("web.month_without_movements", month=month))

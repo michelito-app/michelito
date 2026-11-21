@@ -4,7 +4,9 @@ Tables (`db.LEDGER_SCHEMA`): `contacts` (global people; exactly one with `is_me`
 created on first use), `contact_aliases` (names seen in transfers, unique once folded),
 `ledger_groups`, `ledger_members`, `ledger_entries`, `ledger_splits` (each person's share, in
 cents, and their parts in a split by parts), `ledger_payments`, `ledger_allocations` (who an
-attributed payment is for: schema 21, `migrations_v21`) and, in the personal part,
+attributed payment is for: schema 21, `migrations_v21`), `ledger_dismissals` (payments whose
+"paid for others too?" was answered "No": schema 22, `migrations_v22`, which also adds
+`ledger_members.leftover_settled`) and, in the personal part,
 `ledger_links` (a transaction's fingerprint -> an entry or a payment) and `ledger_settings`
 (flags such as "Review your people"). Every id is `AUTOINCREMENT`: a deleted id is never
 reused, so an undo never gives a row back to a parent that inherited its id.
@@ -154,8 +156,11 @@ def load(conn: sqlite3.Connection) -> Ledger:
     members: dict[int, list[Member]] = {}
     for row in conn.execute("SELECT * FROM ledger_members ORDER BY added_at, rowid"):
         members.setdefault(int(row["group_id"]), []).append(
-            Member(int(row["contact_id"]), bool(row["written_off"]))
+            Member(int(row["contact_id"]), bool(row["written_off"]), _leftover_settled(row))
         )
+    dismissed: dict[int, set[int]] = {}
+    for row in _dismissal_rows(conn):
+        dismissed.setdefault(int(row["group_id"]), set()).add(int(row["payment_id"]))
     groups = tuple(
         Group(
             id=int(row["id"]),
@@ -165,6 +170,7 @@ def load(conn: sqlite3.Connection) -> Ledger:
             payments=tuple(payments.get(int(row["id"]), ())),
             category_id=row["category_id"],
             archived=bool(row["archived"]),
+            dismissed=frozenset(dismissed.get(int(row["id"]), ())),
         )
         for row in conn.execute("SELECT * FROM ledger_groups ORDER BY id")
     )
@@ -178,6 +184,25 @@ def _parts(row: sqlite3.Row) -> int | None:
     """A split's parts (a `Row` has no `in` for its columns: before schema 21 there are none)."""
     names = row.keys()  # noqa: SIM118
     return None if "parts" not in names or row["parts"] is None else int(row["parts"])
+
+
+def _leftover_settled(row: sqlite3.Row) -> bool:
+    """A member's exchange-leftover toggle (on before schema 22, which has no column)."""
+    names = row.keys()  # noqa: SIM118
+    return "leftover_settled" not in names or bool(row["leftover_settled"])
+
+
+def _dismissal_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The dismissed suggestions with their payment's group (none before schema 22)."""
+    present = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_dismissals'"
+    ).fetchone()
+    if present is None:
+        return []
+    return conn.execute(
+        "SELECT d.payment_id, p.group_id FROM ledger_dismissals d "
+        "JOIN ledger_payments p ON p.id = d.payment_id"
+    ).fetchall()
 
 
 def _allocation_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -343,12 +368,14 @@ def merge_contacts(conn: sqlite3.Connection, source: int, target: int) -> None:
         raise LinkError(t("analysis.ledger.merge_invalid"))
     name = conn.execute("SELECT name FROM contacts WHERE id = ?", (source,)).fetchone()[0]
     for row in conn.execute(
-        "SELECT group_id, written_off FROM ledger_members WHERE contact_id = ?", (source,)
+        "SELECT group_id, written_off, leftover_settled FROM ledger_members WHERE contact_id = ?",
+        (source,),
     ).fetchall():
         conn.execute(
-            "INSERT OR IGNORE INTO ledger_members (group_id, contact_id, written_off, added_at) "
-            "VALUES (?, ?, ?, ?)",
-            (row[0], target, row[1], _now()),
+            "INSERT OR IGNORE INTO ledger_members "
+            "(group_id, contact_id, written_off, leftover_settled, added_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (row[0], target, row[1], row[2], _now()),
         )
     conn.execute("DELETE FROM ledger_members WHERE contact_id = ?", (source,))
     for row in conn.execute(
@@ -661,6 +688,22 @@ def set_written_off(
     _touch(conn, group_id)
 
 
+def set_leftover_settled(
+    conn: sqlite3.Connection, group_id: int, contact_id: int, settled: bool
+) -> None:
+    """Whether a person's exchange leftovers in the group count as settled (`ledger` rule 5)."""
+    _require_group(conn, group_id)
+    if contact_id == me_id(conn):
+        raise LinkError(t("analysis.ledger.me_fixed"))
+    cursor = conn.execute(
+        "UPDATE ledger_members SET leftover_settled = ? WHERE group_id = ? AND contact_id = ?",
+        (int(settled), group_id, contact_id),
+    )
+    if cursor.rowcount == 0:
+        raise LookupError(t("analysis.ledger.not_member"))
+    _touch(conn, group_id)
+
+
 def _touch(conn: sqlite3.Connection, group_id: int) -> None:
     conn.execute("UPDATE ledger_groups SET updated_at = ? WHERE id = ?", (_now(), group_id))
 
@@ -921,6 +964,76 @@ def _write_allocations(
         "INSERT INTO ledger_allocations (payment_id, contact_id, amount_cents) VALUES (?, ?, ?)",
         [(payment_id, contact, cents) for contact, cents in shares.items()],
     )
+
+
+def set_allocations(
+    conn: sqlite3.Connection, payment_id: int, allocations: Mapping[int, Decimal] | None
+) -> None:
+    """Replaces who a payment another person made to the user is for ("Also paid for…"): the
+    allocations as given (person -> amount, adding up to the payment's amount; people of the
+    group) or, without any, all of it for the payer. They add up to what it settles (what was
+    sent, once a difference was accepted). Only the rows that change are touched, so
+    the change log shows what moved; one call is one change."""
+    group_id = payment_group(conn, payment_id)
+    me = me_id(conn)
+    row = conn.execute(
+        "SELECT from_contact, to_contact, amount_cents, sent_cents, accepted "
+        "FROM ledger_payments WHERE id = ?",
+        (payment_id,),
+    ).fetchone()
+    if row["from_contact"] is None or int(row["to_contact"]) != me:
+        raise LinkError(t("analysis.ledger.allocations_need_payer"))
+    # What it settles (`Payment.settles`): what was sent once a difference was accepted.
+    settles = row["sent_cents"] if row["accepted"] and row["sent_cents"] else row["amount_cents"]
+    amount = Decimal(int(settles)).scaleb(-2)
+    wanted = _allocations(conn, group_id, amount, int(row["from_contact"]), me, allocations or None)
+    current = {
+        int(r["contact_id"]): int(r["amount_cents"])
+        for r in conn.execute(
+            "SELECT contact_id, amount_cents FROM ledger_allocations WHERE payment_id = ?",
+            (payment_id,),
+        )
+    }
+    for contact in current.keys() - wanted.keys():
+        conn.execute(
+            "DELETE FROM ledger_allocations WHERE payment_id = ? AND contact_id = ?",
+            (payment_id, contact),
+        )
+    for contact, cents in wanted.items():
+        if current.get(contact) == cents:
+            continue
+        conn.execute(
+            "INSERT INTO ledger_allocations (payment_id, contact_id, amount_cents) "
+            "VALUES (?, ?, ?) ON CONFLICT(payment_id, contact_id) DO UPDATE SET "
+            "amount_cents = excluded.amount_cents",
+            (payment_id, contact, cents),
+        )
+    if current != wanted:
+        conn.execute("UPDATE ledger_payments SET updated_at = ? WHERE id = ?", (_now(), payment_id))
+        _touch(conn, group_id)
+
+
+def require_payments_of(
+    conn: sqlite3.Connection, group_id: int, payment_ids: Iterable[int]
+) -> None:
+    """Every payment is one of the group's (a plan or a "No" is about one group)."""
+    _require_group(conn, group_id)
+    for payment_id in payment_ids:
+        if payment_group(conn, payment_id) != group_id:
+            raise LinkError(t("analysis.ledger.cover_other_group"))
+
+
+def set_cover_dismissed(conn: sqlite3.Connection, payment_id: int, dismissed: bool) -> None:
+    """ "Was that payment for someone else too?" answered "No" (or asked again)."""
+    group_id = payment_group(conn, payment_id)
+    if dismissed:
+        conn.execute(
+            "INSERT OR IGNORE INTO ledger_dismissals (payment_id, dismissed_at) VALUES (?, ?)",
+            (payment_id, _now()),
+        )
+    else:
+        conn.execute("DELETE FROM ledger_dismissals WHERE payment_id = ?", (payment_id,))
+    _touch(conn, group_id)
 
 
 def payment_group(conn: sqlite3.Connection, payment_id: int) -> int:

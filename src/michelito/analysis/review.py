@@ -27,6 +27,10 @@ Pure functions over already loaded transactions. Kinds (`Kind`):
   group, or the bank side of a payment written down unlinked
   (`ledger_suggest.reverse_suggestions`; the caller adds it). "Yes" records (or links) the
   payment; "No" marks it reviewed.
+- "possible_cover": someone paid more than they owed in a shared group while another member
+  still owes ("Was that payment for B too?"; `ledger_cover.cover_suggestion`, the caller adds it, in
+  the payment's month). "Yes" opens that payment's "Also paid for…" in the group; "No"
+  dismisses it in the ledger (`ledger_dismissals`), not here.
 - "unconfirmed": a provisional transaction (from a bank alert) that did not show up in the
   statement covering its date (`live_store.unmatched`; the caller adds it). "Discard" hides it,
   "Keep" leaves it counted and marks it reviewed; both go in `provisional_decisions`.
@@ -71,6 +75,7 @@ Kind = Literal[
     "possible_rule",
     "possible_reserve",
     "possible_payment",
+    "possible_cover",
     "unconfirmed",
     "reversal",
 ]
@@ -109,6 +114,7 @@ class Item:
     group_id: int | None = None
     contact_id: int | None = None
     payment_id: int | None = None
+    payment_ids: tuple[int, ...] = ()  # possible cover: every payment of the suggestion
     provisional: bool = False  # the movement is still provisional (it can be discarded)
 
 

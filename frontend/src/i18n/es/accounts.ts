@@ -33,7 +33,8 @@ export const accounts = {
     'Aquí se ve cada estado tal como lo emitió el banco; el Resumen suma por mes de calendario.',
   'accounts.list.cards': 'Tarjetas de crédito',
   'accounts.list.noCards': 'Todavía no hay tarjetas de crédito',
-  'accounts.list.others': 'Cuentas de débito y ahorro',
+  'accounts.list.others': 'Débito, ahorro y efectivo',
+  'accounts.list.cashHint': 'Movimientos, pagos programados y cuadre',
   'accounts.list.noOthers': 'Todavía no hay cuentas de débito',
   'accounts.list.emptyHint':
     'Aparecen aquí cuando lleguen sus estados por correo y se configure su formato.',

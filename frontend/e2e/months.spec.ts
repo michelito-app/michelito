@@ -52,13 +52,13 @@ test('transactions: the arrows change the month and keep the search and the filt
   await expect(page.getByRole('searchbox')).toHaveValue('DEPOSITO')
 })
 
-test('transactions: «Back to …» returns to the default month and keeps the search', async ({
+test('transactions: «Back to …» returns to the default (current) month and keeps the search', async ({
   page,
 }) => {
-  await page.goto('/transactions?month=2026-02&q=FICTICIO')
-  await page.getByRole('button', { name: t('months.backTo', { month: monthTitle('2025-12') }) }).click()
+  await page.goto('/transactions?month=2025-12&q=FICTICIO')
+  await page.getByRole('button', { name: t('months.backTo', { month: monthTitle('2026-02') }) }).click()
 
-  await expect(page.getByRole('heading', { level: 1, name: monthTitle('2025-12') })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: monthTitle('2026-02') })).toBeVisible()
   await expect(page).not.toHaveURL(/month=/)
   await expect(page).toHaveURL(/q=FICTICIO/)
   await expect(page.getByRole('button', { name: literal(t('months.backTo', { month: '' }).trim()) })).toHaveCount(0)
@@ -134,12 +134,16 @@ test('grid: a click outside closes it', async ({ page }) => {
 })
 
 test('the menu carries the month between Summary and Transactions', async ({ page }) => {
-  // On the default month the links carry no month.
+  // Every month screen opens the month in progress: on it the links carry no month, and
+  // Transactions opens on the same month as the Summary.
   await page.goto('/')
+  await expect(page.getByRole('heading', { level: 1, name: monthTitle('2026-02') })).toBeVisible()
   await expect(nav(page).getByRole('link', { name: t('shell.nav.transactions') })).toHaveAttribute(
     'href',
     '/transactions',
   )
+  await nav(page).getByRole('link', { name: t('shell.nav.transactions') }).click()
+  await expect(page.getByRole('heading', { level: 1, name: monthTitle('2026-02') })).toBeVisible()
 
   await page.goto('/?month=2026-01')
   await nav(page).getByRole('link', { name: t('shell.nav.transactions') }).click()
@@ -147,12 +151,12 @@ test('the menu carries the month between Summary and Transactions', async ({ pag
   await expect(page.getByRole('heading', { level: 1, name: monthTitle('2026-01') })).toBeVisible()
 
   // From Transactions only the month travels: neither the search nor the filters.
-  await page.getByRole('button', { name: t('months.next') }).click()
+  await page.getByRole('button', { name: t('months.previous') }).click()
   await page.getByRole('searchbox').fill('FICTICIO')
   await expect(page).toHaveURL(/q=FICTICIO/)
   await expect(nav(page).getByRole('link', { name: t('shell.nav.summary') })).toHaveAttribute(
     'href',
-    '/?month=2026-02',
+    '/?month=2025-12',
   )
   // The other screens carry no month.
   await expect(nav(page).getByRole('link', { name: t('shell.nav.pending') })).toHaveAttribute(
@@ -160,11 +164,11 @@ test('the menu carries the month between Summary and Transactions', async ({ pag
     '/pending',
   )
   await nav(page).getByRole('link', { name: t('shell.nav.summary') }).click()
-  await expect(page.getByRole('heading', { level: 1, name: monthTitle('2026-02') })).toBeVisible()
-  await expect(page).toHaveURL(/\/\?month=2026-02$/)
+  await expect(page.getByRole('heading', { level: 1, name: monthTitle('2025-12') })).toBeVisible()
+  await expect(page).toHaveURL(/\/\?month=2025-12$/)
 
-  // Back on the default month, the link carries no month again.
-  await page.getByRole('button', { name: t('months.backTo', { month: monthTitle('2025-12') }) }).click()
+  // Back on the current month, the link carries no month again.
+  await page.getByRole('button', { name: t('months.backTo', { month: monthTitle('2026-02') }) }).click()
   await expect(nav(page).getByRole('link', { name: t('shell.nav.transactions') })).toHaveAttribute(
     'href',
     '/transactions',

@@ -6,7 +6,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { Tx } from '../src/lib/api'
 import { addEntry, createGroup, logMark, undoSince } from './ledger'
-import { literal, t } from './text'
+import { t } from './text'
 
 const MONTH = '2026-01'
 const SATURDAY = 'sáb' // spanish-ui: short weekday built with Intl
@@ -447,44 +447,25 @@ test('the month picker covers the bottom bar too', async ({ page }) => {
 })
 
 test.describe('summary', () => {
-  test('month, what you kept, indicators, To review, then closed sections', async ({ page }) => {
-    // A new browser context: no section remembered yet.
+  test('month and one coverage pill, then the cards in one column, in order', async ({ page }) => {
     await page.goto(`/?month=${MONTH}`)
-    const kept = page.getByRole('region', { name: t('summary.mobile.kept') })
-    const indicators = page.getByRole('region', { name: t('summary.mobile.indicators') })
-    const review = page.getByRole('region', { name: literal(t('summary.review.title')) })
-    await expect(kept).toBeVisible()
-    await expect(kept).toContainText(t('summary.mobile.in'))
-    await expect(kept).toContainText(t('summary.mobile.out'))
-    const order = await Promise.all(
-      [page.getByRole('heading', { level: 1 }), kept, indicators, review].map(
-        async (locator) => (await locator.boundingBox())!.y,
-      ),
+    const cards = page.locator('[data-testid="summary-cards"] [data-card]')
+    await expect(cards.first()).toBeVisible()
+    await expect(page.getByTestId('coverage-pill')).toBeVisible()
+    const ids = await cards.evaluateAll((els) => els.map((el) => el.getAttribute('data-card')))
+    expect(ids.slice(0, 2)).toEqual(['spending', 'flow'])
+    expect(ids.at(-1)).toBe('categories')
+    // One column: every card starts at the same x and they go down in the list's order.
+    const boxes = await cards.evaluateAll((els) =>
+      els.map((el) => {
+        const box = el.getBoundingClientRect()
+        return { x: Math.round(box.x), y: box.y }
+      }),
     )
-    expect([...order].sort((a, b) => a - b)).toEqual(order)
-
-    // The strip scrolls sideways inside itself; the page does not.
-    const strip = page.getByTestId('indicators')
-    const sizes = await strip.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
-    expect(sizes.scroll).toBeGreaterThan(sizes.client)
+    expect(new Set(boxes.map((b) => b.x)).size).toBe(1)
+    const ys = boxes.map((b) => b.y)
+    expect([...ys].sort((a, b) => a - b)).toEqual(ys)
     await noSidewaysScroll(page, 'summary')
-
-    // Sections start closed and remember being opened.
-    const reading = page.getByRole('button', { name: t('summary.mobile.section.reading') })
-    const details = page.getByRole('button', { name: t('summary.mobile.section.details') })
-    await expect(reading).toHaveAttribute('aria-expanded', 'false')
-    await expect(details).toHaveAttribute('aria-expanded', 'false')
-    await expect(page.getByRole('region', { name: t('summary.kpi.sectionLabel'), exact: true })).toHaveCount(0)
-    await details.click()
-    await expect(page.getByRole('region', { name: t('summary.kpi.sectionLabel'), exact: true })).toBeVisible()
-    await page.reload()
-    await expect(page.getByRole('button', { name: t('summary.mobile.section.details') })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
-    await expect(reading).toHaveAttribute('aria-expanded', 'false')
-    await noSidewaysScroll(page, 'summary with details open')
-    await page.getByRole('button', { name: t('summary.mobile.section.details') }).click()
   })
 })
 

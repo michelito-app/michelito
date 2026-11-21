@@ -1,8 +1,10 @@
 import { Ellipsis } from 'lucide-react'
 import { useId, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
+import { selectionFromParams, transactionsHref } from '@/lib/accountFilter'
 import type { Recurring, RecurringItem } from '@/lib/api'
 import {
   type BadgeTone,
@@ -49,6 +51,12 @@ export function RecurringRow({ item, month, firstMonth, overview }: RecurringRow
   const badges = badgesOf(item, month, firstMonth)
   const members = membersText(item)
   const extras = extrasText(item)
+  const [params] = useSearchParams()
+  // The name opens its last charge's month in Transactions, searching the merchant.
+  const chargesHref = transactionsHref(
+    { month: item.last_day.slice(0, 7), q: item.merchant },
+    selectionFromParams(params),
+  )
   return (
     <li className="border-b border-[#F2F2EE] last:border-b-0">
       <div
@@ -68,14 +76,17 @@ export function RecurringRow({ item, month, firstMonth, overview }: RecurringRow
           {item.name.charAt(0).toUpperCase()}
         </span>
         <span className="flex min-w-0 flex-col gap-1">
-          <span
+          <Link
+            to={chargesHref}
             className={cn(
-              'text-sm font-semibold [overflow-wrap:anywhere]',
+              'relative self-start rounded-sm text-sm font-semibold text-foreground underline-offset-2 [overflow-wrap:anywhere] hover:underline',
+              'before:absolute before:-inset-y-3 before:inset-x-0 before:content-[""]',
+              FOCUS,
               !active && 'text-muted-foreground',
             )}
           >
             {item.name}
-          </span>
+          </Link>
           <span className="text-xs text-muted-foreground">
             {item.category} · {cadenceText(item)} · {sinceText(item)} · {lastChargeText(item)}
           </span>

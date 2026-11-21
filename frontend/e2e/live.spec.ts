@@ -108,7 +108,7 @@ test('a statement confirms one; the one it lacks is to review and can be discard
   await expect(row(page, COLMADO)).not.toContainText(PENDING)
   await expect(row(page, BOOKSTORE)).toContainText(PENDING)
 
-  await page.goto(`/?month=${MONTH}`)
+  await page.goto(`/review?month=${MONTH}`)
   const review = page.locator('section[aria-labelledby="review-title"]')
   const item = review.getByRole('listitem').filter({ hasText: SHOES })
   await expect(item).toContainText(t('review.kind.unconfirmed'))

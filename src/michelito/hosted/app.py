@@ -252,7 +252,7 @@ def create_hosted_app(
     settings: Settings,
     mailer: Mailer,
     static_dir: Path | None = None,
-    today: Callable[[], date] = date.today,
+    today: Callable[[], date] = config.local_today,
     clock: Callable[[], float] = time.time,
 ) -> FastAPI:
     service = build_service(settings, mailer, clock)

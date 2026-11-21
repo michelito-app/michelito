@@ -114,7 +114,7 @@ def test_describe_links_and_rows() -> None:
     change = Change("link_members", {"link_id": 1, "fingerprint": FP}, None, member, ("role",))
     assert (describe([change], "before"), describe([change], "after")) == (
         "—",
-        "guardado en la caja",  # spanish-ui
+        "pasado a tu efectivo",  # spanish-ui
     )
 
 

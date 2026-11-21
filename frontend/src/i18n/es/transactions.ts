@@ -172,7 +172,7 @@ export const transactions = {
   'transactions.actions.oneOff': 'Gasto único',
   'transactions.actions.reimbursement': 'Reembolso de un compartido',
   'transactions.actions.investment': 'Inversión',
-  'transactions.actions.cashBox': 'Caja fuerte',
+  'transactions.actions.cashBox': 'Efectivo',
   'transactions.actions.reserve': 'Reserva',
   'transactions.actions.recurring': 'Recurrente',
   'transactions.actions.exchange': 'Cambio de divisas',
@@ -181,5 +181,5 @@ export const transactions = {
   'transactions.links.label': 'Vínculos',
   'transactions.links.open': 'Abrir',
   'transactions.links.openLabel': 'Abrir {what}',
-  'transactions.links.cashBox': 'Movimiento de la caja fuerte',
+  'transactions.links.cashBox': 'Movimiento de efectivo',
 } as const satisfies Catalog

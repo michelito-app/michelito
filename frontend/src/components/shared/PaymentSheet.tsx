@@ -6,22 +6,14 @@ import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
 import type { LinkedTx } from '@/lib/api'
-import {
-  allocationCents,
-  allocationDraft,
-  amountCents,
-  centsField,
-  differenceText,
-  paymentDraft,
-  paymentWarning,
-  shortfall,
-  shortfallText,
-} from '@/lib/ledger'
+import { amountCents, differenceText, paymentDraft, paymentWarning } from '@/lib/ledger'
 import { formatMoney } from '@/lib/links'
 import { localToday, shortDay } from '@/lib/months'
-import type { Group, Member, Payment } from '@/lib/sharedApi'
+import type { Group, Payment } from '@/lib/sharedApi'
 import { ledger, type PaymentQuery, useLedgerWrite, usePaymentCandidates } from '@/lib/sharedQueries'
 import { cn } from '@/lib/utils'
+import { useCoverDraft } from '@/lib/coverDraft'
+import { AlsoPaidFor } from './AlsoPaidFor'
 import { Chip } from './parts'
 import { LIST_CARD, ROW_BUTTON } from './styles'
 
@@ -56,11 +48,17 @@ export function PaymentSheet({ group, personId = null, linking = null, onClose }
   const [day, setDay] = useState(localToday())
   const [step, setStep] = useState<Step>(linking ? 'bank' : 'details')
   const [saved, setSaved] = useState<Payment | null>(null)
-  // "Also pays for…": the other people this payment covers and what it covers of each (the
-  // payer's own included), in the payment's currency.
-  const [covers, setCovers] = useState<number[]>([])
-  const [shares, setShares] = useState<Record<number, string>>({})
   const write = useLedgerWrite()
+  const cents = linking ? linking.amount_cents : amountCents(amount)
+  // "Also pays for…": the other people this payment covers and what it covers of each (the
+  // payer's own included), proposed by the server (payer first, then in the order checked).
+  const draft = useCoverDraft({
+    groupId: group.id,
+    payer: member,
+    amountCents: cents,
+    currency,
+    day,
+  })
 
   function choose(id: number) {
     const next = paymentDraft(others.find((m) => m.id === id)?.balance ?? [])
@@ -68,36 +66,11 @@ export function PaymentSheet({ group, personId = null, linking = null, onClose }
     setReceived(next.received)
     setAmount(next.cents ? (next.cents / 100).toFixed(2) : '')
     setCurrency(next.currency)
-    setCovers([])
-    setShares({})
+    draft.reset()
   }
 
-  function cover(id: number, on: boolean) {
-    if (!member) return
-    const typed = amountCents(amount) ?? 0
-    if (on) {
-      const own = covers.length === 0 ? { [member.id]: centsField(typed) } : {}
-      const added = allocationDraft(others, [id], currency)
-      setShares({ ...shares, ...own, ...added })
-      setCovers([...covers, id])
-      setAmount(centsField(typed + (amountCents(added[id]) ?? 0)))
-      return
-    }
-    const rest = covers.filter((c) => c !== id)
-    const removed = amountCents(shares[id] ?? '0', true) ?? 0
-    const next = { ...shares }
-    delete next[id]
-    setCovers(rest)
-    setShares(rest.length === 0 ? {} : next)
-    setAmount(centsField(Math.max(typed - removed, 0)))
-  }
-
-  const cents = linking ? linking.amount_cents : amountCents(amount)
-  const covering = !linking && received && member !== null && covers.length > 0
-  const allocated = covering ? allocationCents([member!.id, ...covers], shares) : null
-  const missing =
-    covering && cents && allocated ? shortfall(cents, Object.values(allocated)) : covering ? null : 0
-  const allocationsReady = !covering || missing === 0
+  const covering = !linking && received && member !== null && draft.covers.length > 0
+  const allocationsReady = !covering || draft.ready
   const name = member?.name ?? ''
   const query: PaymentQuery | null =
     step === 'bank' && (linking || (member && cents))
@@ -131,13 +104,7 @@ export function PaymentSheet({ group, personId = null, linking = null, onClose }
           currency,
           day,
           ...(fingerprint ? { fingerprint } : {}),
-          ...(covering && allocated
-            ? {
-                allocations: Object.entries(allocated)
-                  .map(([id, value]) => ({ contact_id: Number(id), cents: value }))
-                  .filter((a) => a.cents > 0),
-              }
-            : {}),
+          ...(covering && draft.allocations ? { allocations: draft.allocations } : {}),
         }),
       { onSuccess: (fresh) => finish(fresh, fingerprint) },
     )
@@ -198,8 +165,7 @@ export function PaymentSheet({ group, personId = null, linking = null, onClose }
                 aria-label={t('shared.pay.flip')}
                 onClick={() => {
                   setReceived((value) => !value)
-                  setCovers([])
-                  setShares({})
+                  draft.reset()
                 }}
                 className={cn(
                   'flex size-11 shrink-0 items-center justify-center rounded-xl text-primary hover:bg-card',
@@ -239,15 +205,13 @@ export function PaymentSheet({ group, personId = null, linking = null, onClose }
             )}
           </div>
           {member && received && others.length > 1 && (
-            <AlsoPaysFor
+            <AlsoPaidFor
+              draft={draft}
               payer={member}
               people={others.filter((m) => m.id !== member.id)}
-              covers={covers}
-              shares={shares}
               currency={currency}
-              missing={missing}
-              onCover={cover}
-              onShare={(id, value) => setShares({ ...shares, [id]: value })}
+              legend={t('shared.pay.alsoFor')}
+              hint={t('shared.pay.alsoForHint')}
             />
           )}
           <div className="flex flex-col gap-2">
@@ -319,73 +283,6 @@ export function PaymentSheet({ group, personId = null, linking = null, onClose }
         </div>
       )}
     </BottomSheet>
-  )
-}
-
-interface AlsoPaysForProps {
-  payer: Member
-  people: readonly Member[]
-  covers: readonly number[]
-  shares: Readonly<Record<number, string>>
-  currency: string
-  missing: number | null
-  onCover: (id: number, on: boolean) => void
-  onShare: (id: number, value: string) => void
-}
-
-/** "Also pays for…": other people this one payment settles, each with what it covers (their
- * balance to start, editable); the payer's own part too. The amounts must add up to the payment. */
-function AlsoPaysFor({ payer, people, covers, shares, currency, missing, onCover, onShare }: AlsoPaysForProps) {
-  const ids = useId()
-  const on = new Set(covers)
-  const field = (member: Member) => (
-    <input
-      id={`${ids}-${member.id}`}
-      aria-label={t('shared.pay.allocationOf', { name: member.name })}
-      inputMode="decimal"
-      value={shares[member.id] ?? ''}
-      placeholder="0"
-      onChange={(event) => onShare(member.id, event.target.value)}
-      className={cn(FIELD, 'w-28 shrink-0 text-right tabular-nums')}
-    />
-  )
-  return (
-    <fieldset className="flex flex-col">
-      <legend className={cn(LABEL, 'pb-1')}>{t('shared.pay.alsoFor')}</legend>
-      <p className="pb-2 text-[13px] text-muted-foreground">{t('shared.pay.alsoForHint')}</p>
-      <ul className={LIST_CARD}>
-        {covers.length > 0 && (
-          <li className="flex min-h-12 items-center gap-3 px-3.5">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{payer.name}</span>
-            {field(payer)}
-          </li>
-        )}
-        {people.map((member) => (
-          <li key={member.id} className="flex min-h-12 items-center gap-3 px-3.5">
-            <label className="flex min-h-12 min-w-0 flex-1 cursor-pointer items-center gap-3 text-sm">
-              <input
-                type="checkbox"
-                aria-label={t('shared.pay.coversLabel', { name: member.name })}
-                checked={on.has(member.id)}
-                onChange={(event) => onCover(member.id, event.target.checked)}
-                className="size-5 shrink-0 cursor-pointer accent-primary"
-              />
-              <span className="min-w-0 truncate font-medium">{member.name}</span>
-            </label>
-            {on.has(member.id) && field(member)}
-          </li>
-        ))}
-      </ul>
-      {covers.length > 0 && (
-        <p
-          aria-live="polite"
-          data-testid="allocation-shortfall"
-          className={cn('min-h-5 pt-2 text-sm font-semibold', missing === 0 ? 'text-down' : 'text-up')}
-        >
-          {missing === null ? '' : shortfallText(missing, currency)}
-        </p>
-      )}
-    </fieldset>
   )
 }
 

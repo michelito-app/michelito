@@ -11,8 +11,9 @@ from fastapi.testclient import TestClient
 
 from michelito import db
 from michelito.analysis import categories, rates
-from michelito.analysis.accounts import CASH_BOX_KEY
+from michelito.analysis.accounts import CASH_BOX_KEY, CASH_BOX_NAME
 from michelito.web.app import create_app
+from tests.helpers import shown_name
 from tests.test_spending import _add_bank_rows, seed
 
 WRITE = {"X-Michelito": "1"}
@@ -44,6 +45,9 @@ def _fp(client: TestClient, text: str) -> str:
 
 
 def _entry(client: TestClient, **body):
+    """A new entry; an income or expense gets a concept unless the test gives one."""
+    if body.get("kind") in ("income", "expense"):
+        body.setdefault("concept", "Corner store")
     return client.post("/api/cash-box/entries", json=body, headers=WRITE)
 
 
@@ -53,7 +57,7 @@ def test_an_unused_box_is_empty_and_not_an_account(client: TestClient) -> None:
         False,
         [],
         [],
-        categories.CASH_BOX,
+        CASH_BOX_NAME,
     )
     assert CASH_BOX_KEY not in {a["key"] for a in client.get("/api/accounts").json()}
 
@@ -76,7 +80,7 @@ def test_store_a_withdrawal_and_undo(client: TestClient) -> None:
     assert (body["cash_box_role"], body["link"], body["category"], body["can_store"]) == (
         "stored",
         "cash_box",
-        categories.CASH_BOX,
+        shown_name(categories.CASH_BOX),
         False,
     )
     assert client.put(f"/api/cash-box/stored/{fp}", headers=WRITE).status_code == 409
@@ -128,14 +132,14 @@ def test_manual_entries_are_movements_of_the_box_account(client: TestClient) -> 
     [row] = only["items"]
     assert (row["fingerprint"], row["account_label"], row["kind"], row["cash_entry_id"]) == (
         "cash-1",
-        categories.CASH_BOX,
+        CASH_BOX_NAME,
         "expense",
         1,
     )
     assert only["total_cents"] == 150_000
-    # The whole-merchant scope does not apply to manual entries.
+    # With a concept (schema 23) the entry has a merchant: the whole-merchant scope applies.
     patch = {"category": categories.RESTAURANTS, "scope": "merchant"}
-    assert client.patch("/api/transactions/cash-1", json=patch, headers=WRITE).status_code == 422
+    assert client.patch("/api/transactions/cash-1", json=patch, headers=WRITE).status_code == 200
     fixed = client.patch(
         "/api/transactions/cash-1", json={"category": categories.RESTAURANTS}, headers=WRITE
     )
@@ -224,7 +228,7 @@ def test_link_categories_cannot_be_chosen_by_hand(
 
 def test_link_categories_take_no_keywords_nor_reassignments(client: TestClient) -> None:
     by_name = {c["name"]: c for c in client.get("/api/categories").json()}
-    box = by_name[categories.CASH_BOX]["id"]
+    box = by_name[shown_name(categories.CASH_BOX)]["id"]
     body = {"keywords": ["RETIRO CAJERO"]}
     assert client.patch(f"/api/categories/{box}", json=body, headers=WRITE).status_code == 422
     assert (

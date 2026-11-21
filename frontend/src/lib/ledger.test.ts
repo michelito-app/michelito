@@ -248,6 +248,7 @@ describe('payments and people', () => {
       balance: cents ? [{ currency: 'DOP', cents }] : [],
       group_count: 1,
       groups: [],
+      total: null,
     })
     const { open, settled } = splitSettled([person(1, 100), person(2, 0), person(3, -5)])
     expect(open.map((p) => p.id)).toEqual([1, 3])

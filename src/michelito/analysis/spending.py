@@ -39,6 +39,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
+from michelito import config
 from michelito.analysis import (
     accounts,
     cash_box,
@@ -123,6 +124,9 @@ class Movement:
     # From a bank alert, still waiting for its statement (`live_store`): it counts like any
     # other transaction, but never in a statement's validation.
     provisional: bool = False
+    # A scheduled cash occurrence nobody answered (`cash_box.entry_state`): "pending" (within the
+    # first days) or "unconfirmed" (a payment kept as paid); empty otherwise.
+    cash_state: str = ""
 
     @property
     def ref(self) -> str:
@@ -173,6 +177,7 @@ def load_all(
     conn: sqlite3.Connection,
     holders: Sequence[str] | transfers.Holders = (),
     known: catalog.Catalog | None = None,
+    today: date | None = None,
 ) -> tuple[Movement, ...]:
     """Every card and bank account transaction (expenses, income, transfers).
 
@@ -190,6 +195,8 @@ def load_all(
     3. the user's keywords (`catalog`; in a bank, only if the kind fits the direction, like a
     merchant rule); 4. rules, MCC and learned merchants.
     `known`: the catalog to use (by default the database's; another one, to preview keywords).
+    `today`: the local date that decides whether an unanswered scheduled cash collection still
+    counts (`cash_box.entry_state`; by default, the system's).
     Each transaction comes out with its category's current name and its reference.
     """
     known = known or catalog.load(conn)
@@ -231,7 +238,12 @@ def load_all(
     paired = [_with_reversal(m, reversed_.get(m.fingerprint), fixes) for m in found]
     # What was entered by hand in the cash box, after detecting transfers and reversals: it
     # doesn't come from a statement (see `cash_box`).
-    manual = [_manual_movement(e, fixes) for e in cash_box_store.load_entries(conn)]
+    day = today or config.local_today()
+    manual = [
+        _manual_movement(e, fixes, known, day)
+        for e in cash_box_store.load_entries(conn)
+        if cash_box.counts(e, day)
+    ]
     rates = load_rates(conn)
     book = ledger_store.load(conn)
     groups = ledger.states(book, rates)
@@ -380,20 +392,29 @@ def _boxed(item: Movement, role: str, known: catalog.Catalog) -> Movement:
 
 
 def _manual_movement(
-    entry: cash_box.ManualEntry, fixes: corrections.Corrections
+    entry: cash_box.ManualEntry,
+    fixes: corrections.Corrections,
+    known: catalog.Catalog,
+    today: date,
 ) -> Movement | None:
     """An inflow (income) or outflow (expense) entered in the box, as a transaction of its
-    account; the initial balance is not a flow transaction. The category set by hand (when
-    entering or correcting it) wins; merchant rules and keywords don't apply."""
+    account; the initial balance is not a flow transaction. Its concept is its merchant (as
+    comparable text) and its description. The category set by hand on the entry wins; otherwise
+    the concept's merchant rule or keyword (`cash_box_store.implied_ref`). An entry without a
+    concept (from before schema 23) keeps the generic merchant and description, and only its own
+    correction applies, as before."""
     if entry.kind == "initial":
         return None
     mark = entry.fingerprint
-    original = cash_box.DEFAULT_CATEGORY[entry.kind]
+    original = cash_box_store.implied_ref(fixes, known, entry.kind, entry.concept)
     chosen = fixes.transaction_category(mark)
+    state = cash_box.entry_state(entry, today)
     return Movement(
         day=entry.day,
-        merchant=cash_box.MERCHANT,
-        description=cash_box.DESCRIPTIONS[entry.kind],
+        merchant=cash_box.MERCHANT
+        if entry.concept is None
+        else cash_box.concept_merchant(entry.concept),
+        description=cash_box.DESCRIPTIONS[entry.kind] if entry.concept is None else entry.concept,
         category=chosen or original,
         amount=-entry.amount if entry.kind == "income" else entry.amount,
         currency=entry.currency,
@@ -404,6 +425,7 @@ def _manual_movement(
         corrected=chosen is not None and chosen != original,
         account=entry.account_key,
         original_category=original,
+        cash_state="" if state == "lapsed" else state,
     )
 
 

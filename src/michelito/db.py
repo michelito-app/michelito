@@ -11,16 +11,26 @@ from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from pathlib import Path
 
-from michelito import encrypted, migrations_live, migrations_v18, migrations_v19, migrations_v21
+from michelito import (
+    encrypted,
+    migrations_live,
+    migrations_v18,
+    migrations_v19,
+    migrations_v21,
+    migrations_v22,
+    migrations_v23,
+)
 from michelito.analysis import catalog
 from michelito.i18n import t
 from michelito.parsers import banreservas_account, bhd_savings, popular_web
 from michelito.parsers.common import Section, Statement, Transaction
 
-# 21: splits by parts and payments on behalf of others (`migrations_v21`); 20: live sync
+# 23: the cash account (concepts, schedules, activation, reconcile; `migrations_v23`); 22: exchange
+# leftovers and dismissed "paid for others" suggestions (`migrations_v22`); 21: splits by
+# parts and payments on behalf of others (`migrations_v21`); 20: live sync
 # (`migrations_live`); 19: the shared ledger (`migrations_v19`); 18: stored values in English
 # (`migrations_v18`).
-SCHEMA_VERSION = migrations_v21.VERSION
+SCHEMA_VERSION = migrations_v23.VERSION
 DUPLICATE_PERIOD_INDEX = "statements_unique_period"
 DUPLICATE_PRINTOUT_INDEX = "statements_unique_printout"
 # Parser of Popular's printouts: the account's currency is given by hand (ingest).
@@ -719,6 +729,7 @@ def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
     # includes the cash box ones).
     for statement in CASH_SCHEMA:
         conn.execute(statement)
+    migrations_v23.add_columns(conn)  # the flow reads them from here on
     made: dict[str, int] = {}
     for table, create in _ID_TABLES.items():
         columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -751,6 +762,9 @@ def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
     # Schema 21 after 19: it widens the entries' CHECK and gives each migrated payment its
     # allocation.
     rebuilt.extend(migrations_v21.apply(conn, _rebuild_check))
+    migrations_v22.apply(conn)
+    # Schema 23 («Efectivo») after every table it reads (links, categories, accounts).
+    migrations_v23.apply(conn)
     conn.execute(HOLDERS_SCHEMA)
     # Only after rebuilding tables, and only the rebuilt ones (and the children of `links`): an
     # unrelated orphan (from another table, from before) must not prevent opening the database.

@@ -4,21 +4,26 @@ built from `ledger.group_state` with the user's transactions next to what they r
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from michelito.analysis import ledger, ledger_suggest
+from michelito.analysis import ledger, ledger_cover, ledger_suggest
+from michelito.analysis.changelog_ledger import join
 from michelito.analysis.ledger import GroupState, Ledger
 from michelito.analysis.links import Links
-from michelito.analysis.rates import Rate
+from michelito.analysis.rates import Rate, rate_for
+from michelito.analysis.report import money as money_text
 from michelito.analysis.spending import Movement
+from michelito.i18n import t
 from michelito.web import links as links_view
 from michelito.web.ledger_schemas import (
     AllocationOut,
+    ApproxOut,
     BankNameOut,
     ContactOut,
     ContactsOut,
+    CoverOut,
     EffectOut,
     EntryOut,
     GroupOut,
@@ -27,6 +32,7 @@ from michelito.web.ledger_schemas import (
     PaymentOut,
     PersonGroupOut,
     PersonOut,
+    RateOut,
     SharedHomeOut,
     SplitOut,
     SuggestionOut,
@@ -49,6 +55,7 @@ class Book:
     labels: Mapping[str, str]
     rates: Mapping[str, Rate]
     banks: frozenset[str]
+    today: date = field(default_factory=date.today)  # for the "in total ≈" rate
 
     def tx(self, fingerprint: str | None) -> LinkedTxOut | None:
         if fingerprint is None:
@@ -58,6 +65,25 @@ class Book:
 
     def name(self, contact_id: int | None) -> str:
         return self.ledger.name(contact_id)
+
+
+def rate_out(rate: Rate | None) -> RateOut | None:
+    return None if rate is None else RateOut(value=str(rate.value), month=rate.month_used)
+
+
+def approx(
+    book: Book, owed: Mapping[str, Decimal], owing: Mapping[str, Decimal]
+) -> ApproxOut | None:
+    """ "In total ≈" (`ledger_cover.approx_total`) at today's month's rate."""
+    found = ledger_cover.approx_total(owed, owing, book.rates, book.today)
+    return None if found is None else ApproxOut(currency=found[0], cents=to_cents(found[1]))
+
+
+def approx_net(book: Book, net: Mapping[str, Decimal]) -> ApproxOut | None:
+    """The same for one person's net balance (positive: they owe the user)."""
+    owed = {c: v for c, v in net.items() if v > 0}
+    owing = {c: -v for c, v in net.items() if v < 0}
+    return approx(book, owed, owing)
 
 
 def _contact(contact: ledger.Contact) -> ContactOut:
@@ -89,6 +115,8 @@ def person(book: Book, total: ledger.PersonTotal) -> PersonOut:
     for group_id, values in total.by_group:
         group = groups[group_id]
         member = group.member(total.contact.id)
+        state = book.states.get(group_id)
+        balance = None if state is None else state.person(total.contact.id)
         rows.append(
             PersonGroupOut(
                 group_id=group_id,
@@ -96,6 +124,7 @@ def person(book: Book, total: ledger.PersonTotal) -> PersonOut:
                 archived=group.archived,
                 balance=money(values),
                 written_off=member is not None and member.written_off,
+                leftover=[] if balance is None else money(dict(balance.leftover)),
             )
         )
     return PersonOut(
@@ -105,6 +134,7 @@ def person(book: Book, total: ledger.PersonTotal) -> PersonOut:
         balance=money(total.net),
         group_count=len(total.groups),
         groups=rows,
+        total=approx_net(book, total.net),
     )
 
 
@@ -125,6 +155,7 @@ def home(book: Book, today: date) -> SharedHomeOut:
             people=[book.name(m.contact_id) for m in g.members if m.contact_id != book.ledger.me],
             last_day=None if (last := _last(book, g)) is None else last.isoformat(),
             unattributed=len(book.states[g.id].unattributed),
+            total=approx(book, book.states[g.id].owed_to_me, book.states[g.id].i_owe),
         )
         for g in groups
     ]
@@ -207,6 +238,7 @@ def payment_out(book: Book, state: ledger.PaymentState) -> PaymentOut:
         from_me=payment.from_contact == me,
         to_me=payment.to_contact == me,
         amount_cents=to_cents(payment.amount),
+        settles_cents=to_cents(payment.settles),
         currency=payment.currency,
         sent_cents=None if payment.sent is None else to_cents(payment.sent),
         difference_cents=None if difference is None else to_cents(difference),
@@ -224,6 +256,9 @@ def payment_out(book: Book, state: ledger.PaymentState) -> PaymentOut:
             )
             for contact, value in payment.parts_for(me)
         ],
+        rate=rate_out(rate_for(book.rates, payment.day.strftime("%Y-%m")))
+        if state.converted
+        else None,
     )
 
 
@@ -251,6 +286,44 @@ def group_out(book: Book, group_id: int) -> GroupOut | None:
         excess=money(state.excess),
         unattributed=[payment_out(book, p) for p in state.unattributed],
         timeline=[item for _, _, _, item in timeline],
+        total=approx(book, state.owed_to_me, state.i_owe),
+        cover=cover_out(book, state),
+    )
+
+
+def cover_text(book: Ledger, found: ledger_cover.CoverSuggestion) -> str:
+    """ "Ana paid RD$ 74,340 too much in 3 payments and Beto owes US$ 1,244.20. Were those
+    payments for Beto too?" (one payment: "…too much and… Was that payment…")."""
+    names = join([book.name(c) for c in found.covers])
+    # Like the interface: RD$ without cents, US$ with them (`report.money`).
+    owed = " + ".join(money_text(v, c) for c, v in found.owed.items())
+    people = "one" if len(found.covers) == 1 else "many"
+    payments = "" if len(found.payments) == 1 else "_payments"
+    return t(
+        f"analysis.ledger.cover_reason_{people}{payments}",
+        payer=book.name(found.payer),
+        excess=money_text(found.excess, found.payment.currency),
+        names=names,
+        owed=owed,
+        count=len(found.payments),
+    )
+
+
+def cover_out(book: Book, state: GroupState) -> CoverOut | None:
+    found = ledger_cover.cover_suggestion(state, book.ledger.me)
+    if found is None:
+        return None
+    return CoverOut(
+        payment_id=found.payment.id,
+        payment_ids=[p.id for p in found.payments],
+        payer_id=found.payer,
+        payer_name=book.name(found.payer),
+        covers=list(found.covers),
+        names=[book.name(c) for c in found.covers],
+        excess_cents=to_cents(found.excess),
+        currency=found.payment.currency,
+        owed=money(found.owed),
+        text=cover_text(book.ledger, found),
     )
 
 
@@ -262,6 +335,9 @@ def _member(book: Book, state: ledger.GroupState, member: ledger.Member) -> Memb
         is_me=member.contact_id == book.ledger.me,
         written_off=member.written_off,
         balance=[] if balance is None else money(balance.net),
+        leftover=[] if balance is None else money(dict(balance.leftover)),
+        leftover_settled=member.leftover_settled,
+        total=None if balance is None else approx_net(book, balance.net),
     )
 
 

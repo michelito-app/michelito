@@ -1,9 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { openSummarySections } from './phone'
 import { t } from './text'
-
-// On a phone the Summary's sections start closed: the 390 px checks look at them open.
-test.beforeEach(async ({ page }) => openSummarySections(page))
 
 // Made-up data from tests/e2e_server.py: the cash box starts with an initial balance of US$ 200
 // (December, at 63.10 ≈ RD$ 12,620). In January 2026, on the checking account, a «RETIRO CAJERO
@@ -16,12 +12,16 @@ const JANUARY = '2026-01'
 const BOX = 'manual:cash-box'
 // spanish-data: begin — category names seeded by the backend, and a note typed by the test
 const INCOME = 'Otros ingresos'
-const CASH_BOX_CATEGORY = 'Caja fuerte'
+const CASH_BOX_CATEGORY = 'Pasado a efectivo'
 const CASH = 'Efectivo'
 const SUPERMARKET = 'Supermercado'
 const NOTE = 'Colmado de prueba'
+const CONCEPT = 'Colmado'
 // spanish-data: end
 let depositCategory = INCOME
+// The cash account in Accounts, and the expense's row (its concept is its merchant).
+const CASH_ACCOUNT = `/accounts?account=${encodeURIComponent(BOX)}`
+const ENTRY = new RegExp(`^${CONCEPT.toUpperCase()}`)
 
 function categorySelect(detail: Locator) {
   // By its exact name: the label's would include the chosen option.
@@ -73,7 +73,7 @@ test.describe.configure({ mode: 'serial' })
 test('a withdrawal is marked as stored: it stops being an expense and adds to the box', async ({
   page,
 }) => {
-  await page.goto(`/?month=${JANUARY}`)
+  await page.goto(`/reports?month=${JANUARY}`)
   const kpis = kpiRegion(page)
   await expect(kpis).toBeVisible()
   await expect(kpis.getByTestId('cash-box-note')).toHaveCount(0)
@@ -85,7 +85,7 @@ test('a withdrawal is marked as stored: it stops being an expense and adds to th
   await expect(categorySelect(detail)).toBeDisabled()
   await expect(categorySelect(detail)).toHaveValue(CASH_BOX_CATEGORY)
 
-  await page.goto(`/?month=${JANUARY}`)
+  await page.goto(`/reports?month=${JANUARY}`)
   const note = kpis.getByTestId('cash-box-note')
   await expect(note).toHaveText(t('cashBox.note', { amount: 'RD$ 5,000' }))
   await note.getByRole('link').click()
@@ -100,10 +100,11 @@ test('a withdrawal is marked as stored: it stops being an expense and adds to th
 })
 
 test('an expense is recorded with its category and counts as spending', async ({ page }) => {
-  await page.goto('/accounts')
+  await page.goto(CASH_ACCOUNT)
   await card(page).getByRole('button', { name: t('cashBox.action.expense') }).click()
   const form = card(page).getByRole('region', { name: t('cashBox.entryTitle.expense') })
   await form.getByLabel(t('cashBox.form.amount')).fill('1,500')
+  await form.getByLabel(t('cashBox.form.concept')).fill(CONCEPT)
   await expect(form.getByLabel(t('cashBox.form.day'))).toHaveAttribute('min', '2000-01-01')
   await expect(form.getByLabel(t('cashBox.form.day'))).toHaveAttribute(
     'max',
@@ -118,14 +119,16 @@ test('an expense is recorded with its category and counts as spending', async ({
   await expect(form).toHaveCount(0)
   await expect(card(page).getByTestId('cash-box-balance')).toHaveText('RD$ 3,500 + US$ 200.00')
   const lines = card(page).getByRole('list', { name: t('cashBox.linesLabel') })
-  await expect(lines.getByRole('listitem').first()).toContainText(`${SUPERMARKET} · ${NOTE}`)
+  await expect(lines.getByRole('listitem').first()).toContainText(
+    `${CONCEPT} · ${SUPERMARKET} · ${NOTE}`,
+  )
 
   // The account filter: the box is one more account and the expense, a supermarket expense.
   await page.goto(`/transactions?month=${JANUARY}&accounts=${encodeURIComponent(BOX)}`)
   const list = page.getByRole('region', { name: t('common.transactionListLabel') })
-  await expect(list.getByRole('button', { name: /^CAJA FUERTE/ })).toHaveCount(1)
+  await expect(list.getByRole('button', { name: ENTRY })).toHaveCount(1)
   await expect(list.getByRole('button', { name: /RETIRO CAJERO/ })).toHaveCount(0)
-  await list.getByRole('button', { name: /^CAJA FUERTE/ }).click()
+  await list.getByRole('button', { name: ENTRY }).click()
   const detail = page.getByRole('complementary')
   await expect(categorySelect(detail)).toHaveValue(SUPERMARKET)
   await expect(section(detail)).toContainText(t('links.cashBox.manualExpense'))
@@ -146,7 +149,7 @@ test('a deposit is linked to the box: it is not income and warns about the negat
     t('cashBox.isNegative', { amount: '−RD$ 8,500' }),
   )
 
-  await page.goto('/accounts')
+  await page.goto(CASH_ACCOUNT)
   await expect(card(page).getByTestId('cash-box-negative')).toHaveText(
     t('cashBox.isNegative', { amount: '−RD$ 8,500' }),
   )
@@ -175,12 +178,12 @@ test('at 390 px the box and the two Summary lines fit and read well', async ({ p
 
   // With contributions and stored withdrawals in the same month both lines show, one below
   // the other.
-  await page.route('**/api/summary**', async (route) => {
+  await page.route('**/api/summary?**', async (route) => {
     const response = await route.fetch()
     const body = await response.json()
     await route.fulfill({ response, json: { ...body, invested_cents: 35_000_000 } })
   })
-  await page.goto(`/?month=${JANUARY}`)
+  await page.goto(`/reports?month=${JANUARY}`)
   const kpis = kpiRegion(page)
   const invested = kpis.getByTestId('invested-note')
   const stored = kpis.getByTestId('cash-box-note')
@@ -245,7 +248,7 @@ test('everything is undone: the deposit, the stored withdrawal and the expense',
   await expect(categorySelect(detail)).toHaveValue(CASH)
 
   // The expense is deleted from its detail: the detail closes and the URL drops ?tx=.
-  detail = await openTransaction(page, /^CAJA FUERTE/, `&accounts=${encodeURIComponent(BOX)}`)
+  detail = await openTransaction(page, ENTRY, `&accounts=${encodeURIComponent(BOX)}`)
   await expect(page).toHaveURL(/[?&]tx=cash-/)
   await section(detail).getByRole('button', { name: t('links.cashBox.delete'), exact: true }).click()
   await expect(
@@ -259,13 +262,13 @@ test('everything is undone: the deposit, the stored withdrawal and the expense',
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page).not.toHaveURL(/[?&]tx=/)
   const list = page.getByRole('region', { name: t('common.transactionListLabel') })
-  await expect(list.getByRole('button', { name: /^CAJA FUERTE/ })).toHaveCount(0)
+  await expect(list.getByRole('button', { name: ENTRY })).toHaveCount(0)
 
-  await page.goto('/accounts')
+  await page.goto(CASH_ACCOUNT)
   await expect(card(page).getByTestId('cash-box-balance')).toHaveText('US$ 200.00')
   await expect(card(page).getByTestId('cash-box-negative')).toHaveCount(0)
 
-  await page.goto(`/?month=${JANUARY}`)
+  await page.goto(`/reports?month=${JANUARY}`)
   await expect(kpiRegion(page)).toBeVisible()
   await expect(page.getByTestId('cash-box-note')).toHaveCount(0)
 })

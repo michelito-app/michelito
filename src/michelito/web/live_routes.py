@@ -63,6 +63,8 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
                 raise HTTPException(404, t("web.provisional.unknown"))
             if body.decision == "discard" and live_store.is_linked(conn, fingerprint):
                 # A group entry or a link would be left pointing at nothing.
+                if live_store.in_cash(conn, fingerprint):
+                    raise HTTPException(409, t("web.provisional.in_cash"))
                 raise HTTPException(409, t("web.provisional.linked"))
             before = live_store.decisions(conn).get(fingerprint)
             with (

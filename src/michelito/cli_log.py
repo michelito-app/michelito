@@ -20,7 +20,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 from typing import Any
 
-from michelito import config, db
+from michelito import cash_pass, config, db
 from michelito.analysis import accounts as account_data
 from michelito.analysis import changelog, spending, transfers
 from michelito.analysis.spending import Movement
@@ -70,8 +70,12 @@ def add_commands(commands: Any) -> None:
 
 
 def _open(paths: config.Paths) -> sqlite3.Connection:
+    """The database, with the cash pass already run (`cash_pass`): the same figures as the
+    board."""
     config.ensure_private_dir(paths.root)
-    return db.connect(paths.database)
+    conn = db.connect(paths.database)
+    cash_pass.run(conn, paths.holders)
+    return conn
 
 
 def clean(text: str | None, limit: int = TEXT_MAX) -> str:

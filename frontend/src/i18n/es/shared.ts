@@ -281,4 +281,36 @@ export const shared = {
   'shared.tx.record': 'Es un pago…',
   'shared.tx.remove': 'Quitar del grupo',
   'shared.tx.unlink': 'Desenlazar el pago',
+
+  // Two currencies, exchange leftovers and paying for others
+  'shared.total.owed': 'En total ≈ te deben {amount}',
+  'shared.total.owe': 'En total ≈ debes {amount}',
+  'shared.total.even': 'En total ≈ saldado',
+  'shared.leftover.settled': 'Saldado (diferencia de cambio {amount})',
+  'shared.leftover.also': '(diferencia de cambio {amount}, saldada)',
+  'shared.rate.line': 'tasa {value} de {month}',
+  'shared.rate.conversion': '{amount} = {converted} · {rate}',
+  'shared.detail.rateUsed': 'Se saldó en la otra moneda con la {rate}',
+  'shared.detail.alsoPaidFor': 'También pagó por…',
+  'shared.detail.alsoPaidForHint':
+    'Marca a quién más cubría este pago: primero va todo lo que debía {name}, luego los demás en el orden en que los marques.',
+  'shared.detail.saveCovers': 'Guardar',
+  'shared.detail.coversSaved': 'Guardado.',
+  'shared.cover.title': '¿Ese pago era por alguien más?',
+  'shared.cover.yes': 'Sí',
+  'shared.cover.yesLabel': 'Sí, abrir el pago de {name} para repartirlo',
+  'shared.cover.no': 'No',
+  'shared.cover.noLabel': 'No, el pago de {name} era solo suyo',
+  'shared.plan.title': 'Repartir los pagos',
+  'shared.plan.hint':
+    'Cada pago cubre primero lo que debía {name} y el resto va a los demás, en orden. Para cambiar un monto, abre ese pago después.',
+  'shared.plan.payment': 'Pago del {day} · {amount}',
+  'shared.plan.paymentsLabel': 'Los pagos',
+  'shared.plan.after': 'Así quedan',
+  'shared.plan.confirm': 'Confirmar',
+  'shared.plan.loading': 'Preparando la propuesta…',
+  'shared.group.leftover': 'Diferencias de cambio',
+  'shared.group.leftoverHint':
+    'Lo que queda por debajo de RD$ 50 o US$ 1 después de un pago en otra moneda cuenta como saldado. Desmárcalo para seguir viéndolo pendiente.',
+  'shared.group.leftoverPerson': 'Saldar las diferencias de cambio de {name}',
 } as const satisfies Catalog

@@ -50,12 +50,29 @@ class ContactsOut(BaseModel):
     recent_payers: list[int]  # who paid recently (for "Paid by"), most recent first
 
 
+class ApproxOut(BaseModel):
+    """ "In total ≈": the balances in two currencies as one, at the current month's rate
+    (positive: owed to the user)."""
+
+    currency: str
+    cents: int
+
+
+class RateOut(BaseModel):
+    """A rate used (RD$ per US$) and the month it comes from."""
+
+    value: str
+    month: str
+
+
 class PersonGroupOut(BaseModel):
     group_id: int
     group_name: str
     archived: bool
     balance: list[CurrencyCentsOut]
     written_off: bool
+    # Exchange leftovers taken as settled ("settled (exchange difference RD$ 22)"), signed.
+    leftover: list[CurrencyCentsOut] = Field(default_factory=list)
 
 
 class PersonOut(BaseModel):
@@ -67,6 +84,7 @@ class PersonOut(BaseModel):
     balance: list[CurrencyCentsOut]
     group_count: int
     groups: list[PersonGroupOut]
+    total: ApproxOut | None = None  # with a balance in two currencies
 
 
 class GroupRowOut(BaseModel):
@@ -79,6 +97,7 @@ class GroupRowOut(BaseModel):
     people: list[str]  # every member but the user
     last_day: str | None
     unattributed: int
+    total: ApproxOut | None = None  # with balances in two currencies
 
 
 class TotalOut(BaseModel):
@@ -105,6 +124,9 @@ class MemberOut(BaseModel):
     is_me: bool
     written_off: bool
     balance: list[CurrencyCentsOut]  # what they owe the user in this group (net)
+    leftover: list[CurrencyCentsOut] = Field(default_factory=list)  # exchange leftovers, signed
+    leftover_settled: bool = True  # leftovers count as settled (the per-person toggle)
+    total: ApproxOut | None = None  # with a balance in two currencies
 
 
 class SplitOut(BaseModel):
@@ -164,6 +186,7 @@ class PaymentOut(BaseModel):
     from_me: bool
     to_me: bool
     amount_cents: int  # received
+    settles_cents: int = 0  # what it settles: what was sent once a difference was accepted
     currency: str
     sent_cents: int | None
     difference_cents: int | None  # sent - received (null: unknown or equal)
@@ -174,6 +197,7 @@ class PaymentOut(BaseModel):
     transaction: LinkedTxOut | None
     # Who it is for ("Paid for others"), the principal first; one line when it is all theirs.
     allocations: list[AllocationOut] = Field(default_factory=list)
+    rate: RateOut | None = None  # the rate it settled claims in the other currency with
 
 
 class UsedInOut(BaseModel):
@@ -204,6 +228,66 @@ class MemberUsageOut(BaseModel):
     message: str
 
 
+class CoverOut(BaseModel):
+    """ "A paid RD$ 74,340 too much and B owes US$ 1,244.20. Was that payment for B too?" """
+
+    payment_id: int  # the oldest of them
+    payment_ids: list[int]  # every payment of the payer it is about, oldest first
+    payer_id: int
+    payer_name: str
+    covers: list[int]
+    names: list[str]
+    excess_cents: int
+    currency: str
+    owed: list[CurrencyCentsOut]
+    text: str
+
+
+class ProposedOut(BaseModel):
+    contact_id: int
+    name: str
+    cents: int  # in the payment's currency
+    owed_cents: int  # what they owed at that point, in the payment's currency
+    # The part in the currency of their claims, when it is the other one.
+    equivalent: CurrencyCentsOut | None = None
+
+
+class ProposalOut(BaseModel):
+    """The allocations proposed for a payment on behalf of others (the payer first)."""
+
+    currency: str
+    allocations: list[ProposedOut]
+    rate: RateOut | None  # the payment month's rate, when a claim is in the other currency
+
+
+class CoverPaymentOut(BaseModel):
+    """One payment of a suggestion with its proposed allocations (the payer first)."""
+
+    payment_id: int
+    day: str
+    amount_cents: int  # what it settles
+    currency: str
+    allocations: list[ProposedOut]
+    rate: RateOut | None
+
+
+class AfterOut(BaseModel):
+    """A person's balance in the group once the plan is applied."""
+
+    contact_id: int
+    name: str
+    balance: list[CurrencyCentsOut]
+    leftover: list[CurrencyCentsOut]
+
+
+class CoverPlanOut(BaseModel):
+    """ "Yes" to a suggestion: each payment's proposal, in order, and the balances after."""
+
+    text: str
+    payments: list[CoverPaymentOut]
+    after: list[AfterOut]
+
+
 class GroupOut(BaseModel):
     id: int
     name: str
@@ -216,6 +300,8 @@ class GroupOut(BaseModel):
     excess: list[CurrencyCentsOut]
     unattributed: list[PaymentOut]
     timeline: list[EntryOut | PaymentOut]  # most recent first
+    total: ApproxOut | None = None  # with balances in two currencies
+    cover: CoverOut | None = None  # "Was that payment for someone else too?"
 
 
 # --- Requests -------------------------------------------------------------------------------
@@ -294,6 +380,39 @@ class PaymentPatchBody(BaseModel):
     accepted: bool | None = None  # "Accept difference"
     fingerprint: str | None = Field(default=None, max_length=200)  # link a transaction
     unlink: bool = False
+
+
+class AllocationsBody(BaseModel):
+    """ "Also paid for…" on an existing payment: who it is for (empty: only the payer)."""
+
+    allocations: list[ShareBody] = Field(default_factory=list, max_length=50)
+
+
+class DismissCoverBody(BaseModel):
+    dismissed: bool
+
+
+class DismissCoversBody(BaseModel):
+    """ "No" to a suggestion: every payment of it at once (one change)."""
+
+    payment_ids: list[int] = Field(min_length=1, max_length=200)
+    dismissed: bool = True
+
+
+class CoverPaymentBody(BaseModel):
+    payment_id: int
+    allocations: list[ShareBody] = Field(default_factory=list, max_length=50)
+
+
+class CoverBody(BaseModel):
+    """ "Yes" confirmed: each payment's allocations, applied as one change."""
+
+    payments: list[CoverPaymentBody] = Field(min_length=1, max_length=200)
+
+
+class LeftoverBody(BaseModel):
+    contact_id: int
+    settled: bool
 
 
 class ContactBody(BaseModel):

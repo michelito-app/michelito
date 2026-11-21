@@ -11,6 +11,7 @@ import { PANEL } from '@/components/summary/styles'
 import { Filters } from '@/components/transactions/Filters'
 import { MobileDetail } from '@/components/transactions/MobileDetail'
 import { BatchNotice, SelectionBar } from '@/components/transactions/SelectionBar'
+import { FabSpace, QuickCashButton } from '@/components/cashBox/QuickCash'
 import { DETAIL_TITLE_ID, TransactionDetail } from '@/components/transactions/TransactionDetail'
 import { TransactionList } from '@/components/transactions/TransactionList'
 import { Button } from '@/components/ui/button'
@@ -208,6 +209,12 @@ export function TransactionsPage() {
       >
         {list.data && <Totals data={list.data} />}
       </MonthHeader>
+      {/* While choosing rows, the selection bar takes the bottom of a phone. */}
+      {!chosen && (
+        <div className="flex justify-end">
+          <QuickCashButton />
+        </div>
+      )}
 
       <Filters
         filters={filters}
@@ -307,6 +314,7 @@ export function TransactionsPage() {
           onDone={picker.done}
         />
       )}
+      {!chosen && <FabSpace />}
     </>
   )
 }

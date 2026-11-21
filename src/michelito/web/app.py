@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import sqlite3
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, closing, contextmanager
@@ -20,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from michelito import config, db, holders, migrations_v19
 from michelito.analysis import accounts as account_data
 from michelito.analysis import (
+    cash_activation,
     cash_box,
     catalog,
     changelog,
@@ -41,6 +44,7 @@ from michelito.web import (
     batch_routes,
     budget_routes,
     cash_box_routes,
+    cash_routes,
     dossier_routes,
     edit_log,
     insight_routes,
@@ -48,6 +52,7 @@ from michelito.web import (
     ledger_routes,
     live_routes,
     log_routes,
+    pace_routes,
     recurring_routes,
     report_routes,
     reserve_routes,
@@ -92,6 +97,7 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Every method that writes needs `X-Michelito: 1`; `X-Michelito-Author` says who makes the change.
 WRITE_HEADER = "X-Michelito"
 AUTHOR_HEADER = "X-Michelito-Author"
+LOG = logging.getLogger(__name__)
 _MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
 _RATE_QUANTUM = Decimal("0.0001")
 _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
@@ -135,7 +141,7 @@ def _conflict(exc: Exception) -> str:
 def create_app(
     db_path: Path,
     static_dir: Path | None = None,
-    today: Callable[[], date] = date.today,
+    today: Callable[[], date] | None = None,
     holders_path: Path | None = None,
     mode: Mode | None = None,
 ) -> FastAPI:
@@ -153,6 +159,8 @@ def create_app(
     request's database comes from (`web.workspace`), which hosts and authors are accepted and
     its own routes. Without it, the database is always `db_path`.
     """
+    # The user's local date (`config.local_today`), not the server's.
+    today = today or (lambda: config.local_today())
     holders_file = holders_path or config.Paths(db_path.parent).holders
     mode = mode or local_mode(Workspace(db_path, holders_file))
     app = FastAPI(title="michelito", docs_url=None, redoc_url=None, openapi_url=None)
@@ -177,7 +185,16 @@ def create_app(
         with closing(db.connect(found.database, found.key)) as conn:
             if mode.on_connect is not None:
                 mode.on_connect(conn)
+            _refresh_cash(conn)
             yield conn
+
+    def _refresh_cash(conn: sqlite3.Connection) -> None:
+        """The cash system pass (scheduled occurrences due, automatic withdrawals) before
+        the request reads anything; outside the change log. A failure is logged and the request
+        goes on with what is stored (nothing is half written: it runs in its own transaction)."""
+        found = holders.of(workspace(), conn)
+        signature = hashlib.sha256(repr(found).encode()).hexdigest()[:16]
+        cash_activation.refresh_safely(conn, today(), load_flow, signature)
 
     @app.middleware("http")
     async def require_local_header(request: Request, call_next):  # noqa: ANN001, ANN202
@@ -233,7 +250,7 @@ def create_app(
         """Every movement (expenses, income, transfers), with up-to-date holders.
 
         `known`: the category catalog (by default, the database's)."""
-        return spending.load_all(conn, holders.of(workspace(), conn), known)
+        return spending.load_all(conn, holders.of(workspace(), conn), known, today())
 
     def load_spending(conn: sqlite3.Connection) -> tuple[Movement, ...]:
         """Only the expenses, with the same criteria as the Summary (holders included)."""
@@ -249,7 +266,7 @@ def create_app(
         with connection() as conn:
             infos = account_data.account_infos(conn)
             selected = parse_accounts(accounts, infos)
-            options = summary.month_options(load_flow(conn), infos, selected)
+            options = summary.month_options(load_flow(conn), infos, selected, today())
         return [MonthOptionOut.of(o) for o in options]
 
     @app.get("/api/summary")
@@ -277,6 +294,7 @@ def create_app(
                     selected,
                     ctx.groups,
                     ctx.exchange_states,
+                    today(),
                 )
             except LookupError:
                 raise HTTPException(404, t("web.no_data")) from None
@@ -433,10 +451,13 @@ def create_app(
             known = catalog.load(conn)
             try:
                 chosen = categories_view.edit_target(known, body.category, body.category_id)
+                # A cash entry with a concept has it as its merchant (schema 23): its rule
+                # applies; one without a concept still corrects only itself.
                 if (
                     chosen is not None
                     and body.scope == "merchant"
                     and cash_box.is_manual(fingerprint)
+                    and target.merchant == cash_box.MERCHANT
                 ):
                     raise ValueError(t("web.cash_box_self_only"))
                 found = None if chosen is None else known.by_id(chosen)
@@ -860,11 +881,13 @@ def create_app(
 
     recurring_routes.register(app, connection, load_flow, parse_accounts, today)
     review_routes.register(app, connection, load_flow, parse_accounts)
+    pace_routes.register(app, connection, load_flow, parse_accounts, today)
     live_routes.register(app, connection, load_flow)
     log_routes.register(app, connection, load_flow)
     batch_routes.register(app, connection, load_flow)
     investment_routes.register(app, connection, load_flow, parse_accounts, today)
     cash_box_routes.register(app, connection, load_flow, tx_out, today)
+    cash_routes.register(app, connection, load_flow, today)
     report_routes.register(app, connection, load_flow, parse_accounts)
     budget_routes.register(app, connection, load_flow, parse_accounts, today)
     reserve_routes.register(app, connection, load_flow, parse_accounts, today)

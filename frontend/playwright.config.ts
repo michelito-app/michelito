@@ -17,9 +17,13 @@ const DEMO_SPECS = /demo\.spec\.ts$/
 const HOSTED_SPECS = /hosted(-gate|-forwarding)?\.spec\.ts$/
 // The phone layout and the installable app: the main server, with a phone viewport and touch.
 const MOBILE_SPECS = /(mobile|pwa)\.spec\.ts$/
+// The Summary's cards: on the desktop project and on the phone one too.
+const SUMMARY_SPECS = /summary-cards\.spec\.ts$/
 const PHONE = { ...devices['Desktop Chrome'], isMobile: true, hasTouch: true }
 // Shared is mobile-first: its spec runs on the desktop project and at both phone widths too.
 const SHARED_SPECS = /shared\.spec\.ts$/
+// The cash account's «+», confirming an occurrence and the reconcile: desktop and phone too.
+const CASH_SPECS = /efectivo\.spec\.ts$/
 // Live sync (provisional transactions from bank alerts): its own server, with made-up
 // provisionals and test-only routes (tests/e2e_live.py), so the other specs' figures stay the
 // same. Desktop and phone; ports from 8640 (8598-8600 and 8636 are taken).
@@ -71,7 +75,7 @@ export default defineConfig({
     {
       name: 'mobile',
       use: { ...PHONE, viewport: { width: 390, height: 844 } },
-      testMatch: [MOBILE_SPECS, SHARED_SPECS],
+      testMatch: [MOBILE_SPECS, SHARED_SPECS, SUMMARY_SPECS, CASH_SPECS],
     },
     {
       name: 'hosted',

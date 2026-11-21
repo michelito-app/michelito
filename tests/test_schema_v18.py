@@ -22,8 +22,17 @@ from typing import Any
 import pytest
 
 from michelito import db, legacy
-from michelito.analysis import accounts, changelog, links, providers, reserve_store, spending
+from michelito.analysis import (
+    accounts,
+    categories,
+    changelog,
+    links,
+    providers,
+    reserve_store,
+    spending,
+)
 from tests import e2e_server as e2e
+from tests.helpers import shown_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EXPECTED = json.loads((FIXTURES / "schema_v17_expected.json").read_text(encoding="utf-8"))
@@ -262,7 +271,12 @@ def test_movements_corrections_and_links_read_the_same(tmp_path: Path) -> None:
             ]
             for m in spending.load_all(conn, ())
         }
-        assert found == EXPECTED["movements"]
+        # Schema 23 renamed the cash transfer category's stored name (its reference stays).
+        expected = {
+            fp: [*m[:4], shown_name(m[4]) if m[5] == categories.CASH_BOX else m[4], *m[5:]]
+            for fp, m in EXPECTED["movements"].items()
+        }
+        assert found == expected
         loaded = links.load(conn)
         [box] = loaded.cash_boxes
         assert box.account_key == accounts.CASH_BOX_KEY
