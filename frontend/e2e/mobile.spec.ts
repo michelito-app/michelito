@@ -402,7 +402,8 @@ test.describe('touch', () => {
       })
   }
 
-  test('holding a finger on a row selects it; dragging it does not', async ({ page }) => {
+  test('holding a finger on a row selects it; dragging it does not', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', "Playwright's WebKit cannot synthesize touches; the iOS simulator walk covers this gesture")
     await page.goto(`/transactions?month=${MONTH}`)
     const list = page.getByRole('region', { name: LIST })
     const row = list.locator('[data-fingerprint]').nth(1)

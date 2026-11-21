@@ -279,8 +279,9 @@ test('desktop: three columns with «Month spending» across two', async ({ page,
   expect(Math.abs(invitations.width - grid.width)).toBeLessThan(2)
 })
 
-test('phone: swiping the header changes the month', async ({ page, isMobile }) => {
+test('phone: swiping the header changes the month', async ({ page, isMobile, browserName }) => {
   test.skip(!isMobile, 'touch gesture')
+  test.skip(browserName === 'webkit', "Playwright's WebKit cannot synthesize touches; the iOS simulator walk covers this gesture")
   await page.goto(`/?month=${NEWEST}`)
   await cardsReady(page)
   const header = page.getByTestId('summary-header')
