@@ -198,6 +198,13 @@ def test_without_root_the_container_identities_are_refused(tmp_path: Path, capsy
     assert "start as root" in capsys.readouterr().err
 
 
+def test_the_peer_uid_is_the_user_on_the_other_end() -> None:
+    # SO_PEERCRED on Linux, LOCAL_PEERCRED on macOS.
+    left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    with left, right:
+        assert pdf_socket.peer_uid(left) == os.getuid()
+
+
 DUMPABLE = (
     "import ctypes, sys; from michelito.hosted import pdf_worker; pdf_worker._not_dumpable(); "
     "print(ctypes.CDLL(None).prctl(pdf_worker.PR_GET_DUMPABLE, 0, 0, 0, 0))"

@@ -278,7 +278,10 @@ def _limit_args(limits: Limits) -> list[str]:
 def _harden(memory: int, cpu: int) -> None:
     """Called in the worker after its imports: nothing inherited, nothing new."""
     os.closerange(3, 1024)
-    resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
+    # macOS refuses to lower RLIMIT_AS (and would not enforce it); the deployment is Linux, so
+    # development there runs without the memory cap, like `_not_dumpable`.
+    if sys.platform.startswith("linux"):
+        resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
     resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
     resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))

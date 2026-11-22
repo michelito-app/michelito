@@ -35,8 +35,12 @@ if [[ -z "${GIT_AUTHOR_NAME:-}" || -z "${GIT_AUTHOR_EMAIL:-}" ]]; then
 fi
 export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
-source_root="$(git -C "$(dirname -- "$0")" rev-parse --show-toplevel)"
-target="$(realpath -m -- "$destination")"
+# The absolute path, following symlinks, of a path that may not exist yet (like GNU `realpath -m`,
+# which macOS does not have).
+resolve() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+
+source_root="$(resolve "$(git -C "$(dirname -- "$0")" rev-parse --show-toplevel)")"
+target="$(resolve "$destination")"
 if [[ "$target" == "$source_root" || "$target" == "$source_root"/* ]]; then
   echo "Error: DESTINATION cannot be inside the source repository ($source_root)." >&2
   exit 2

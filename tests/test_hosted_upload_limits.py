@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -124,6 +125,7 @@ def test_the_share_cookie_is_host_prefixed_over_https(tmp_path: Path) -> None:
     assert "Secure" in cookie and "Domain" not in cookie
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="RLIMIT_AS is Linux")
 def test_a_decompression_bomb_fails_only_that_file(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

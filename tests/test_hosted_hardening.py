@@ -207,10 +207,14 @@ def test_the_worker_caps_words_and_output() -> None:
     assert output.value.reason == "output"
 
 
-def test_a_worker_that_hangs_or_dies_fails_only_that_file() -> None:
+def test_a_worker_that_hangs_fails_only_that_file() -> None:
     with pytest.raises(pdf_worker.TooComplex) as slow:
         pdf_worker.read(POPULAR, "", pdf_worker.Limits(wall_seconds=0.01))
     assert slow.value.reason == "time"
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="RLIMIT_AS is Linux")
+def test_a_worker_that_dies_fails_only_that_file() -> None:
     with pytest.raises(pdf_worker.TooComplex) as dead:  # it cannot even start in 32 MB
         pdf_worker.read(POPULAR, "", pdf_worker.Limits(memory_bytes=32 * 1024 * 1024))
     assert dead.value.reason in ("memory", "time")

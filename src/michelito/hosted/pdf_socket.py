@@ -50,6 +50,7 @@ import os
 import socket
 import socketserver
 import struct
+import sys
 import threading
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -64,6 +65,8 @@ MAX_HEADER = 1024
 MAX_PASSWORD = 1024
 MAX_PDF = 64 * 1024 * 1024
 _MAXIMA = Limits()  # a request may ask for tighter limits, never looser ones
+SOL_LOCAL = 0  # macOS <sys/un.h>; Python does not export it
+XUCRED_SIZE = 76  # sizeof(struct xucred): u_int, uid_t, short, gid_t[16]
 
 
 class WorkerUnavailable(Exception):
@@ -81,7 +84,13 @@ def expected_uid() -> int | None:
 
 
 def peer_uid(conn: socket.socket) -> int:
-    """The user id of the process that listens on the other end (`SO_PEERCRED`)."""
+    """The user id of the process that listens on the other end (`SO_PEERCRED` on Linux, the
+    deployment; `LOCAL_PEERCRED` on macOS, for development)."""
+    if sys.platform == "darwin":
+        # struct xucred: cr_version (u_int), cr_uid (uid_t), then the groups.
+        raw = conn.getsockopt(SOL_LOCAL, socket.LOCAL_PEERCRED, XUCRED_SIZE)
+        _, uid = struct.unpack_from("=II", raw)
+        return int(uid)
     raw = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
     _, uid, _ = struct.unpack("3i", raw)
     return int(uid)
