@@ -18,6 +18,7 @@ from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.web.links import RowLinks
+from michelito.web.receipts import ReceiptView
 
 Scope = Literal["transaction", "merchant"]
 SCOPES: tuple[str, ...] = get_args(Scope)
@@ -51,6 +52,7 @@ class TxView:
     provisional: bool = False  # from a bank alert, its statement has not arrived yet
     approved: bool = False  # hosted: it entered because the person approved an email
     cash_state: str = ""  # an unanswered scheduled cash occurrence: "pending" or "unconfirmed"
+    receipts: tuple[ReceiptView, ...] = ()  # the merchant receipts linked to it (`web.receipts`)
 
     @property
     def suggested_one_off(self) -> bool:

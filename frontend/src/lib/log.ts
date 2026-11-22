@@ -103,6 +103,7 @@ const KINDS = [
   'recurring',
   'recurring_union',
   'reviewed',
+  'receipt',
   'keywords',
   'category_kind',
   'category_deleted',

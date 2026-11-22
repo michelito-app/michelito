@@ -29,7 +29,7 @@ from michelito.analysis import (
 )
 from michelito.parsers.common import Section, Statement, Transaction
 from michelito.web.app import create_app
-from tests import e2e_live
+from tests import e2e_live, e2e_receipts
 from tests.ledger_helpers import pay, share
 from tests.test_spending import seed
 
@@ -567,12 +567,15 @@ def _store_extra(conn, household: bool = False) -> None:
             db.store_statement(conn, document_id, statement)
 
 
-def build_demo_db(path: Path, household: bool = False, live: bool = False) -> None:
+def build_demo_db(
+    path: Path, household: bool = False, live: bool = False, receipts: bool = False
+) -> None:
     """Fill `path` with the synthetic statements, extra statements and made-up rates. With
     `household`, also the household accounts (household recurring charges), which shift the
     totals: they run in their own test server (household flag) so the other tests' figures stay
     the same. With `live`, also made-up provisional purchases (`tests.e2e_live`), likewise in
-    their own server."""
+    their own server. With `receipts`, also made-up Amazon charges and the merchant receipts
+    about them (`tests.e2e_receipts`), in a server of their own too."""
     with closing(db.connect(path)) as conn:
         seed(conn)
         _store_extra(conn, household)
@@ -586,6 +589,8 @@ def build_demo_db(path: Path, household: bool = False, live: bool = False) -> No
             _mark_annual_tax(conn)
         if live:
             e2e_live.add_provisionals(conn)
+        if receipts:
+            e2e_receipts.add_receipts(conn)
 
 
 def main() -> None:
@@ -601,15 +606,22 @@ def main() -> None:
         action="store_true",
         help="add made-up provisional purchases and the live-sync test routes",
     )
+    parser.add_argument(
+        "--receipts",
+        action="store_true",
+        help="add made-up Amazon charges, their merchant receipts and the reset route",
+    )
     args = parser.parse_args()
     if args.household:
         use_demo_providers()
     with tempfile.TemporaryDirectory(prefix="michelito-e2e-") as directory:
         path = Path(directory) / "michelito.db"
-        build_demo_db(path, household=args.household, live=args.live)
+        build_demo_db(path, household=args.household, live=args.live, receipts=args.receipts)
         app = create_app(path, cli.STATIC_DIR, today=lambda: DEMO_TODAY)
         if args.live:
             e2e_live.register(app, path, lambda target: build_demo_db(target, live=True))
+        if args.receipts:
+            e2e_live.register(app, path, lambda target: build_demo_db(target, receipts=True))
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

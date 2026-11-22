@@ -53,6 +53,7 @@ from michelito.web import (
     live_routes,
     log_routes,
     pace_routes,
+    receipt_routes,
     recurring_routes,
     report_routes,
     reserve_routes,
@@ -65,6 +66,7 @@ from michelito.web import interest as interest_view
 from michelito.web import links as links_view
 from michelito.web import one_offs as one_offs_view
 from michelito.web import pending as pending_view
+from michelito.web import receipts as receipts_view
 from michelito.web.flow_cache import FlowCache
 from michelito.web.schemas import (
     AccountOut,
@@ -430,11 +432,20 @@ def create_app(
             known,
             lambda fingerprints: links_view.row_links(ctx, fingerprints),
         )
-        # Hosted email forwarding: what entered because the person approved it is marked.
+        # Laid over the rows, never part of a movement: what entered because the person
+        # approved it (hosted email forwarding) and the merchant receipts linked to each one.
         approved = inbox_store.approved_fingerprints(conn)
-        if not approved:
+        linked = receipts_view.by_fingerprint(conn)
+        if not approved and not linked:
             return views
-        return [dc_replace(v, approved=v.fingerprint in approved) for v in views]
+        return [
+            dc_replace(
+                v,
+                approved=v.fingerprint in approved,
+                receipts=linked.get(v.fingerprint, ()),
+            )
+            for v in views
+        ]
 
     def tx_out(conn: sqlite3.Connection, fingerprint: str, month: str) -> TxOut:
         """The up-to-date row after a change."""
@@ -902,6 +913,7 @@ def create_app(
     review_routes.register(app, connection, load_flow, parse_accounts)
     pace_routes.register(app, connection, load_flow, parse_accounts, today)
     live_routes.register(app, connection, load_flow)
+    receipt_routes.register(app, connection, load_flow)
     log_routes.register(app, connection, load_flow)
     batch_routes.register(app, connection, load_flow)
     investment_routes.register(app, connection, load_flow, parse_accounts, today)

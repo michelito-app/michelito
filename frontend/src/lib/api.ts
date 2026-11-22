@@ -282,6 +282,29 @@ export interface RoleBody {
   capital_cents?: number
 }
 
+/** What a merchant's email says about a purchase (only fields read from the email). */
+export interface Receipt {
+  id: number
+  merchant: string
+  kind: 'order' | 'shipment'
+  orders: string[]
+  amount_cents: number
+  currency: string
+  day: string // when the email arrived
+  summary: string // the merchant's own summary of the items
+  item_count: number | null
+  order_link: string // the order's page at the merchant
+  email_link: string // the email in the person's Gmail
+  origin: 'automatic' | 'confirmed'
+}
+
+/** "It is this one" / "it is not" about a receipt and a transaction (/api/receipts). */
+export interface ReceiptLink {
+  receipt_id: number
+  fingerprint: string
+  linked: boolean
+}
+
 export interface Tx {
   fingerprint: string
   day: string
@@ -332,6 +355,7 @@ export interface Tx {
   cash_state?: CashState // an unanswered scheduled cash occurrence
   provisional: boolean // from a bank alert: its statement has not arrived yet (badge)
   approved?: boolean // hosted: it entered because the person approved an unverified email
+  receipts?: Receipt[] // the merchant receipts linked to it (order confirmations, shipments)
 }
 
 export type CashBoxRole = 'stored' | 'deposit'
@@ -548,6 +572,7 @@ export type ReviewKind =
   | 'possible_cover'
   | 'unconfirmed'
   | 'reversal'
+  | 'possible_receipt'
 
 /** A transaction to review (GET /api/review and /api/review/history). */
 export interface ReviewItem {
@@ -571,6 +596,7 @@ export interface ReviewItem {
   payment_id?: number | null // possible payment: the unlinked payment it reconciles
   payment_ids?: number[] // possible cover: every payment of the suggestion
   provisional?: boolean // still provisional (from a bank alert): it can be discarded
+  receipt_id?: number | null // possible receipt: the merchant receipt proposed for it
 }
 
 export interface ReviewMark {

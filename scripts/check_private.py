@@ -82,6 +82,7 @@ ALLOWED_EMAIL_DOMAINS: frozenset[str] = frozenset(
         "ejemplo.com",  # spanish-data: marker domain of the synthetic statements (tests/samples.py)
         "users.noreply.github.com",
         "popularenlinea.com",
+        "amazon.com",  # the public senders of a merchant's receipts (receipts.amazon)
         "bhd.com.do",
         "afpreservas.com.do",
         "afpsiembra.com",

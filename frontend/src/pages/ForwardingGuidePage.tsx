@@ -3,24 +3,25 @@ import { Link } from 'react-router'
 import { FOCUS, PANEL } from '@/components/summary/styles'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
-import { BANK_SENDERS, useForwarding } from '@/lib/forwarding'
+import { BANK_SENDERS, RECEIPT_SENDERS, useForwarding } from '@/lib/forwarding'
 import { cn } from '@/lib/utils'
 
 const FILTER = BANK_SENDERS.join(' OR ')
+const RECEIPT_FILTER = RECEIPT_SENDERS.join(' OR ')
 
 /** One screen: how to forward only the banks' emails from Gmail (a filter, never everything),
  * and that Gmail's confirmation code shows up in Settings for the person to use. */
 export function ForwardingGuidePage() {
   const forwarding = useForwarding()
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
   const address = forwarding.data?.address
 
-  async function copy() {
+  async function copy(text: string) {
     try {
-      await navigator.clipboard.writeText(FILTER)
-      setCopied(true)
+      await navigator.clipboard.writeText(text)
+      setCopied(text)
     } catch {
-      setCopied(false)
+      setCopied(null)
     }
   }
 
@@ -43,13 +44,41 @@ export function ForwardingGuidePage() {
         <li className="flex flex-col gap-2">
           {t('forwarding.guide.step5')}
           <code className={cn(PANEL, 'break-all px-3 py-2 font-mono text-[13px] text-foreground')}>{FILTER}</code>
-          <Button variant="outline" className="h-11 self-start px-4" onClick={() => void copy()}>
-            {copied ? t('forwarding.address.copied') : t('forwarding.guide.copySenders')}
+          <Button
+            variant="outline"
+            className="h-11 self-start px-4"
+            onClick={() => void copy(FILTER)}
+          >
+            {copied === FILTER ? t('forwarding.address.copied') : t('forwarding.guide.copySenders')}
           </Button>
         </li>
         <li>{t('forwarding.guide.step6')}</li>
       </ol>
       <p className="text-sm text-muted-foreground">{t('forwarding.guide.done')}</p>
+      <section
+        aria-labelledby="guide-receipts"
+        className="flex flex-col gap-2 border-t border-border pt-5 text-sm leading-relaxed text-ink-2"
+      >
+        <h2 id="guide-receipts" className="text-base font-semibold text-foreground">
+          {t('forwarding.guide.receiptsTitle')}
+        </h2>
+        <p>{t('forwarding.guide.receipts')}</p>
+        <code
+          data-receipt-senders
+          className={cn(PANEL, 'break-all px-3 py-2 font-mono text-[13px] text-foreground')}
+        >
+          {RECEIPT_FILTER}
+        </code>
+        <Button
+          variant="outline"
+          className="h-11 self-start px-4"
+          onClick={() => void copy(RECEIPT_FILTER)}
+        >
+          {copied === RECEIPT_FILTER
+            ? t('forwarding.address.copied')
+            : t('forwarding.guide.copySenders')}
+        </Button>
+      </section>
     </div>
   )
 }

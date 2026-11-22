@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from michelito import db
-from michelito.analysis import live_match
+from michelito.analysis import live_match, receipt_match
 from michelito.config import ARCHIVE_ONLY
 from michelito.i18n import t
 from michelito.parsers import StatementParser, detect, labeler, popular_web, splitter
@@ -342,6 +342,14 @@ def _reconcile(conn: sqlite3.Connection, after: int) -> None:
     except sqlite3.Error as exc:
         _LOG.warning(
             "reconciling bank alerts failed (%s); the next sync retries", type(exc).__name__
+        )
+    # After the alerts: a provisional that just became its statement row changed fingerprint.
+    try:
+        with conn:
+            receipt_match.reconcile_stored(conn, _now())
+    except Exception as exc:  # noqa: BLE001 - receipts are an extra: the statement stays
+        _LOG.warning(
+            "matching merchant receipts failed (%s); the next sync retries", type(exc).__name__
         )
 
 

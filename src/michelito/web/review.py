@@ -72,6 +72,9 @@ class Context:
     decisions: Mapping[str, str] = field(default_factory=dict)
     # Purchases a reversal alert named that still count (`live_store.reversals`).
     reversals: Mapping[str, str] = field(default_factory=dict)
+    # Merchant receipts with more than one possible transaction (`receipt_match.proposals`):
+    # fingerprint -> the receipt proposed for it and what the item says.
+    receipts: Mapping[str, tuple[int, str]] = field(default_factory=dict)
 
     @cached_property
     def hints(self) -> dict[str, review.Hint]:
@@ -113,6 +116,7 @@ def month_items(ctx: Context, month: str) -> list[ReviewView]:
         *_cover_items(ctx, month),
         *_unconfirmed_items(ctx, mine, month),
         *_reversal_items(ctx, mine, month),
+        *_receipt_items(ctx, mine, month),
         *_rule_items(ctx, mine, month),
         *_reserve_items(ctx, mine, month),
         *found,
@@ -212,6 +216,35 @@ def _unconfirmed_items(ctx: Context, mine: Sequence[Movement], month: str) -> li
                 ),
                 reviewed=ctx.decisions.get(move.fingerprint) == "keep",
                 provisional=True,
+            )
+        )
+    return items
+
+
+def _receipt_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[review.Item]:
+    """ "Is this the charge of your Amazon order …?" for each transaction of the month a
+    merchant receipt may be about, when the receipt has more than one candidate."""
+    items = []
+    for move in mine:
+        proposed = ctx.receipts.get(move.fingerprint)
+        if proposed is None or move.month != month:
+            continue
+        receipt_id, reason = proposed
+        amount = abs(move.gross if move.gross is not None else move.amount)
+        items.append(
+            review.Item(
+                kind="possible_receipt",
+                fingerprint=move.fingerprint,
+                day=move.day,
+                merchant=move.merchant,
+                description=move.description,
+                account=move.account,
+                amount=amount,
+                currency=move.currency,
+                amount_dop=to_dop(amount, move.currency, rate_for(ctx.rates, month)),
+                reason=reason,
+                provisional=move.provisional,
+                receipt_id=receipt_id,
             )
         )
     return items

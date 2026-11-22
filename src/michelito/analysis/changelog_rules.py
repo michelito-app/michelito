@@ -34,7 +34,15 @@ BATCH_KIND = "category_batch"
 # Columns that do not count as a change (timestamps) and, per table, those edited without a
 # change-log entry (a category's name, color and "hidden").
 IGNORED_COLUMNS = frozenset(
-    {"updated_at", "added_at", "reviewed_at", "created_at", "dismissed_at", "decided_at"}
+    {
+        "updated_at",
+        "added_at",
+        "reviewed_at",
+        "created_at",
+        "dismissed_at",
+        "decided_at",
+        "linked_at",
+    }
 )
 IGNORED_BY_TABLE: Mapping[str, frozenset[str]] = {
     "categories": frozenset({"name", "color", "hidden"}),

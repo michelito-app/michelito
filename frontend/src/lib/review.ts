@@ -22,6 +22,7 @@ export const KIND_LABELS: Record<ReviewKind, string> = {
   possible_cover: t('review.kind.possibleCover'),
   unconfirmed: t('review.kind.unconfirmed'),
   reversal: t('review.kind.reversal'),
+  possible_receipt: t('review.kind.possibleReceipt'),
 }
 
 export const REVIEW_KINDS = Object.keys(KIND_LABELS) as ReviewKind[]

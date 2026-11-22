@@ -92,6 +92,10 @@ class Source:
     # True: bank alerts (one email per movement, see `michelito.alerts`): parsed in memory, only
     # their fields are stored and nothing is written to raw/; `extensions` is not used.
     alerts: bool = False
+    # True: a merchant's receipts (order confirmations, shipments; see `michelito.receipts`):
+    # read in memory like alerts, only their fields are stored and they never create a
+    # transaction; `extensions` is not used.
+    receipts: bool = False
 
 
 # Default senders: the ones `sync` uses when there is no `sources.toml` in the data folder (see
@@ -118,6 +122,12 @@ DEFAULT_SOURCES: tuple[Source, ...] = (
         'from:notificaciones@popularenlinea.com subject:"Notificación de Consumo"',
         (),
         alerts=True,
+    ),
+    Source(
+        "amazon_receipts",
+        "{from:auto-confirm@amazon.com from:shipment-tracking@amazon.com} newer_than:12m",
+        (),
+        receipts=True,
     ),
 )
 # spanish-data: end

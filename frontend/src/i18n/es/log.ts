@@ -30,6 +30,7 @@ export const log = {
   'log.kind.recurring': 'Recurrente',
   'log.kind.recurring_union': 'Unión de recurrentes',
   'log.kind.reviewed': 'Para revisar',
+  'log.kind.receipt': 'Recibo del comercio',
   'log.kind.keywords': 'Palabras clave',
   'log.kind.category_kind': 'Tipo de categoría',
   'log.kind.category_deleted': 'Categoría borrada',

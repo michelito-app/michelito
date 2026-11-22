@@ -6,7 +6,7 @@ import { t } from '@/i18n'
 import type { Selection } from '@/lib/accountFilter'
 import type { InvestmentRole, ReviewItem } from '@/lib/api'
 import { useLinkToReserve } from '@/lib/budgetQueries'
-import { useChangeInvestment, useDecideProvisional, useEditTransaction } from '@/lib/queries'
+import { useChangeInvestment, useDecideProvisional, useDecideReceipt, useEditTransaction } from '@/lib/queries'
 import { itemPayments } from '@/lib/coverPlan'
 import { confirmPossiblePayment, ledger, useLedgerWrite } from '@/lib/sharedQueries'
 import {
@@ -87,6 +87,8 @@ export function ReviewRow({ item, selection, busy, onReviewed, onOneOff }: Revie
           <CoverActions item={item} busy={busy} />
         ) : item.kind === 'unconfirmed' || (item.kind === 'reversal' && item.provisional) ? (
           <UnconfirmedActions item={item} busy={busy} onReviewed={onReviewed} />
+        ) : item.kind === 'possible_receipt' && item.receipt_id != null ? (
+          <ReceiptActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_reserve' && item.reserve_id != null ? (
           <ReserveActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_rule' && item.category_id != null ? (
@@ -256,6 +258,42 @@ function UnconfirmedActions({ item, busy, onReviewed }: InvestmentActionsProps) 
         onClick={() => onReviewed(item, true)}
       >
         {t('review.row.keep')}
+      </Button>
+      {decide.isError && (
+        <p role="alert" className="basis-full text-[13px] text-up-ink">
+          {t('review.row.saveError', { message: decide.error.message })}
+        </p>
+      )}
+    </>
+  )
+}
+
+/** A merchant receipt that may be about this transaction: "Yes, it is this one" links it; "No"
+ * refuses it for this transaction (if one candidate is left, it is linked on its own). */
+function ReceiptActions({ item, busy, onReviewed }: InvestmentActionsProps) {
+  const decide = useDecideReceipt()
+  const pending = busy || decide.isPending
+  return (
+    <>
+      <Button
+        className={ACTION}
+        aria-label={t('receipts.review.yesLabel', { merchant: item.merchant })}
+        disabled={pending || item.receipt_id == null}
+        onClick={() => {
+          if (item.receipt_id == null) return
+          decide.mutate({ receipt_id: item.receipt_id, fingerprint: item.fingerprint, linked: true })
+        }}
+      >
+        {t('receipts.review.yes')}
+      </Button>
+      <Button
+        variant="outline"
+        className={SECONDARY}
+        aria-label={t('receipts.review.noLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => onReviewed(item, true)}
+      >
+        {t('receipts.review.no')}
       </Button>
       {decide.isError && (
         <p role="alert" className="basis-full text-[13px] text-up-ink">

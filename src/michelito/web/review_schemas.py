@@ -30,6 +30,7 @@ class ReviewItemOut(BaseModel):
     payment_id: int | None = None  # possible payment: the unlinked payment it reconciles
     payment_ids: list[int] = Field(default_factory=list)  # possible cover: all its payments
     provisional: bool = False  # still provisional (from a bank alert): it can be discarded
+    receipt_id: int | None = None  # possible receipt: the merchant receipt proposed for it
 
     @classmethod
     def of(cls, view: ReviewView) -> ReviewItemOut:
@@ -55,6 +56,7 @@ class ReviewItemOut(BaseModel):
             payment_id=item.payment_id,
             payment_ids=list(item.payment_ids),
             provisional=item.provisional,
+            receipt_id=item.receipt_id,
         )
 
 

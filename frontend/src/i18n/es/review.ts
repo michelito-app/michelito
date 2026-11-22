@@ -15,6 +15,7 @@ export const review = {
   'review.kind.possibleCover': '¿Pagó por otros?',
   'review.kind.unconfirmed': 'Sin estado',
   'review.kind.reversal': '¿Se reversó?',
+  'review.kind.possibleReceipt': '¿Es este pedido?',
   'review.cardTitle': 'Para revisar ({count})',
   'review.openLabel': 'Ver en Transacciones: {merchant}, {amount}, {day} · {account}',
   'review.dismissRuleLabel': 'Descartar regla: {merchant}',

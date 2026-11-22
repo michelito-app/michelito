@@ -17,6 +17,9 @@ export const BANK_SENDERS = [
   'notificaciones@popularenlinea.com',
   'servicios@bhd.com.do',
 ] as const
+/** The merchants' receipt senders (the server's `michelito.receipts`): an optional second
+ * Gmail filter, for the detail of each purchase. */
+export const RECEIPT_SENDERS = ['auto-confirm@amazon.com', 'shipment-tracking@amazon.com'] as const
 
 export interface Confirmation {
   code: string | null

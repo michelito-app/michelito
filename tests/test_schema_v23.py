@@ -226,7 +226,8 @@ def test_schema_22_and_21_migrate_to_23_with_identical_figures(tmp_path: Path, s
                 "PRAGMA user_version = 21; COMMIT;"
             )
     with closing(db.connect(path)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 23
+        assert db.SCHEMA_VERSION >= 23  # noqa: PLR2004 (later schemas only add to it)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
         assert cash_activation.activated_on(conn) == date.today() + timedelta(days=1)
         assert conn.execute("SELECT COUNT(*) FROM cash_renames").fetchone()[0] == 3
         totals, entries, shared, dismissed, ledger_figures = _everything(conn)

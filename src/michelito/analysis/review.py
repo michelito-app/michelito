@@ -78,6 +78,7 @@ Kind = Literal[
     "possible_cover",
     "unconfirmed",
     "reversal",
+    "possible_receipt",
 ]
 KINDS: tuple[Kind, ...] = get_args(Kind)
 
@@ -116,6 +117,7 @@ class Item:
     payment_id: int | None = None
     payment_ids: tuple[int, ...] = ()  # possible cover: every payment of the suggestion
     provisional: bool = False  # the movement is still provisional (it can be discarded)
+    receipt_id: int | None = None  # possible receipt: the merchant receipt proposed for it
 
 
 @dataclass(frozen=True)

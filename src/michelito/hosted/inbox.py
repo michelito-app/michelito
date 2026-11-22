@@ -1,6 +1,6 @@
 """Routing a forwarded email inside the account's encrypted database (hosted mode).
 
-`receive` reads the message's structure (`inbound_mail`) and sends it one of four ways:
+`receive` reads the message's structure (`inbound_mail`) and sends it one of five ways:
 
 - **Gmail's forwarding confirmation** (from `forwarding-noreply@google.com`, authenticated for
   google.com): its code, its link (rebuilt from an allowlisted pattern) and the Gmail address
@@ -14,6 +14,10 @@
   square persist). A locked PDF is read with the bank's stored password if the person chose to
   store one; otherwise (or if it is wrong) it waits, sealed, until the person types it.
   Whatever happens, the PDF is deleted once read.
+- **A merchant's receipt** (the senders of `michelito.receipts`), authenticated for that
+  sender's domain: read in memory, only its fields are stored (`receipt_store.record`) and it
+  is matched to the transactions (`receipt_match`). It adds detail to a transaction and never
+  creates one, so it does not wait for the person; its attachments are ignored.
 - **Someone else's genuine mail** looks exactly like the person's own, so what would be a
   *first* for this account waits for the person: an approved purchase alert on a card no
   statement of theirs has shown goes to quarantine (`unknown_card`), and a statement that
@@ -65,10 +69,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from statistics import median
 
-from michelito import alerts, config, db
+from michelito import alerts, config, db, receipts
 from michelito.alerts import authres
 from michelito.alerts.common import AlertEmail, AlertParseError
-from michelito.analysis import changelog, live_match, live_store, spending
+from michelito.analysis import (
+    changelog,
+    live_match,
+    live_store,
+    receipt_match,
+    receipt_store,
+    spending,
+)
 from michelito.db import PRINTOUT_PARSERS
 from michelito.hosted import inbound_mail, inbox_store, pdf_worker, uploads
 from michelito.hosted.inbox_store import Sealer
@@ -143,7 +154,7 @@ def vouched(domain: str) -> authres.Verdict:
 
 @dataclass
 class Result:
-    route: str  # duplicate, unreadable, confirmation, bank, quarantine
+    route: str  # duplicate, unreadable, confirmation, bank, receipt, quarantine
     queued: int = 0  # PDFs waiting to be read
     notices: list[tuple[str, str]] = field(default_factory=list)
 
@@ -189,8 +200,59 @@ def receive(
         if inbox_store.seen(conn, authentic):
             return Result("duplicate")
         return _bank(conn, sealer, inbound, raw, bank, found.worker, authentic, approved=False)
-    reason = "unauthenticated" if bank is not None or gmail else "unknown_sender"
-    return _quarantine(conn, sealer, inbound, raw, reason, claims_bank=bank is not None or gmail)
+    merchant = inbound.sender in receipts.SENDERS
+    if merchant and passes(found, inbound.sender_domain, inbound.sender_domain):
+        if inbox_store.seen(conn, authentic):
+            return Result("duplicate")
+        return _receipt(conn, inbound, found.worker, authentic)
+    known = bank is not None or gmail
+    reason = "unauthenticated" if known or merchant else "unknown_sender"
+    return _quarantine(conn, sealer, inbound, raw, reason, claims_bank=known)
+
+
+_RECEIPT_OUTCOMES = {"stored": "receipt_read", "known": "receipt_known", "failed": "receipt_failed"}
+
+
+def _receipt(
+    conn: sqlite3.Connection, inbound: inbound_mail.Inbound, verdict: authres.Verdict, seen: str
+) -> Result:
+    """A merchant's receipt (`michelito.receipts`), authenticated for its sender: read in
+    memory, only its fields are stored (attachments are ignored) and it is matched to the
+    transactions. It never creates one, so nothing here needs the person's approval."""
+    email = inbound.email
+    with conn:
+        if not inbox_store.mark_seen(conn, seen, "receipt"):
+            return Result("duplicate")
+        # The address that was let in must be the one the reader sees (a message can carry
+        # two From headers).
+        if email is None or email.sender_address != inbound.sender:
+            inbox_store.add_event(conn, "receipt", _RECEIPT_OUTCOMES["failed"])
+            return Result("receipt")
+        found = dataclasses.replace(
+            email,
+            message_id=_receipt_id(email.message_id, inbound.message_key),
+            verified=verdict,
+            trusted_authserv=(),
+        )
+        try:
+            outcome = receipt_store.record(conn, found, SOURCE, _stamp())
+        except Exception as exc:  # noqa: BLE001 - one bad message must not fail the request
+            log.warning("reading a merchant receipt failed (%s)", type(exc).__name__)
+            outcome = "failed"
+        inbox_store.add_event(conn, "receipt", _RECEIPT_OUTCOMES[outcome])
+    if outcome == "stored":
+        _match_receipts(conn)
+    return Result("receipt")
+
+
+_MESSAGE_ID = re.compile(r"[\x21-\x7e]{1,200}")
+
+
+def _receipt_id(message_id: str, key: str) -> str:
+    """What identifies the email: its `Message-ID` if it is a plain token that fits (it becomes
+    a search in the person's Gmail), else the hash of the message."""
+    plain = _MESSAGE_ID.fullmatch(message_id) is not None and '"' not in message_id
+    return message_id if plain else key
 
 
 def _confirmation(conn: sqlite3.Connection, inbound: inbound_mail.Inbound, seen: str) -> Result:
@@ -305,7 +367,19 @@ def _bank(
     if alert is not None:
         with conn:
             live_match.reconcile(conn, _stamp())
+        _match_receipts(conn)  # a new provisional may be a receipt's
     return result
+
+
+def _match_receipts(conn: sqlite3.Connection) -> None:
+    """Match the stored receipts in a transaction of their own: whatever goes wrong with them
+    must never undo what the bank's mail brought nor fail the request (the Worker would send
+    the same message again). The next message does the same work."""
+    try:
+        with conn:
+            receipt_match.reconcile_stored(conn, _stamp())
+    except Exception as exc:  # noqa: BLE001 - receipts are an extra
+        log.warning("matching merchant receipts failed (%s)", type(exc).__name__)
 
 
 _ALERT_OUTCOMES = {"stored": "provisional", "known": "duplicate", "failed": "failed"}

@@ -61,7 +61,7 @@ CUSTOM_SOURCES = (
 
 
 def test_defaults_are_the_sources_sync_always_used() -> None:
-    statements = tuple(s for s in DEFAULT_SOURCES if not s.alerts)
+    statements = tuple(s for s in DEFAULT_SOURCES if not (s.alerts or s.receipts))
     assert tuple((s.name, s.query, s.extensions, s.interpret) for s in statements) == BEFORE
     # Live sync adds Popular's purchase alerts, parsed in memory (nothing saved to raw/).
     assert [(s.name, s.extensions) for s in DEFAULT_SOURCES if s.alerts] == [("popular_alerts", ())]

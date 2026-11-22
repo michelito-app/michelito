@@ -29,11 +29,15 @@ const CASH_SPECS = /efectivo\.spec\.ts$/
 // same. Desktop and phone; ports from 8640 (8598-8600 and 8636 are taken).
 const LIVE_PORT = Number(process.env.E2E_LIVE_PORT ?? 8640)
 const LIVE_SPECS = /live\.spec\.ts$/
+// Merchant receipts (made-up Amazon charges and the emails about them, tests/e2e_receipts.py):
+// their own server too, on a desktop, a phone and WebKit at an iPhone's size.
+const RECEIPTS_PORT = Number(process.env.E2E_RECEIPTS_PORT ?? 8644)
+const RECEIPTS_SPECS = /receipts\.spec\.ts$/
 // 8501 is the real board's port (`michelito board`): the tests never use it, not even for the
 // second server.
 const RESERVED_PORT = 8501
 if (
-  [PORT, HOUSEHOLD_PORT, DEMO_PORT, HOSTED_PORT, HOSTED_DEMO_PORT, LIVE_PORT].includes(
+  [PORT, HOUSEHOLD_PORT, DEMO_PORT, HOSTED_PORT, HOSTED_DEMO_PORT, LIVE_PORT, RECEIPTS_PORT].includes(
     RESERVED_PORT,
   )
 ) {
@@ -60,7 +64,14 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [HOUSEHOLD_SPECS, DEMO_SPECS, MOBILE_SPECS, HOSTED_SPECS, LIVE_SPECS],
+      testIgnore: [
+        HOUSEHOLD_SPECS,
+        DEMO_SPECS,
+        MOBILE_SPECS,
+        HOSTED_SPECS,
+        LIVE_SPECS,
+        RECEIPTS_SPECS,
+      ],
     },
     {
       name: 'household',
@@ -113,6 +124,25 @@ export default defineConfig({
       testMatch: LIVE_SPECS,
       // The same server and database as `live` (each test resets it; the suite runs serially).
     },
+    {
+      name: 'receipts',
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${RECEIPTS_PORT}` },
+      testMatch: RECEIPTS_SPECS,
+    },
+    {
+      name: 'receipts-mobile',
+      use: {
+        ...PHONE,
+        viewport: { width: 390, height: 844 },
+        baseURL: `http://127.0.0.1:${RECEIPTS_PORT}`,
+      },
+      testMatch: RECEIPTS_SPECS,
+    },
+    {
+      name: 'receipts-iphone',
+      use: { ...devices['iPhone 15'], baseURL: `http://127.0.0.1:${RECEIPTS_PORT}` },
+      testMatch: RECEIPTS_SPECS,
+    },
   ],
   webServer: [
     {
@@ -130,6 +160,12 @@ export default defineConfig({
     {
       command: `cd .. && uv run python -m tests.e2e_server --live --port ${LIVE_PORT}`,
       url: `http://127.0.0.1:${LIVE_PORT}/api/months`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      command: `cd .. && uv run python -m tests.e2e_server --receipts --port ${RECEIPTS_PORT}`,
+      url: `http://127.0.0.1:${RECEIPTS_PORT}/api/months`,
       reuseExistingServer: false,
       timeout: 60_000,
     },

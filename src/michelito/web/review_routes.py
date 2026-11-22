@@ -18,6 +18,8 @@ from michelito.analysis import (
     links,
     live_store,
     rates,
+    receipt_match,
+    receipt_store,
     review_marks,
 )
 from michelito.analysis import one_off_dismissals as dismissals
@@ -26,7 +28,7 @@ from michelito.analysis.review import Kind
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.web import budget as budget_view
-from michelito.web import edit_log, log_routes, summary
+from michelito.web import edit_log, log_routes, receipt_routes, summary
 from michelito.web import review as review_view
 from michelito.web.budget_routes import load_inputs
 from michelito.web.review_schemas import ReviewBody, ReviewItemOut, ReviewMarkOut
@@ -71,6 +73,7 @@ def register(
             unmatched=live_store.unmatched(conn),
             decisions=live_store.decisions(conn),
             reversals=live_store.reversals(conn),
+            receipts=_receipt_proposals(conn, flow),
         )
 
     @app.get("/api/review")
@@ -112,6 +115,12 @@ def register(
             if kind == "possible_rule":
                 discard_rule(conn, target, body.reviewed, flow)
                 return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)
+            if kind == "possible_receipt":
+                # "Reviewed" is "it is not this one"; there is nothing to un-review (the
+                # refusal is undone from the transaction's history).
+                if body.reviewed:
+                    refuse_receipt(conn, target, flow)
+                return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)
             with (
                 conn,
                 changelog.track(
@@ -134,6 +143,21 @@ def register(
                 else:
                     review_marks.set_reviewed(conn, fingerprint, kind, body.reviewed)
         return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)
+
+    def refuse_receipt(
+        conn: sqlite3.Connection, target: Movement, flow: Sequence[Movement]
+    ) -> None:
+        """ "It is not this one": the receipt proposed for the transaction is refused for it
+        (logged, undoable); if one candidate is left, it is linked on its own."""
+        proposed = _receipt_proposals(conn, flow).get(target.fingerprint)
+        receipt = (
+            None
+            if proposed is None
+            else next((r for r in receipt_store.load(conn) if r.id == proposed[0]), None)
+        )
+        if receipt is None:
+            raise HTTPException(404, t("web.receipt.unknown"))
+        receipt_routes.decide(conn, receipt, target, False, flow)
 
     def discard_rule(
         conn: sqlite3.Connection, target: Movement, reviewed: bool, flow: Sequence[Movement]
@@ -166,3 +190,26 @@ def register(
                 changelog.dismiss_rule(conn, merchant, found.category_id)
             elif not reviewed:
                 conn.execute("DELETE FROM rule_dismissals WHERE merchant = ?", (merchant,))
+
+
+def _receipt_proposals(
+    conn: sqlite3.Connection, flow: Sequence[Movement]
+) -> dict[str, tuple[int, str]]:
+    """Fingerprint -> (receipt id, what the item says), for every transaction a merchant
+    receipt with several candidates may be about. A transaction two receipts want shows the
+    older receipt first; the other one comes up once that is settled."""
+    proposed = receipt_match.proposals(conn, flow)
+    if not proposed:
+        return {}
+    stored = {receipt.id: receipt for receipt in receipt_store.load(conn)}
+    found: dict[str, tuple[int, str]] = {}
+    for receipt_id in sorted(proposed):
+        receipt = stored[receipt_id]
+        reason = t(
+            "web.review.receipt_reason",
+            merchant=receipt.merchant,
+            order=receipt.orders[0] if receipt.orders else "",
+        )
+        for fingerprint in proposed[receipt_id]:
+            found.setdefault(fingerprint, (receipt_id, reason))
+    return found

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -18,11 +19,12 @@ from pathlib import Path
 from typing import Protocol
 
 from michelito.alerts.common import AlertEmail
-from michelito.analysis import live_match, live_store
+from michelito.analysis import live_match, live_store, receipt_match, receipt_store
 from michelito.config import Source
 from michelito.gmail import AttachmentRef, MailMessage
 from michelito.i18n import t
 
+_LOG = logging.getLogger(__name__)
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _MESSAGE_ID = re.compile(r"[0-9A-Za-z_-]{1,64}")
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
@@ -81,6 +83,8 @@ def extract_source(
 ) -> ExtractStats:
     if source.alerts:
         return extract_alerts(conn, client, source)
+    if source.receipts:
+        return extract_receipts(conn, client, source)
     known = {row[0] for row in conn.execute("SELECT message_id FROM gmail_messages")}
     new_messages = saved = duplicates = 0
     for message_id in client.list_message_ids(source.query):
@@ -234,6 +238,50 @@ def extract_alerts(conn: sqlite3.Connection, client: MailClient, source: Source)
         new_messages += 1
     with conn:
         live_match.reconcile(conn, _now())
+    _match_receipts(conn)  # a new provisional may be a receipt's
+    return ExtractStats(source.name, new_messages, 0, 0)
+
+
+def _match_receipts(conn: sqlite3.Connection) -> None:
+    """Match the stored receipts in a transaction of their own: whatever goes wrong with them
+    must never undo or stop what the bank's mail brought. The next sync does the same work."""
+    try:
+        with conn:
+            receipt_match.reconcile_stored(conn, _now())
+    except Exception as exc:  # noqa: BLE001 - receipts are an extra
+        _LOG.warning("matching merchant receipts failed (%s)", type(exc).__name__)
+
+
+def extract_receipts(conn: sqlite3.Connection, client: MailClient, source: Source) -> ExtractStats:
+    """A merchant's receipts (`michelito.receipts`): each message is read in memory and only its
+    fields are stored (`receipt_store.record`); nothing is written to raw/. A message already
+    stored is not downloaded again; a failed one only if it may succeed now
+    (`receipt_store.known_message_ids`), at most MAX_RETRIES per sync. At the end, the receipts
+    are matched to the transactions (`receipt_match.reconcile_stored`)."""
+    known = receipt_store.known_message_ids(conn)
+    failed = {str(r[0]) for r in conn.execute("SELECT message_id FROM receipt_emails")} - known
+    new_messages = retries = 0
+    for message_id in client.list_message_ids(source.query):
+        if message_id in known:
+            continue
+        if message_id in failed:
+            if retries >= MAX_RETRIES:
+                continue
+            retries += 1
+        if not _MESSAGE_ID.fullmatch(message_id):
+            raise ValueError(f"unexpected message ID: {message_id!r}")
+        try:
+            message = client.get_message(message_id)
+            with conn:
+                receipt_store.record(conn, alert_email(message), source.name, _now())
+        except Exception as exc:  # noqa: BLE001 - one bad message must not stop the sync
+            with conn:
+                receipt_store.record_error(
+                    conn, message_id, source.name, type(exc).__name__, _now()
+                )
+        known.add(message_id)
+        new_messages += 1
+    _match_receipts(conn)
     return ExtractStats(source.name, new_messages, 0, 0)
 
 

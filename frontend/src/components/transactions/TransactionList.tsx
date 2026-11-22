@@ -5,6 +5,7 @@ import type { Tx } from '@/lib/api'
 import { shortAccountLabel, splitLabel } from '@/lib/accounts'
 import { colorFor, customColors } from '@/lib/categories'
 import { type LinkBadge, linkBadges } from '@/lib/links'
+import { bankName, receiptTitle } from '@/lib/receipts'
 import { useCategories } from '@/lib/queries'
 import {
   AMOUNT_TONE_CLASS,
@@ -334,11 +335,12 @@ function PickRow({ tx, color, checked, onToggle }: PickRowProps) {
   )
 }
 
-/** "Select <day> <merchant> <amount>": the day tells two identical rows apart. */
+/** "Select <day> <merchant> <amount>": the day tells two identical rows apart. The name is the
+ * row's visible title (a receipt's, when it has one), so what is read out is what is seen. */
 function pickLabel(tx: Tx): string {
   return t('transactions.list.pick', {
     day: shortDay(tx.day),
-    merchant: tx.merchant,
+    merchant: receiptTitle(tx) ?? tx.merchant,
     amount: amountLines(tx).main,
   })
 }
@@ -348,12 +350,22 @@ function RowBody({ tx, color }: { tx: Tx; color: string }) {
   const amount = amountLines(tx)
   return (
     <>
-      <span className="col-start-1 row-start-1 flex min-w-0 items-center gap-1.5">
-        <span className="min-w-[9ch] truncate text-sm font-semibold">{tx.merchant}</span>
-        {/* The badges give up space before the name: each one is cut with "…". */}
-        <span className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
-          <Badges tx={tx} />
+      <span className="col-start-1 row-start-1 flex min-w-0 flex-col">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-[9ch] truncate text-sm font-semibold">
+            {receiptTitle(tx) ?? tx.merchant}
+          </span>
+          {/* The badges give up space before the name: each one is cut with "…". */}
+          <span className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
+            <Badges tx={tx} />
+          </span>
         </span>
+        {/* A merchant receipt took the title: what the statement printed goes under it. */}
+        {bankName(tx) && (
+          <span data-testid="bank-name" className="truncate text-xs text-muted-foreground">
+            {tx.merchant}
+          </span>
+        )}
       </span>
       <span
         className={cn(

@@ -30,6 +30,9 @@ export const forwarding = {
   'forwarding.guide.done':
     'Listo: los próximos estados y avisos llegarán solos. Los que pidan clave te esperan aquí hasta que la escribas.',
   'forwarding.guide.copySenders': 'Copiar remitentes',
+  'forwarding.guide.receiptsTitle': 'Opcional: el detalle de tus compras',
+  'forwarding.guide.receipts':
+    'Para ver en cada cargo de Amazon el pedido al que corresponde, crea otro filtro igual con estos remitentes. Michelito lee de esos correos solo el número de pedido, el monto y el resumen; nunca crea transacciones con ellos.',
 
   'forwarding.confirmation.title': 'Confirma el reenvío en Gmail',
   'forwarding.confirmation.lead':

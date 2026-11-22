@@ -91,6 +91,9 @@ TRACKED = (
     "ledger_links",
     "ledger_settings",
     "provisional_decisions",
+    # Merchant receipts (schema 24): what the person links, removes or refuses.
+    "receipt_links",
+    "receipt_dismissals",
 )
 _CAPTURE = "changelog_capture"
 

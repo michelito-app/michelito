@@ -10,6 +10,7 @@ import {
   useCashBox,
   useChangeInvestment,
   useDecideProvisional,
+  useDecideReceipt,
   useEditTransaction,
   useMarkReviewed,
   useReview,
@@ -61,6 +62,7 @@ export function ReviewCard({ month, selection = null, expanded = false }: Review
   const invest = useChangeInvestment()
   const pay = useLedgerWrite()
   const decide = useDecideProvisional()
+  const receipt = useDecideReceipt()
   // The cash account's own items (scheduled occurrences, the monthly reconcile): not by month.
   const cash = useCashBox()
   const cashCount = cashReviewCount(cash.data)
@@ -122,6 +124,15 @@ export function ReviewCard({ month, selection = null, expanded = false }: Review
     )
   }
 
+  /** A merchant receipt proposed for the transaction, answered yes: links them. */
+  function confirmReceipt(item: ReviewItem) {
+    if (item.receipt_id == null) return
+    receipt.mutate(
+      { receipt_id: item.receipt_id, fingerprint: item.fingerprint, linked: true },
+      { onSuccess: () => hide(item) },
+    )
+  }
+
   /** "Did Ana pay you?" answered yes: records the payment with this credit (one tap). */
   function confirmPayment(item: ReviewItem) {
     pay.mutate(() => confirmPossiblePayment(item), { onSuccess: () => hide(item) })
@@ -168,9 +179,15 @@ export function ReviewCard({ month, selection = null, expanded = false }: Review
     )
   }
 
-  const error = edit.error ?? mark.error ?? invest.error ?? pay.error ?? decide.error
+  const error =
+    edit.error ?? mark.error ?? invest.error ?? pay.error ?? decide.error ?? receipt.error
   const busy =
-    edit.isPending || mark.isPending || invest.isPending || pay.isPending || decide.isPending
+    edit.isPending ||
+    mark.isPending ||
+    invest.isPending ||
+    pay.isPending ||
+    decide.isPending ||
+    receipt.isPending
   return (
     <section
       aria-labelledby="review-title"
@@ -199,6 +216,7 @@ export function ReviewCard({ month, selection = null, expanded = false }: Review
             onPayment={confirmPayment}
             onDiscard={discard}
             onCover={openCover}
+            onReceipt={confirmReceipt}
           />
         ))}
       </ul>
@@ -235,6 +253,7 @@ interface ReviewLineProps {
   onPayment: (item: ReviewItem) => void
   onDiscard: (item: ReviewItem) => void
   onCover: (item: ReviewItem) => void
+  onReceipt: (item: ReviewItem) => void
 }
 
 /** A notice on two lines: kind, merchant and amount (they open the transaction in Transactions);
@@ -250,6 +269,7 @@ function ReviewLine({
   onPayment,
   onDiscard,
   onCover,
+  onReceipt,
 }: ReviewLineProps) {
   const reason = useId()
   const original = originalAmountText(item)
@@ -353,6 +373,27 @@ function ReviewLine({
                 onClick={() => onReviewed(item)}
               >
                 {t('summary.review.dismiss')}
+              </button>
+            </>
+          ) : item.kind === 'possible_receipt' && item.receipt_id != null ? (
+            <>
+              <button
+                type="button"
+                className={PRIMARY}
+                aria-label={t('receipts.review.yesLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onReceipt(item)}
+              >
+                {t('receipts.review.yes')}
+              </button>
+              <button
+                type="button"
+                className={SECONDARY}
+                aria-label={t('receipts.review.noLabel', { merchant: item.merchant })}
+                disabled={busy}
+                onClick={() => onReviewed(item)}
+              >
+                {t('receipts.review.no')}
               </button>
             </>
           ) : item.kind === 'unconfirmed' || (item.kind === 'reversal' && item.provisional) ? (

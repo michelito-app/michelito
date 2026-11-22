@@ -40,6 +40,8 @@ import { CashBoxSection } from './CashBoxSection'
 import { ExchangeSection } from './ExchangeSection'
 import { InvestmentSection } from './InvestmentSection'
 import { ProvisionalNote } from './ProvisionalNote'
+import { ReceiptBox } from '@/components/receipts/ReceiptBox'
+import { bankName, receiptTitle } from '@/lib/receipts'
 import { RecurringSection } from './RecurringSection'
 import { ReserveSection } from './ReserveSection'
 import {
@@ -174,8 +176,13 @@ export function MobileDetail({
           tabIndex={-1}
           className="max-w-full text-[20px] leading-tight font-bold tracking-[-0.01em] break-words outline-none"
         >
-          {tx.merchant}
+          {receiptTitle(tx) ?? tx.merchant}
         </h2>
+        {bankName(tx) && (
+          <span data-testid="bank-name" className="text-[13px] text-muted-foreground">
+            {t('receipts.list.bankName', { name: tx.merchant })}
+          </span>
+        )}
         <span className="text-[13px] text-muted-foreground">
           {dayLabel(tx.day)} · {tx.account_label}
         </span>
@@ -202,6 +209,8 @@ export function MobileDetail({
         <p className="text-[13px] text-muted-foreground">{t('transactions.detail.notInList')}</p>
       )}
       {correction.savedNote && <SavedStatus note={correction.savedNote} />}
+
+      <ReceiptBox tx={tx} />
 
       {plan.links.length > 0 && (
         <section aria-label={t('transactions.links.label')} className="flex flex-col gap-2">

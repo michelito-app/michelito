@@ -32,7 +32,7 @@ from michelito.config import ARCHIVE_ONLY, DEFAULT_SOURCES, Source, archive_only
 _NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")  # it goes into a path: no "/", "..", nor spaces
 _EXTENSION = re.compile(r"\.[a-z0-9]{1,10}")
 _TABLE = "source"
-_KEYS = frozenset({"name", "query", "extensions", "parse", "alerts"})
+_KEYS = frozenset({"name", "query", "extensions", "parse", "alerts", "receipts"})
 # Names that `michelito import` already uses (source in the database and folder in raw/).
 # The pre-rename names stay reserved: existing raw folders and documents still use them.
 RESERVED_NAMES = frozenset(
@@ -102,8 +102,15 @@ def _source(entry: object, where: str) -> Source:
     alerts = entry.get("alerts", False)
     if not isinstance(alerts, bool):
         raise SourcesError(f"{where} ({name}): 'alerts' is true or false")
+    receipts = entry.get("receipts", False)
+    if not isinstance(receipts, bool):
+        raise SourcesError(f"{where} ({name}): 'receipts' is true or false")
+    if alerts and receipts:
+        raise SourcesError(f"{where} ({name}): a source is 'alerts' or 'receipts', not both")
     if alerts:
         return Source(name, query.strip(), (), alerts=True)
+    if receipts:
+        return Source(name, query.strip(), (), receipts=True)
     extensions = entry.get("extensions")
     if (
         not isinstance(extensions, list)

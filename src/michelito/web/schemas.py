@@ -25,6 +25,7 @@ from michelito.web import one_offs as one_offs_view
 from michelito.web import pending as pending_view
 from michelito.web import recurring as recurring_view
 from michelito.web import summary as summary_view
+from michelito.web.receipts import ReceiptView
 from michelito.web.recurring_schemas import GroupKey
 from michelito.web.transactions import TxView
 
@@ -435,6 +436,40 @@ class LedgerTxOut(BaseModel):
         )
 
 
+class ReceiptOut(BaseModel):
+    """A merchant receipt linked to a transaction (only fields read from the email)."""
+
+    id: int
+    merchant: str
+    kind: str  # "order" or "shipment"
+    orders: list[str]
+    amount_cents: int
+    currency: str
+    day: str  # when the email arrived
+    summary: str  # the merchant's own summary of the items
+    item_count: int | None
+    order_link: str  # the order's page at the merchant
+    email_link: str  # the email in the person's Gmail
+    origin: str  # "automatic" or "confirmed"
+
+    @classmethod
+    def of(cls, v: ReceiptView) -> ReceiptOut:
+        return cls(
+            id=v.id,
+            merchant=v.merchant,
+            kind=v.kind,
+            orders=list(v.orders),
+            amount_cents=v.amount_cents,
+            currency=v.currency,
+            day=v.day.isoformat(),
+            summary=v.summary,
+            item_count=v.item_count,
+            order_link=v.order_link,
+            email_link=v.email_link,
+            origin=v.origin,
+        )
+
+
 class TxOut(BaseModel):
     fingerprint: str
     day: str
@@ -494,12 +529,15 @@ class TxOut(BaseModel):
     # A scheduled cash occurrence nobody answered: "pending" (in "To review") or
     # "unconfirmed" (a payment kept as paid after a week); empty otherwise.
     cash_state: str = ""
+    # The merchant receipts linked to it (order confirmations, shipments).
+    receipts: list[ReceiptOut] = Field(default_factory=list)
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
         row = v.links
         return cls(
             fingerprint=v.fingerprint,
+            receipts=[ReceiptOut.of(r) for r in v.receipts],
             provisional=v.provisional,
             approved=v.approved,
             cash_state=v.cash_state,

@@ -70,6 +70,7 @@ MESSAGES: dict[str, str] = {
     # Added after the rename (live sync): no old value, the same style.
     "dossier.review_kind.unconfirmed": "sin_estado",
     "dossier.review_kind.reversal": "reverso",
+    "dossier.review_kind.possible_receipt": "recibo_posible",
     # Totals, as the Markdown lists them (one per key of the data's `totals`).
     "dossier.total.income": "ingresos",
     "dossier.total.income_through": "ingresos hasta",

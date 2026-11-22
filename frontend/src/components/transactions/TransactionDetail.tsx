@@ -21,6 +21,8 @@ import {
   type Scope,
 } from '@/lib/transactions'
 import { categoryLocked } from '@/lib/links'
+import { ReceiptBox } from '@/components/receipts/ReceiptBox'
+import { bankName, receiptTitle } from '@/lib/receipts'
 import { cn } from '@/lib/utils'
 import { HistorySection } from '@/components/log/HistorySection'
 import { CashBoxSection } from './CashBoxSection'
@@ -82,8 +84,13 @@ export function TransactionDetail({
             tabIndex={-1}
             className="text-[22px] leading-tight font-bold tracking-[-0.01em] break-words outline-none"
           >
-            {tx.merchant}
+            {receiptTitle(tx) ?? tx.merchant}
           </h2>
+          {bankName(tx) && (
+            <span data-testid="bank-name" className="text-[13px] text-muted-foreground">
+              {t('receipts.list.bankName', { name: tx.merchant })}
+            </span>
+          )}
           <span
             className={cn(
               'text-[28px] leading-tight font-bold tabular-nums',
@@ -114,6 +121,8 @@ export function TransactionDetail({
         </span>
         <span className="font-mono text-[13px] break-all text-ink-2">{tx.description}</span>
       </div>
+
+      <ReceiptBox tx={tx} />
 
       <CategoryField tx={tx} correction={correction} />
       <ScopeField tx={tx} correction={correction} />

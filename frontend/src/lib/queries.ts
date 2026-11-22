@@ -42,6 +42,7 @@ import {
   type Recurring,
   type ReviewItem,
   type ProvisionalDecision,
+  type ReceiptLink,
   type ReviewKind,
   type ReviewMark,
   type RoleBody,
@@ -404,6 +405,26 @@ export function useDecideProvisional() {
         { method: 'PUT', body: JSON.stringify({ decision }) },
       ),
     onSuccess: () => client.invalidateQueries(),
+  })
+}
+
+/** "It is this one" (links the receipt to the transaction) or "it is not" (removes the link or
+ * refuses the proposal; the pair is not offered again). Either way another receipt may now be
+ * linked on its own. A receipt changes no figure: only the transactions (with their log and
+ * history) and To review are refetched. */
+export function useDecideReceipt() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ receipt_id, fingerprint, linked }: ReceiptLink) =>
+      request<ReceiptLink>(
+        `/api/receipts/${receipt_id}/transactions/${encodeURIComponent(fingerprint)}`,
+        { method: linked ? 'PUT' : 'DELETE' },
+      ),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.transactions }),
+        client.invalidateQueries({ queryKey: queryKeys.reviewAll }),
+      ]),
   })
 }
 

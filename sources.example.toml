@@ -51,4 +51,9 @@ parse = false
 name = "popular_alerts"
 query = 'from:notificaciones@popularenlinea.com subject:"Notificación de Consumo"'
 alerts = true
+
+[[source]]
+name = "amazon_receipts"
+query = "{from:auto-confirm@amazon.com from:shipment-tracking@amazon.com} newer_than:12m"
+receipts = true
 # spanish-data: end
