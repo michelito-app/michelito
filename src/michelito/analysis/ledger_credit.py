@@ -7,11 +7,13 @@ suggestions only; nothing is linked or recorded without a tap.
   a contact whose alias or name the description holds; else nobody (picked by hand).
 - **The expense it pays back** (`expense_options`): the user's shareable expenses not in a
   group, from the PICK_WINDOW_DAYS days up to the credit; first those the credit is a fair
-  share of (`fits_share`: half, a third… up to MAX_PEOPLE people, within FIT_TOLERANCE), then
-  the rest; the closest in date first in each block. At most EXPENSE_LIMIT.
-- **The other transactions** (`credit_options`): other eligible credits within
-  OTHER_CREDIT_DAYS of this one, with their own guessed person; those naming the same person
-  first, then the closest in date. At most CREDIT_LIMIT. None is preselected.
+  share of (`fits_share`: half, a third… up to MAX_PEOPLE people, within FIT_TOLERANCE or
+  FIT_FLOOR of its currency, whichever is more), then the rest; the closest in date first
+  in each block. At most EXPENSE_LIMIT.
+- **The other transactions** (`credit_options`): other eligible credits in a bank account (a
+  refund on a card is not someone paying) within OTHER_CREDIT_DAYS of this one, with their own
+  guessed person; those naming the same person first, then those naming someone, then the
+  rest; the closest in date first in each block. At most CREDIT_LIMIT. None is preselected.
 - **"Their share is what they paid"** (`paid_splits`): each person's share across the expenses
   is exactly what they paid, the rest is the user's, filling the expenses in order. It needs
   one currency and what they paid not over the expenses.
@@ -19,7 +21,7 @@ suggestions only; nothing is linked or recorded without a tap.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -29,8 +31,10 @@ from michelito.analysis.spending import Movement
 from michelito.i18n import t
 
 PICK_WINDOW_DAYS = shared.PICK_WINDOW_DAYS
-MAX_PEOPLE = 10
-FIT_TOLERANCE = Decimal("0.02")
+MAX_PEOPLE = 6
+FIT_TOLERANCE = Decimal("0.01")
+# The least difference that still fits, by currency (a share rounded to the ten).
+FIT_FLOOR = {"DOP": Decimal(10), "USD": Decimal("0.25")}
 OTHER_CREDIT_DAYS = 30
 EXPENSE_LIMIT = 60
 CREDIT_LIMIT = 20
@@ -73,13 +77,12 @@ def guess_person(description: str, contacts: Iterable[ledger.Contact]) -> Person
     return None
 
 
-def fits_share(value: Decimal, gross: Decimal) -> bool:
+def fits_share(value: Decimal, gross: Decimal, currency: str) -> bool:
     """`value` is the expense split among 2 to MAX_PEOPLE people (one of their shares)."""
     if value <= 0 or gross <= value:
         return False
-    return any(
-        abs(gross / people - value) <= value * FIT_TOLERANCE for people in range(2, MAX_PEOPLE + 1)
-    )
+    allowed = max(value * FIT_TOLERANCE, FIT_FLOOR.get(currency, _ZERO))
+    return any(abs(gross / people - value) <= allowed for people in range(2, MAX_PEOPLE + 1))
 
 
 def expense_options(
@@ -87,7 +90,9 @@ def expense_options(
 ) -> list[ExpenseOption]:
     value = -credit.amount
     found = [
-        ExpenseOption(m, m.currency == credit.currency and fits_share(value, shared.gross(m)))
+        ExpenseOption(
+            m, m.currency == credit.currency and fits_share(value, shared.gross(m), m.currency)
+        )
         for m in movements
         if shared.is_shareable(m)
         and not m.link
@@ -104,18 +109,22 @@ def credit_options(
     links: Links,
     credit: Movement,
     contacts: Sequence[ledger.Contact],
+    banks: Collection[str],
 ) -> list[CreditOption]:
     own = guess_person(credit.description, contacts)
     found = []
     for move in movements:
-        if move.fingerprint == credit.fingerprint or not shared.is_eligible_credit(move, links):
+        if move.fingerprint == credit.fingerprint or move.account not in banks:
+            continue
+        if not shared.is_eligible_credit(move, links):
             continue
         distance = abs((move.day - credit.day).days)
         if distance > OTHER_CREDIT_DAYS:
             continue
         person = guess_person(move.description, contacts)
         same = own is not None and person is not None and _same(own, person)
-        found.append(((not same, distance, move.fingerprint), CreditOption(move, person)))
+        key = (not same, person is None, distance, move.fingerprint)
+        found.append((key, CreditOption(move, person)))
     found.sort(key=lambda item: item[0])
     return [option for _, option in found[:CREDIT_LIMIT]]
 

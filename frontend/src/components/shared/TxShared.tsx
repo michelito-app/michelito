@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { FOCUS } from '@/components/summary/styles'
-import { Action, Failure } from '@/components/transactions/linkParts'
+import { Action, Failure, LoadFailure } from '@/components/transactions/linkParts'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
@@ -68,6 +68,21 @@ export function CreditPaymentSheet({ tx, onClose }: { tx: Tx; onClose: () => voi
   const home = useSharedHome()
   const groups = (home.data?.groups ?? []).filter((g) => !g.archived)
   const [creating, setCreating] = useState(false)
+  // Until the groups arrive, saying "no groups yet" (and offering a new one) would be wrong.
+  if (home.isPending) {
+    return (
+      <BottomSheet title={t('shared.credit.title')} onClose={onClose}>
+        <p className="text-[13px] text-muted-foreground">{t('shared.loading')}</p>
+      </BottomSheet>
+    )
+  }
+  if (home.isError) {
+    return (
+      <BottomSheet title={t('shared.credit.title')} onClose={onClose}>
+        <LoadFailure what={t('shared.load')} error={home.error} />
+      </BottomSheet>
+    )
+  }
   if (creating) {
     return (
       <BottomSheet title={t('shared.credit.newTitle')} onClose={onClose} full className="flex-1 pb-0">

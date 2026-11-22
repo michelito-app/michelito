@@ -3,6 +3,7 @@ other credits around it and "their share is what they paid". Made-up names and a
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -70,14 +71,16 @@ class TestGuessPerson:
     [
         ("1000", "2000", True),  # half
         ("666.67", "2000", True),  # a third
-        ("1010", "2000", True),  # half within the tolerance
-        ("1100", "2000", False),
+        ("1005", "2000", True),  # half within RD$ 10
+        ("850", "2583", False),  # a third would be 861: more than RD$ 10 and 1 % off
+        ("850", "5870", False),  # a seventh: more than six people
+        ("500", "3000", True),  # a sixth
+        ("10100", "20000", True),  # half within 1 % (over RD$ 10)
         ("2000", "2000", False),  # all of it is not a share
-        ("150", "2000", False),  # less than a tenth
     ],
 )
 def test_fits_share(value: str, gross: str, fits: bool) -> None:
-    assert ledger_credit.fits_share(D(value), D(gross)) is fits
+    assert ledger_credit.fits_share(D(value), D(gross), "DOP") is fits
 
 
 class TestExpenseOptions:
@@ -108,17 +111,22 @@ class TestExpenseOptions:
 
 def test_credit_options_put_the_same_person_first_and_skip_far_ones() -> None:
     credit = _credit("TOKE DE ANA FICTICIA")
+    card_refund = _move("2026-03-10", "-500", "TIENDA FICTICIA", cat.OTHER_INCOME)
+    card_refund = replace(card_refund, account="card")
     flow = [
         credit,
+        card_refund,  # a refund on a card is not someone paying the user
+        _credit("SEGURO FICTICIO REEMBOLSO", day="2026-03-09"),  # nobody named: after people
         _credit("TOKE DE LUIS INVENTADO", day="2026-03-11"),
         _credit("TRANSFERENCIA DE ANA FICTICIA", day="2026-03-30"),
         _credit("TOKE DE ROSA FICTICIA", day="2026-05-01"),  # too far
         _credit("PAGO INTERESES CA", day="2026-03-10"),  # interest is never a payment
     ]
-    found = ledger_credit.credit_options(flow, Links(), credit, CONTACTS)
+    found = ledger_credit.credit_options(flow, Links(), credit, CONTACTS, {"checking"})
     assert [(o.move.description, o.person and o.person.contact_id) for o in found] == [
         ("TRANSFERENCIA DE ANA FICTICIA", ANA),
         ("TOKE DE LUIS INVENTADO", LUIS),
+        ("SEGURO FICTICIO REEMBOLSO", None),
     ]
 
 

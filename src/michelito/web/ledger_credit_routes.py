@@ -76,7 +76,7 @@ def register(
         return CreditPlanOut.build(
             ledger_credit.guess_person(credit.description, contacts),
             ledger_credit.expense_options(flow, book.links, credit),
-            ledger_credit.credit_options(flow, book.links, credit, contacts),
+            ledger_credit.credit_options(flow, book.links, credit, contacts, book.banks),
             dict(book.labels),
         )
 

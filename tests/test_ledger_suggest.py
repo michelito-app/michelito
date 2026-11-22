@@ -50,6 +50,8 @@ def _move(
     [
         ("TRANSFERENCIA DE ANA FICTICIA REF 123456", "ANA FICTICIA"),  # spanish-data
         ("TOKE DE LUIS INVENTADO", "LUIS INVENTADO"),
+        ("TOKE de Luis Inventado xQzWvbR", "LUIS INVENTADO"),  # a reference code
+        ("TOKE de Maria de la Cruz", "MARIA DE LA CRUZ"),
         ("TRANSF. DE ROSA FICTICIA CTA 0001", "ROSA FICTICIA"),
         ("TRANSFERENCIA RECIBIDA DE PEDRO INVENTADO", "PEDRO INVENTADO"),  # spanish-data
         ("DEPOSITO NOMINA EMPRESA INVENTADA", None),

@@ -69,16 +69,26 @@ class BankName:
 
 
 def transfer_name(description: str) -> str | None:
-    """The counterpart printed in an incoming transfer, in capitals (None: none)."""
+    """The counterpart printed in an incoming transfer, in capitals (None: none). It stops at a
+    word that is not a name: a stop word, one with digits, or a bank's reference code, which
+    reads in mixed case where a name does not ("TOKE de Ana Ficticia xQzWvbR")."""
     found = _TRANSFER_NAME.search(description.upper())
     if found is None:
         return None
+    start, end = found.span(1)
+    printed = description[start:end].split()
     words = []
-    for word in found.group(1).split():
-        if word in _NOT_NAME or any(ch.isdigit() for ch in word):
+    for word, as_printed in zip(found.group(1).split(), printed, strict=False):
+        if word in _NOT_NAME or any(ch.isdigit() for ch in word) or _is_code(as_printed):
             break
         words.append(word.strip("."))
     return " ".join(w for w in words if w) or None
+
+
+def _is_code(word: str) -> bool:
+    """Mixed case that no name has: a capital after a small letter ("xQzWvbR", "hGDcaaR")."""
+    letters = [ch for ch in word if ch.isalpha()]
+    return any(a.islower() and b.isupper() for a, b in zip(letters, letters[1:], strict=False))
 
 
 def nice_name(raw: str) -> str:
