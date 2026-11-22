@@ -4,6 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { t } from '@/i18n'
 import { type Candidate, type LinkedTx, request, type ReviewItem } from './api'
+import type { CreditGroupBody, CreditPlan } from './creditGroup'
 import { type LogPage, logPath } from './log'
 import { queryKeys } from './queries'
 import type {
@@ -29,6 +30,8 @@ export const sharedKeys = {
   person: (id: number) => [...queryKeys.transactions, 'shared', 'person', id] as const,
   group: (id: number) => [...queryKeys.transactions, 'shared', 'group', id] as const,
   expenseCandidates: [...queryKeys.transactions, 'shared', 'expense-candidates'] as const,
+  creditPlan: (fingerprint: string) =>
+    [...queryKeys.transactions, 'shared', 'credit-plan', fingerprint] as const,
   paymentCandidates: (query: PaymentQuery) =>
     [...queryKeys.transactions, 'shared', 'payment-candidates', paymentQueryString(query)] as const,
   proposal: (query: ProposalQuery) =>
@@ -118,6 +121,16 @@ export function useExpenseCandidates(enabled: boolean) {
   })
 }
 
+/** A new group from a credit: who paid, the expense it pays back and other credits around it. */
+export function useCreditPlan(fingerprint: string, enabled: boolean) {
+  return useQuery({
+    queryKey: sharedKeys.creditPlan(fingerprint),
+    queryFn: () =>
+      request<CreditPlan>(`/api/shared/credit-plan?${new URLSearchParams({ fingerprint }).toString()}`),
+    enabled,
+  })
+}
+
 /** The payment whose bank transaction is looked for ("Is it in your bank yet?"). */
 export interface PaymentQuery {
   contact_id: number
@@ -158,6 +171,9 @@ const groupPath = (id: number, rest = '') => `/api/shared/groups/${id}${rest}`
 export const ledger = {
   createGroup: (name: string, people: NewPerson[], categoryId: number | null = null) =>
     request<Group>('/api/shared/groups', post({ name, people, category_id: categoryId })),
+  /** A new group from a credit, with its expenses and payments (one change, one undo). */
+  groupFromCredit: (body: CreditGroupBody) =>
+    request<Group>('/api/shared/groups/from-credit', post(body)),
   patchGroup: (id: number, body: { name?: string; archived?: boolean; category_id?: number | null }) =>
     request<Group>(groupPath(id), patch(body)),
   addMember: (id: number, person: NewPerson) =>

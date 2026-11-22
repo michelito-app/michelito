@@ -29,7 +29,7 @@ from michelito.analysis import (
 from michelito.analysis.links import AlreadyLinked, LinkError
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
-from michelito.web import ledger_view
+from michelito.web import ledger_credit_routes, ledger_view
 from michelito.web import links as links_view
 from michelito.web.ledger_schemas import (
     AfterOut,
@@ -842,3 +842,13 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
             with tracked(conn, "group_payment_delete", f"group-{group_id}", subject):
                 ledger_store.delete_payment(conn, payment_id)
             return group_response(conn, group_id)
+
+    ledger_credit_routes.register(
+        app,
+        connection,
+        load_flow,
+        today,
+        ledger_credit_routes.Helpers(
+            tracked, person_id, payment_tx, group_response, _day, load_book
+        ),
+    )

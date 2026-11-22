@@ -170,6 +170,14 @@ MESSAGES: dict[str, str] = {
     "web.ledger.invalid_day": "fecha inválida",
     "web.ledger.description_required": "escribe una descripción",
     "web.ledger.payment_currency": "la transacción está en otra moneda",
+    "analysis.ledger_credit.paid_over": (
+        "lo que te pagaron es más que los gastos: elige «partes iguales» o agrega otro gasto"
+    ),
+    "web.ledger_credit.one_currency": (
+        "para que su parte sea lo que pagó, los gastos y los pagos van en la misma moneda"
+    ),
+    "web.ledger_credit.needs_person": "elige quién te pagó cada transacción",
+    "web.ledger_credit.repeated": "esa transacción está dos veces",
     "web.ledger.payment_needs_debit": "un pago que hiciste es un débito sin otro vínculo",
     "web.review.payment_reason": "¿{name} te pagó? Te debe en «{group}»",
     "web.review.payment_link_reason": "¿Es el pago de {name} en «{group}»? Está sin enlazar",

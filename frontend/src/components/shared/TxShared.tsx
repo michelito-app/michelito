@@ -1,5 +1,6 @@
 // A transaction's side of Shared (its detail): the summary when it is in a group, and the
 // sheet that records a credit as a payment received in a group.
+import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { FOCUS } from '@/components/summary/styles'
@@ -11,6 +12,7 @@ import type { Tx } from '@/lib/api'
 import { formatMoney, groupPath, linkSummaries } from '@/lib/links'
 import { ledger, useGroup, useLedgerWrite, useSharedHome } from '@/lib/sharedQueries'
 import { cn } from '@/lib/utils'
+import { CreditGroupFlow } from './CreditGroupFlow'
 import { Chip } from './parts'
 
 const LABEL = 'text-[13px] font-semibold text-ink-2'
@@ -60,10 +62,37 @@ export function SharedTxPanel({ tx }: { tx: Tx }) {
 }
 
 /** "It is a payment…": a credit recorded as what someone paid the user in a group (pick the group and
- * the person; the credit's amount, date and currency are the payment's). */
+ * the person; the credit's amount, date and currency are the payment's), or in a new group made
+ * here with the expense it pays back ("+ New group", `CreditGroupFlow`). */
 export function CreditPaymentSheet({ tx, onClose }: { tx: Tx; onClose: () => void }) {
   const home = useSharedHome()
   const groups = (home.data?.groups ?? []).filter((g) => !g.archived)
+  const [creating, setCreating] = useState(false)
+  if (creating) {
+    return (
+      <BottomSheet title={t('shared.credit.newTitle')} onClose={onClose} full>
+        <CreditGroupFlow
+          tx={tx}
+          onBack={groups.length > 0 ? () => setCreating(false) : null}
+          onDone={onClose}
+        />
+      </BottomSheet>
+    )
+  }
+  return <ExistingGroupSheet tx={tx} groups={groups} onClose={onClose} onNew={() => setCreating(true)} />
+}
+
+function ExistingGroupSheet({
+  tx,
+  groups,
+  onClose,
+  onNew,
+}: {
+  tx: Tx
+  groups: { id: number; name: string }[]
+  onClose: () => void
+  onNew: () => void
+}) {
   const [groupId, setGroupId] = useState<number | null>(null)
   const chosenGroup = groupId ?? groups[0]?.id ?? null
   const group = useGroup(chosenGroup)
@@ -82,7 +111,13 @@ export function CreditPaymentSheet({ tx, onClose }: { tx: Tx; onClose: () => voi
         {tx.merchant} · {formatMoney(amount, tx.currency)}
       </p>
       {groups.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('shared.credit.noGroups')}</p>
+        <>
+          <p className="text-sm text-muted-foreground">{t('shared.credit.noGroups')}</p>
+          <Button className="h-11 rounded-xl text-sm font-semibold" onClick={onNew}>
+            <Plus size={16} aria-hidden="true" />
+            {t('shared.credit.startNew')}
+          </Button>
+        </>
       ) : (
         <>
           <fieldset className="flex flex-col gap-2">
@@ -93,6 +128,10 @@ export function CreditPaymentSheet({ tx, onClose }: { tx: Tx; onClose: () => voi
                   {row.name}
                 </Chip>
               ))}
+              <Chip on={false} onClick={onNew}>
+                <Plus size={16} aria-hidden="true" />
+                {t('shared.credit.newGroup')}
+              </Chip>
             </div>
           </fieldset>
           <fieldset className="flex flex-col gap-2">
