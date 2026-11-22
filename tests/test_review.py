@@ -197,6 +197,29 @@ def test_history_keeps_dismissed_one_offs_beyond_the_cap_of_five():
     assert sum(1 for _, reviewed in one_offs if not reviewed) == 5
 
 
+def test_one_offs_are_worked_out_once_per_review(monkeypatch):
+    """The pending ones and the dismissed history come from one pass over the history: each
+    pass detects the recurring charges and converts every purchase again."""
+    buys = [
+        move("2026-05-08", f"{amount}000", f"Category {amount}", f"COMERCIO {amount}")
+        for amount in (20, 30, 40, 50, 60, 70)
+    ]
+    largest = buys[-1]
+    real = review.one_offs.suggest
+    calls = []
+    monkeypatch.setattr(
+        review.one_offs, "suggest", lambda *a, **k: calls.append(k) or real(*a, **k)
+    )
+
+    found = detect(buys, dismissed={largest.fingerprint})
+
+    one_offs = [(i.merchant, i.reviewed) for i in found if i.kind == "one_off"]
+    pending = {name for name, reviewed in one_offs if not reviewed}
+    assert pending == {f"COMERCIO {amount}" for amount in (20, 30, 40, 50, 60)}
+    assert [name for name, reviewed in one_offs if reviewed] == ["COMERCIO 70"]
+    assert len(calls) == 1
+
+
 def test_reviewed_marks_are_per_kind_and_order_is_newest_first():
     items = [
         move("2026-05-03", "1200", merchant="CAFE", seq=1),

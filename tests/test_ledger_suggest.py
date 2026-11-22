@@ -186,6 +186,36 @@ def test_reverse_flow_proposes_linking_an_unlinked_payment() -> None:
     assert (found["dep"].payment_id, found["dep"].contact_id) == (7, LUIS)
 
 
+def test_reverse_flow_reads_each_description_once_whoever_owes(monkeypatch) -> None:
+    """The credit is checked against every contact who owes: its words are read once, not once
+    per contact (the review asks on every request, over the whole history)."""
+    book, states = _book()
+    moves = [_move("2026-01-26", "-900", "TOKE DE NADIE", "nobody")]  # matches nobody
+    real = ledger_suggest.described
+    calls: list[str] = []
+    monkeypatch.setattr(ledger_suggest, "described", lambda text: calls.append(text) or real(text))
+
+    assert ledger_suggest.reverse_suggestions(moves, Links(), book, states) == {}
+
+    assert calls == ["TOKE DE NADIE"]  # Ana and Luis both owe
+
+
+@pytest.mark.parametrize(
+    ("contact", "text", "expected"),
+    [
+        (Contact(ANA, "Ana", aliases=("ANA FICTICIA",)), "TRANSFERENCIA DE  ana  ficticia", True),
+        (Contact(ANA, "Ana", aliases=("ANA FICTICIA",)), "TRANSFERENCIA DE ANA FICTICIAS", False),
+        (Contact(ANA, "Ana", aliases=("", "  ")), "TRANSFERENCIA DE ANA", False),  # empty aliases
+        (Contact(ANA, "Ana"), "ANA", False),  # a name too short matches only by alias
+        (Contact(LUIS, "Luis Inventado"), "TOKE DE INVENTADO LUIS", True),
+        (Contact(LUIS, "Luis Inventado"), "", False),
+    ],
+)
+def test_matching_read_words(contact: Contact, text: str, expected: bool) -> None:
+    words = ledger_suggest.contact_words(contact)
+    assert ledger_suggest.matches_described(words, ledger_suggest.described(text)) is expected
+
+
 @pytest.fixture
 def conn(tmp_path: Path):
     with closing(db.connect(tmp_path / "michelito.db")) as connection:

@@ -126,15 +126,40 @@ def bank_names(movements: Iterable[Movement], book: ledger.Ledger) -> list[BankN
     return sorted(seen.values(), key=lambda b: (b.last_day, b.count), reverse=True)
 
 
+@dataclass(frozen=True)
+class Described:
+    """A description's words, read once to compare with any number of contacts."""
+
+    padded: str  # its words, space-separated and with a space at both ends
+    words: frozenset[str]
+
+
+@dataclass(frozen=True)
+class ContactWords:
+    """What of a contact a description is compared with, read once."""
+
+    aliases: tuple[str, ...]  # each alias's words, padded like `Described.padded`
+    names: frozenset[str]  # `shared.name_words` of the name
+
+
+def described(description: str) -> Described:
+    found = shared.words(shared.fold(" ".join(description.split())))
+    return Described(f" {' '.join(found)} ", frozenset(found))
+
+
+def contact_words(contact: ledger.Contact) -> ContactWords:
+    aliases = tuple(f" {' '.join(words)} " for words in map(shared.words, contact.aliases) if words)
+    return ContactWords(aliases, shared.name_words(contact.name))
+
+
+def matches_described(contact: ContactWords, text: Described) -> bool:
+    if any(alias in text.padded for alias in contact.aliases):
+        return True
+    return bool(contact.names) and contact.names <= text.words
+
+
 def matches_contact(contact: ledger.Contact, description: str) -> bool:
-    text = shared.fold(" ".join(description.split()))
-    padded = f" {' '.join(shared.words(text))} "
-    for alias in contact.aliases:
-        words = shared.words(alias)
-        if words and f" {' '.join(words)} " in padded:
-            return True
-    names = shared.name_words(contact.name)
-    return bool(names) and names <= set(shared.words(text))
+    return matches_described(contact_words(contact), described(description))
 
 
 # --- "I paid it" --------------------------------------------------------------------------
@@ -269,6 +294,8 @@ def reverse_suggestions(
         if p.fingerprint is None and p.to_contact == book.me
     ]
     owing = {c.id: _owed_by(c.id, states) for c in book.contacts.values() if not c.is_me}
+    # Read once: every credit of the history is compared with every contact who owes.
+    named = {cid: contact_words(book.contacts[cid]) for cid, groups in owing.items() if groups}
     for move in movements:
         if not shared.is_eligible_credit(move, links):
             continue
@@ -280,11 +307,13 @@ def reverse_suggestions(
                 move, group_id, payment.from_contact, value, payment.id
             )
             continue
-        for contact_id, groups in owing.items():
-            contact = book.contacts[contact_id]
-            if not groups or not matches_contact(contact, move.description):
+        if not named:
+            continue
+        text = described(move.description)
+        for contact_id, words in named.items():
+            if not matches_described(words, text):
                 continue
-            chosen = _group_for(move, value, groups)
+            chosen = _group_for(move, value, owing[contact_id])
             if chosen is not None:
                 found[move.fingerprint] = ReverseSuggestion(move, chosen, contact_id, value)
                 break

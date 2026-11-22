@@ -209,24 +209,22 @@ def _one_offs(
     dismissed: Collection[str],
     unions: Mapping[str, str] | None = None,
 ) -> list[Item]:
-    """The pending suggestions and, apart, the already dismissed ones (for the history)."""
+    """The pending suggestions and, apart, the already dismissed ones (for the history).
 
-    def suggest(skip: Collection[str], limit: int | None) -> list[one_offs.Suggestion]:
-        return one_offs.suggest(
-            movements,
-            month,
-            rate_for_month=rate_for_month,
-            dismissed=skip,
-            marks=marks,
-            limit=limit,
-            unions=unions,
-        )
-
-    pending = suggest(dismissed, one_offs.MAX_PER_MONTH)
-    seen = {s.fingerprint for s in pending}
+    One pass gives both: a suggestion is judged on its own and the order is total, so leaving
+    out the dismissed ones afterwards is the same as leaving them out before."""
     # No cap: a dismissed one must not drop out of the history because 5 larger ones exist.
-    everything = suggest((), None)
-    done = [s for s in everything if s.fingerprint in dismissed and s.fingerprint not in seen]
+    everything = one_offs.suggest(
+        movements,
+        month,
+        rate_for_month=rate_for_month,
+        dismissed=(),
+        marks=marks,
+        limit=None,
+        unions=unions,
+    )
+    pending = [s for s in everything if s.fingerprint not in dismissed][: one_offs.MAX_PER_MONTH]
+    done = [s for s in everything if s.fingerprint in dismissed]
     by_fp = {m.fingerprint: m for m in movements}
     return [
         _item("one_off", by_fp[s.fingerprint], s.amount_dop, " · ".join(s.reasons))
