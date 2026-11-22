@@ -333,6 +333,7 @@ export interface Tx {
   link_id: number | null
   can_share: boolean // server rules: it can be added to a group ("I paid it")
   can_reimburse: boolean // a credit that can be a payment received in a group
+  can_pay: boolean // a bank debit that can be a payment the user made in a group
   can_exchange: boolean // it can be a leg of a currency exchange
   gross_cents: number | null
   pending_cents: number // owed to you from this expense

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
 import type { ExchangeInfo, LinkedTx, Tx } from './api'
 import {
+  showDebitPayment,
   backPath,
   categoryLocked,
   exchangeLine,
@@ -76,6 +77,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     link_id: null,
     can_share: false,
     can_reimburse: false,
+    can_pay: false,
     can_exchange: false,
     ...overrides,
   }
@@ -200,6 +202,10 @@ describe('detail sections', () => {
     // A credit already in a group is shown by its group, not offered again.
     expect(showReimbursement(tx({ can_reimburse: true, ledger: LEDGER }))).toBe(false)
     expect(showReimbursement(tx({ amount_cents: -100, kind: 'income' }))).toBe(false)
+    expect(showDebitPayment(tx({ can_pay: true }))).toBe(true)
+    // A debit already in a group is shown by its group, not offered again.
+    expect(showDebitPayment(tx({ can_pay: true, ledger: LEDGER }))).toBe(false)
+    expect(showDebitPayment(tx())).toBe(false)
     expect(showExchange(tx({ can_exchange: true }))).toBe(true)
     expect(showExchange(tx({ link: 'exchange' }))).toBe(true)
   })

@@ -498,6 +498,7 @@ class TxOut(BaseModel):
     link_id: int | None  # id of the saved link or ledger group (also when dormant)
     can_share: bool  # can be added to a group ("I paid it")
     can_reimburse: bool  # a credit that can be a payment received
+    can_pay: bool  # a bank debit that can be a payment the user made in a group
     can_exchange: bool  # can be a leg of a currency exchange
     gross_cents: int | None
     pending_cents: int  # owed to you on this expense (in a group); 0 otherwise
@@ -564,6 +565,7 @@ class TxOut(BaseModel):
             link_id=row.link_id,
             can_share=row.can_share,
             can_reimburse=row.can_reimburse,
+            can_pay=row.can_pay,
             can_exchange=row.can_exchange,
             gross_cents=_cents(v.gross),
             pending_cents=0

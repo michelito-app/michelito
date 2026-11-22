@@ -298,6 +298,16 @@ export const shared = {
     'Lo que te pagaron pasa de los gastos o está en otra moneda: se divide en partes iguales.',
   'shared.credit.create': 'Crear el grupo y registrar el pago',
 
+  // A debit as a payment the user made (from a transaction)
+  'shared.debit.title': 'Pago en un compartido',
+  'shared.debit.offer': '¿Se lo pagaste a alguien de un grupo?',
+  'shared.debit.hint': '¿Es lo que le pagaste a alguien en un grupo? Elige el grupo y la persona.',
+  'shared.debit.to': '¿A quién?',
+  'shared.debit.afterOwes': 'Después {name} te deberá {amount} en este grupo.',
+  'shared.debit.afterOwe': 'Después le deberás {amount} a {name} en este grupo.',
+  'shared.debit.afterSettled': 'Con esto queda saldado con {name} en este grupo.',
+  'shared.debit.noPeople': 'Este grupo no tiene a nadie más. Agrega a la persona en el grupo.',
+
   // New group and people
   'shared.newGroup.title': 'Nuevo grupo',
   'shared.newGroup.name': 'Nombre',

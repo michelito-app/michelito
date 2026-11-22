@@ -151,3 +151,39 @@ test('a cash expense and equal parts leave what is still owed', async ({ page })
   const amigaMember = group.members.find((m) => !m.is_me)!
   expect(amigaMember.balance).toEqual([{ currency: 'DOP', cents: 10000 }])
 })
+
+test('a transfer the user made is recorded as their payment to someone in a group', async ({
+  page,
+}) => {
+  const JANUARY = '2026-01'
+  const sent = await fingerprintOf(page.request, JANUARY, /PERSONA INVENTADA/)
+  await page.goto(`/transactions?month=${JANUARY}&tx=${sent}`)
+  if (isPhone(page)) {
+    await page
+      .locator('[data-mobile-detail]')
+      .getByRole('region', { name: t('transactions.actions.more') })
+      .getByRole('button', { name: t('shared.debit.title') })
+      .click()
+  } else {
+    await page
+      .getByRole('complementary')
+      .getByRole('region', { name: t('shared.debit.title') })
+      .getByRole('button', { name: t('shared.tx.record') })
+      .click()
+  }
+  const sheet = page.getByRole('dialog', { name: t('shared.debit.title') })
+  await sheet.getByRole('button', { name: 'Luis', exact: true }).first().click()
+  const who = sheet.getByRole('group', { name: t('shared.debit.to') })
+  await expect(who.getByRole('button', { name: 'Luis' })).toHaveAttribute('aria-pressed', 'true')
+  // Luis owed RD$ 4,000; after the user sends him RD$ 3,000 he owes RD$ 7,000.
+  await expect(sheet.getByTestId('debit-after')).toHaveText(
+    t('shared.debit.afterOwes', { name: 'Luis', amount: 'RD$ 7,000' }),
+  )
+  await sheet.getByRole('button', { name: t('shared.credit.record') }).click()
+  await expect(sheet).toHaveCount(0)
+
+  const where = isPhone(page) ? page.locator('[data-mobile-detail]') : page.getByRole('complementary')
+  await expect(where).toContainText(t('shared.tx.payment', { group: 'Luis' }))
+  const log = (await (await page.request.get('/api/log?limit=20')).json()) as { items: { id: number }[] }
+  expect(log.items.filter((e) => e.id > mark)).toHaveLength(1)
+})

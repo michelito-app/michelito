@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { AddExpenseSheet } from '@/components/shared/AddExpenseSheet'
+import { DebitPaymentSheet } from '@/components/shared/DebitPaymentSheet'
 import { CreditPaymentSheet, SharedTxPanel } from '@/components/shared/TxShared'
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
@@ -17,13 +18,14 @@ import { Action, Failure, SECTION, SECTION_TITLE } from './linkParts'
 export function LinkSummaries({ tx }: { tx: Tx }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [open, setOpen] = useState<'share' | 'credit' | null>(null)
+  const [open, setOpen] = useState<'share' | 'credit' | 'debit' | null>(null)
   const summaries = linkSummaries(tx)
   if (summaries.length === 0) return null
 
   function act(summary: LinkSummary) {
     if (summary.kind === 'shared') return setOpen('share')
     if (summary.kind === 'reimbursement') return setOpen('credit')
+    if (summary.kind === 'debitPayment') return setOpen('debit')
     navigate(linkPagePath(tx.fingerprint), {
       state: { from: `${location.pathname}${location.search}` },
     })
@@ -67,6 +69,7 @@ export function LinkSummaries({ tx }: { tx: Tx }) {
         <AddExpenseSheet tx={tx} onClose={() => setOpen(null)} onSaved={() => setOpen(null)} />
       )}
       {open === 'credit' && <CreditPaymentSheet tx={tx} onClose={() => setOpen(null)} />}
+      {open === 'debit' && <DebitPaymentSheet tx={tx} onClose={() => setOpen(null)} />}
     </>
   )
 }

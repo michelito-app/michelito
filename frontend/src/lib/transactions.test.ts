@@ -74,6 +74,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     link_id: null,
     can_share: false,
     can_reimburse: false,
+    can_pay: false,
     can_exchange: false,
     ...overrides,
   }

@@ -3,7 +3,7 @@
 import { t } from '@/i18n'
 import type { Tx } from './api'
 import { showCashBox } from './cashBox'
-import { linkSummaries, showExchange, showInvestment, showReimbursement } from './links'
+import { linkSummaries, showDebitPayment, showExchange, showInvestment, showReimbursement } from './links'
 
 /** What a sheet of the phone's detail holds. */
 export type SheetKind =
@@ -12,6 +12,7 @@ export type SheetKind =
   | 'oneOff'
   | 'shared'
   | 'reimbursement'
+  | 'debitPayment'
   | 'exchange'
   | 'investment'
   | 'cashBox'
@@ -82,6 +83,7 @@ export function detailPlan({ tx, reserve, recurring }: PlanInput): DetailPlan {
   }
   offer('oneOff', tx.kind === 'expense')
   offer('reimbursement', showReimbursement(tx))
+  offer('debitPayment', showDebitPayment(tx))
   offer('investment', showInvestment(tx))
   offer('cashBox', showCashBox(tx))
   // Only when it can really be linked; otherwise the reason, at most, as a note.

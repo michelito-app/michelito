@@ -35,6 +35,7 @@ import {
 } from '@/lib/transactions'
 import { cn } from '@/lib/utils'
 import { AddExpenseSheet } from '@/components/shared/AddExpenseSheet'
+import { DebitPaymentSheet } from '@/components/shared/DebitPaymentSheet'
 import { CreditPaymentSheet, SharedTxPanel } from '@/components/shared/TxShared'
 import { CashBoxSection } from './CashBoxSection'
 import { ExchangeSection } from './ExchangeSection'
@@ -62,6 +63,7 @@ const SHEET_TITLE: Record<SheetKind, () => string> = {
   oneOff: () => t('transactions.actions.oneOff'),
   shared: () => t('transactions.actions.share'),
   reimbursement: () => t('shared.credit.title'),
+  debitPayment: () => t('shared.debit.title'),
   exchange: () => t('transactions.actions.exchange'),
   investment: () => t('transactions.actions.investment'),
   cashBox: () => t('transactions.actions.cashBox'),
@@ -76,6 +78,7 @@ const ICONS: Record<SheetKind, ReactNode> = {
   oneOff: <Zap size={18} aria-hidden="true" />,
   shared: <Share2 size={18} aria-hidden="true" />,
   reimbursement: <Undo2 size={18} aria-hidden="true" />,
+  debitPayment: <Undo2 size={18} aria-hidden="true" className="-scale-x-100" />,
   exchange: <ArrowLeftRight size={18} aria-hidden="true" />,
   investment: <Sprout size={18} aria-hidden="true" />,
   cashBox: <Vault size={18} aria-hidden="true" />,
@@ -289,9 +292,11 @@ export function MobileDetail({
         <AddExpenseSheet tx={tx} onClose={close} onSaved={() => setSheet(null)} />
       )}
       {sheet === 'reimbursement' && <CreditPaymentSheet tx={tx} onClose={close} />}
+      {sheet === 'debitPayment' && <DebitPaymentSheet tx={tx} onClose={close} />}
       {sheet !== null &&
         !(sheet === 'shared' && tx.ledger === null) &&
-        sheet !== 'reimbursement' && (
+        sheet !== 'reimbursement' &&
+        sheet !== 'debitPayment' && (
         <BottomSheet title={SHEET_TITLE[sheet]()} onClose={close}>
           <SheetBody
             kind={sheet}
@@ -392,6 +397,7 @@ function SheetBody({ kind, tx, correction, onSaved, onDone, onCloseDetail }: She
     case 'shared':
       return <SharedTxPanel tx={tx} />
     case 'reimbursement':
+    case 'debitPayment':
       return null
     case 'exchange':
       return <ExchangeSection tx={tx} />

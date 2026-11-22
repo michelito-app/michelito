@@ -46,6 +46,7 @@ function tx(overrides: Partial<Tx> = {}): Tx {
     link_id: null,
     can_share: false,
     can_reimburse: false,
+    can_pay: false,
     can_exchange: false,
     ...overrides,
   }
@@ -66,6 +67,11 @@ describe('detailPlan', () => {
   it('an income offers no one-off; a reimbursable credit offers the reimbursement', () => {
     const { actions } = plan({ kind: 'income', amount_cents: -5_000, can_reimburse: true })
     expect(actions).toEqual(['reimbursement', 'history'])
+  })
+
+  it('a transfer the user made to someone offers recording it as a payment in a group', () => {
+    const { actions } = plan({ kind: 'transfer', can_pay: true })
+    expect(actions).toEqual(['debitPayment', 'history'])
   })
 
   it('offers only what the server allows', () => {

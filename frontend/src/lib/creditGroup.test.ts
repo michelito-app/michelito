@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { LinkedTx } from './api'
 import type { ChosenPerson } from './ledger'
 import {
+  afterPaying,
   type ChosenCredit,
   type ChosenExpense,
   creditGroupBody,
@@ -142,5 +143,19 @@ describe('creditGroupBody', () => {
         { amount_cents: 90000, currency: 'DOP', day: '2026-03-02', description: 'Taxi' },
       ],
     })
+  })
+})
+
+describe('afterPaying', () => {
+  it('paying what the user owed settles it', () => {
+    expect(afterPaying(-220000, 220000)).toEqual({ kind: 'settled', cents: 0 })
+  })
+
+  it('paying less leaves the rest owed by the user', () => {
+    expect(afterPaying(-300000, 220000)).toEqual({ kind: 'owe', cents: 80000 })
+  })
+
+  it('paying someone who owed nothing makes them owe it back', () => {
+    expect(afterPaying(0, 220000)).toEqual({ kind: 'owes', cents: 220000 })
   })
 })

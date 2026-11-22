@@ -126,6 +126,12 @@ export function showReimbursement(tx: Tx): boolean {
   return tx.can_reimburse && tx.ledger === null
 }
 
+/** Is "It is a payment…" offered on a debit? A bank transfer the user made that can be a payment
+ * to someone in a group, not in a group yet. */
+export function showDebitPayment(tx: Tx): boolean {
+  return tx.can_pay && tx.ledger === null
+}
+
 /** Is the Currency exchange section shown? */
 export function showExchange(tx: Tx): boolean {
   return tx.can_exchange || tx.link === 'exchange'
@@ -157,7 +163,7 @@ export function toggled(current: ReadonlySet<string>, key: string): ReadonlySet<
 }
 
 /** Which link a panel line summarizes. */
-export type SummaryKind = 'shared' | 'reimbursement' | 'exchange' | 'investment'
+export type SummaryKind = 'shared' | 'reimbursement' | 'debitPayment' | 'exchange' | 'investment'
 
 /** A line of the detail panel: the link's status and the button that opens its screen (or, with
  * `href`, the page it goes to: a shared group). */
@@ -204,6 +210,16 @@ function reimbursementSummary(): LinkSummary {
     kind: 'reimbursement',
     title: t('shared.credit.title'),
     text: t('shared.tx.creditOffer'),
+    action: t('shared.tx.record'),
+  }
+}
+
+/** A bank debit not in a group: "Did you pay this to someone in a group?". */
+function debitPaymentSummary(): LinkSummary {
+  return {
+    kind: 'debitPayment',
+    title: t('shared.debit.title'),
+    text: t('shared.debit.offer'),
     action: t('shared.tx.record'),
   }
 }
@@ -258,6 +274,7 @@ export function linkSummaries(tx: Tx): LinkSummary[] {
   const found: LinkSummary[] = []
   if (showShared(tx)) found.push(sharedSummary(tx))
   if (showReimbursement(tx)) found.push(reimbursementSummary())
+  if (showDebitPayment(tx)) found.push(debitPaymentSummary())
   if (showExchange(tx)) found.push(exchangeSummary(tx))
   if (showInvestment(tx)) found.push(investmentSummary(tx))
   return found

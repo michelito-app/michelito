@@ -245,6 +245,7 @@ function tx(overrides: Partial<Tx>): Tx {
     link: '',
     can_share: false,
     can_reimburse: false,
+    can_pay: false,
     can_exchange: false,
     can_invest: false,
     can_invest_credit: false,

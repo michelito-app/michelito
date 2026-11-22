@@ -729,3 +729,35 @@ def test_a_migration_mismatch_is_a_clear_message(
     assert found.status_code == 503
     assert "check_shared_migration.py" in found.json()["detail"]
     assert "versión 19" in found.json()["detail"]  # spanish-ui
+
+
+def test_a_bank_debit_to_someone_can_be_a_payment_in_a_group(
+    client: TestClient, db_path: Path
+) -> None:
+    """ "It is a payment…" from the user's side: a transfer to a third party offers it, an
+    expense on a card does not, and once it is a payment in a group it is offered no more."""
+    transfer = _tx(client, TO_ROSA)
+    assert transfer["can_pay"] is True
+    assert _tx(client, "CAFE FICTICIO")["can_pay"] is False
+    assert _tx(client, ANA_SENT)["can_pay"] is False  # a credit: "It is a payment…" of its own
+    # A bank debit that is an expense offers "Share" instead (cash from an ATM, say).
+    with closing(db.connect(db_path)) as conn:
+        _add_bank_rows(conn, [("2026-01-23", "RETIRO CAJERO FICTICIO", "debit", "50000")])
+    atm = _tx(client, "RETIRO CAJERO FICTICIO")
+    assert atm["kind"] == "expense" and atm["can_share"] and not atm["can_pay"]
+    group = _group(client, people=[{"name": "Rosa"}])
+    me, people = _ids(group)
+    paid = _pay(
+        client,
+        group["id"],
+        {
+            "from_contact": me,
+            "to_contact": people["Rosa"],
+            "amount_cents": 200000,
+            "day": transfer["day"],
+            "fingerprint": transfer["fingerprint"],
+        },
+    )
+    assert paid.status_code == 201, paid.text
+    after = _tx(client, TO_ROSA)
+    assert after["can_pay"] is False and after["ledger"]["role"] == "payment"

@@ -59,6 +59,7 @@ class RowLinks:
     # What can be done with the row (the same rules the server checks).
     can_share: bool = False
     can_reimburse: bool = False
+    can_pay: bool = False  # a bank debit that can be a payment the user made in a group
     can_exchange: bool = False
     ledger: LedgerRow | None = None
     exchange: ExchangeState | None = None
@@ -208,6 +209,10 @@ def _row(ctx: Context, move: Movement, exchange: ExchangeState | None) -> RowLin
         link_id=link_id,
         can_share=kind == "" and is_shareable(move),
         can_reimburse=shared.is_eligible_credit(move, ctx.links),
+        # Not an expense: an expense offers "Share" (an ATM withdrawal or a loan payment is one).
+        can_pay=row is None
+        and not is_shareable(move)
+        and ledger_suggest.is_payment_debit(move, ctx.links, ctx.banks),
         can_exchange=exchanges.is_eligible(move, ctx.links, ctx.banks),
         ledger=row,
         exchange=exchange,

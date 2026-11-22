@@ -162,3 +162,14 @@ export function creditGroupBody(
     ),
   }
 }
+
+/** What a person owes the user in a group after the user pays them `paidCents` (their balance
+ * goes up: a debt of the user shrinks, or they come to owe it back). */
+export function afterPaying(
+  balanceCents: number,
+  paidCents: number,
+): { kind: 'owes' | 'owe' | 'settled'; cents: number } {
+  const after = balanceCents + paidCents
+  if (after === 0) return { kind: 'settled', cents: 0 }
+  return after > 0 ? { kind: 'owes', cents: after } : { kind: 'owe', cents: -after }
+}
