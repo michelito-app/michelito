@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
+import { currentOpener } from '@/lib/opener'
 import { cn } from '@/lib/utils'
 
 interface ModalProps {
@@ -21,7 +22,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
     const dialog = ref.current
     // On close, focus returns to what opened it (on unmount `close()` no longer returns it: the
     // dialog has left the document).
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const opener = currentOpener()
     if (dialog && !dialog.open) dialog.showModal()
     return () => {
       dialog?.close()

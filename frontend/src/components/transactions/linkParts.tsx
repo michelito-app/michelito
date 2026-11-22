@@ -4,6 +4,7 @@ import { t } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import type { LinkedTx } from '@/lib/api'
 import { linkedAmount, linkedLabel } from '@/lib/links'
+import { currentOpener } from '@/lib/opener'
 import { cn } from '@/lib/utils'
 
 export const SECTION = 'flex flex-col gap-3 rounded-xl border border-border px-3.5 py-3'
@@ -90,7 +91,7 @@ export function ConfirmBox({
 }: ConfirmBoxProps) {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const opener = currentOpener()
     box.current?.focus()
     return () => opener?.focus()
   }, [])

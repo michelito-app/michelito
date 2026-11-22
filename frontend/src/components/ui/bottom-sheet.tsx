@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
+import { currentOpener } from '@/lib/opener'
 import { lockScroll } from '@/lib/scrollLock'
 import { cn } from '@/lib/utils'
 
@@ -25,7 +26,7 @@ export function BottomSheet({ title, onClose, children, className, full }: Botto
 
   useEffect(() => {
     const dialog = ref.current
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const opener = currentOpener()
     if (dialog && !dialog.open) dialog.showModal()
     const unlock = lockScroll()
     return () => {
