@@ -22,11 +22,13 @@ import {
 import { usePublishNavMonth } from '@/lib/navMonth'
 import { useMonths, useSummary } from '@/lib/queries'
 import { useScrollMemory } from '@/lib/scrollMemory'
+import { useSummaryPrefetch } from '@/lib/summaryPrefetch'
 import { useAccountSelection } from '@/lib/useAccountSelection'
 import { cn } from '@/lib/utils'
 
 /** A horizontal swipe longer than this (and mostly sideways) changes the month. */
 const SWIPE_PX = 60
+const NO_NEIGHBORS: Neighbors = { older: null, newer: null }
 
 /** Summary screen: a stack of cards for the month (`?month=YYYY-MM`, by default the newest, in
  * progress) with the chosen accounts (`accounts=k1,k2`, also remembered in the browser). Each
@@ -38,6 +40,8 @@ export function SummaryPage() {
   const month = months.data ? resolveMonth(months.data, params.get('month')) : null
   const summary = useSummary(month, selection)
   const home = months.data && month ? returnTarget(months.data, month) : null
+  const around = months.data && month ? neighbors(months.data, month) : NO_NEIGHBORS
+  useSummaryPrefetch(month, around, selection, summary.isSuccess && !summary.isPlaceholderData)
   usePublishNavMonth(home ? month : null)
   useScrollMemory()
 
@@ -56,7 +60,6 @@ export function SummaryPage() {
   if (month === null) return <NoMonths />
 
   const option = months.data.find((o) => o.month === month) ?? months.data[0]
-  const around = neighbors(months.data, month)
   return (
     <>
       <Swipe around={around} onNavigate={goTo}>

@@ -893,3 +893,9 @@ test('«Revisa tus personas» shows once after the migration and «Listo» close
   await sheet.getByRole('button', { name: t('shared.review.done') }).click()
   await expect(sheet).toHaveCount(0)
 })
+
+// The Summary fetches the months around in the background: a request still on its way through a
+// route of this file when a test ends is dropped, not reported as that test's failure.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})

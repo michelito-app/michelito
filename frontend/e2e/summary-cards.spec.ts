@@ -401,3 +401,62 @@ test('a card that does not load says so and retries', async ({ page }) => {
   // Retrying stays on the Summary: the button sits above the card's link.
   await expect(page).toHaveURL(`/?month=${NEWEST}`)
 })
+
+// Speed: nothing on the Summary waits for another answer it does not need, and the months around
+// are already there when the month changes.
+
+function apiCalls(page: Page): string[] {
+  const calls: string[] = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.pathname.startsWith('/api/')) calls.push(`${url.pathname}${url.search}`)
+  })
+  return calls
+}
+
+test('the pace is asked without waiting for the summary', async ({ page }) => {
+  const calls = apiCalls(page)
+  const pace = `/api/summary/pace?month=${NEWEST}`
+  // The summary's answer is held until the pace has been asked for: if the pace waited for the
+  // summary, neither would arrive.
+  await page.route(`**/api/summary?month=${NEWEST}`, async (route) => {
+    await expect.poll(() => calls.includes(pace)).toBe(true)
+    await route.continue()
+  })
+
+  await page.goto(`/?month=${NEWEST}`)
+
+  await cardsReady(page)
+  expect(calls.filter((call) => call === pace)).toHaveLength(1)
+})
+
+test('the months around are fetched ahead: changing the month shows it without the server', async ({
+  page,
+}) => {
+  const calls = apiCalls(page)
+  const around = ['2025-12', NEWEST].flatMap((month) => [
+    `/api/summary?month=${month}`,
+    `/api/summary/pace?month=${month}`,
+  ])
+  await page.goto('/?month=2026-01')
+  await cardsReady(page)
+  await expect.poll(() => around.every((call) => calls.includes(call))).toBe(true)
+  // From here on the server never answers about the older month again: what shows next can
+  // only be what was fetched ahead.
+  await page.route('**/api/summary**month=2025-12**', () => {})
+
+  await page.getByRole('button', { name: t('months.previous') }).first().click()
+
+  await expect(page).toHaveURL('/?month=2025-12')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('2025')
+  await expect(card(page, 'spending')).toBeVisible()
+  await expect(card(page, 'categories')).toBeVisible()
+  await expect(page.locator('[data-testid="summary-cards"] [aria-busy="true"]')).toHaveCount(0)
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})
+
+// The Summary fetches the months around in the background: a request still on its way through a
+// route of this file when a test ends is dropped, not reported as that test's failure.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})

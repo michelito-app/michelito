@@ -1,9 +1,10 @@
 // Queries of the Summary's cards that no other screen uses.
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { type Selection, selectionParam, withAccounts } from './accountFilter'
 import { request } from './api'
 import { DISMISSED_KEY, type Invitation, parseDismissed } from './home'
+import { FRESH_MS } from './queries'
 
 /** GET /api/summary/pace: cumulative spending per day against last month, up to today. */
 export interface Pace {
@@ -21,14 +22,19 @@ export interface Pace {
   today: string // the server's today
 }
 
-/** Under the Summary's key: whatever invalidates the Summary also refreshes the pace. */
-export function usePace(month: string, selection: Selection) {
-  return useQuery({
+/** Under the Summary's key: whatever invalidates the Summary also refreshes the pace. Shared by
+ * the card and what is fetched ahead (`summaryPrefetch`). */
+export function paceOptions(month: string, selection: Selection) {
+  return queryOptions({
     queryKey: ['summary', 'pace', month, selectionParam(selection) ?? 'all'] as const,
     queryFn: () =>
       request<Pace>(withAccounts(`/api/summary/pace?month=${encodeURIComponent(month)}`, selection)),
-    placeholderData: keepPreviousData,
+    staleTime: FRESH_MS,
   })
+}
+
+export function usePace(month: string, selection: Selection) {
+  return useQuery({ ...paceOptions(month, selection), placeholderData: keepPreviousData })
 }
 
 function readDismissed(): Invitation[] {

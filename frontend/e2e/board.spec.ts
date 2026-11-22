@@ -1395,3 +1395,9 @@ test('links saved before the English rename open the new pages', async ({ page }
   await page.goto('/bitacora') // spanish-data: pre-rename link
   await expect(page).toHaveURL(/\/log$/)
 })
+
+// The Summary fetches the months around in the background: a request still on its way through a
+// route of this file when a test ends is dropped, not reported as that test's failure.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})

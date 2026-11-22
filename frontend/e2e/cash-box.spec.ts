@@ -275,3 +275,9 @@ test('everything is undone: the deposit, the stored withdrawal and the expense',
   await expect(kpiRegion(page)).toBeVisible()
   await expect(page.getByTestId('cash-box-note')).toHaveCount(0)
 })
+
+// The Summary fetches the months around in the background: a request still on its way through a
+// route of this file when a test ends is dropped, not reported as that test's failure.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})

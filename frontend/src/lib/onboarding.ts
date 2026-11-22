@@ -1,7 +1,7 @@
 // Hosted onboarding (src/michelito/hosted/onboarding_routes.py): the gate, uploads and their
 // processing, the first review and the setup checklist. The pure logic is kept apart from the
 // calls. A PDF password only ever travels in a POST body and is never kept here.
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { t } from '@/i18n'
 import { request } from '@/lib/api'
 import { monthPhrase } from '@/lib/months'
@@ -236,12 +236,22 @@ export function previewUrl(demoUrl: string | undefined, path: string): string | 
 export const onboardingKey = ['onboarding'] as const
 export const merchantsKey = ['onboarding', 'merchants'] as const
 
-export function useOnboarding(enabled = true) {
-  return useQuery({
+/** Just long enough for the second part of the screen to mount: later, coming back to the
+ * Summary asks again, which is what shows on the checklist what was done on another screen. */
+export const ONBOARDING_FRESH_MS = 2_000
+
+/** The gate and the Summary both need it when the app opens: the second one to mount uses the
+ * first one's answer, without asking again. */
+export function onboardingOptions() {
+  return queryOptions({
     queryKey: onboardingKey,
     queryFn: () => request<Onboarding>('/api/onboarding'),
-    enabled,
+    staleTime: ONBOARDING_FRESH_MS,
   })
+}
+
+export function useOnboarding(enabled = true) {
+  return useQuery({ ...onboardingOptions(), enabled })
 }
 
 export function useMerchants(enabled = true) {

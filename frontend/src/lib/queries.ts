@@ -1,6 +1,12 @@
 // Shared TanStack Query queries. The keys are public so the screens that write (rates,
 // corrections) invalidate what changes.
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import {
   type Account,
   type BatchBody,
@@ -117,14 +123,26 @@ export function useMonths(selection: Selection = null, enabled = true) {
   })
 }
 
+/** How long an answer fetched ahead of the screen that shows it counts as fresh: that screen
+ * then uses it as it is, without asking again. Short on purpose: after it, what is in the cache
+ * still shows at once and is refreshed behind. */
+export const FRESH_MS = 10_000
+
+/** The month's summary for the selected accounts (shared by the screen and what is fetched
+ * ahead: `summaryPrefetch`). */
+export function summaryOptions(month: string, selection: Selection = null) {
+  return queryOptions({
+    queryKey: queryKeys.summary(month, selection),
+    queryFn: () =>
+      request<Summary>(withAccounts(`/api/summary?month=${encodeURIComponent(month)}`, selection)),
+    staleTime: FRESH_MS,
+  })
+}
+
 /** Summary of the month for the selected accounts; while another loads the previous one stays. */
 export function useSummary(month: string | null, selection: Selection = null) {
   return useQuery({
-    queryKey: queryKeys.summary(month ?? '', selection),
-    queryFn: () =>
-      request<Summary>(
-        withAccounts(`/api/summary?month=${encodeURIComponent(month ?? '')}`, selection),
-      ),
+    ...summaryOptions(month ?? '', selection),
     enabled: month !== null,
     placeholderData: keepPreviousData,
   })
