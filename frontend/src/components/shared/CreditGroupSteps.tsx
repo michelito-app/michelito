@@ -25,7 +25,9 @@ import { LIST_CARD } from './styles'
 
 const LABEL = 'text-[13px] font-semibold text-ink-2'
 const CHECK_ROW = cn(
-  'flex min-h-14 w-full cursor-pointer items-center gap-3 px-3.5 py-2 text-left has-[:checked]:bg-secondary/60 hover:bg-muted/60',
+  // `relative`: the visually hidden input stays inside its row; otherwise it sits far down the
+  // dialog and focusing it scrolls the whole dialog (seen on a wide screen).
+  'relative flex min-h-14 w-full cursor-pointer items-center gap-3 px-3.5 py-2 text-left has-[:checked]:bg-secondary/60 hover:bg-muted/60',
   'has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/40 has-[:focus-visible]:ring-inset',
 )
 

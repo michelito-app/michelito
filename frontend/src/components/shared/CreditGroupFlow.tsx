@@ -244,7 +244,7 @@ function SplitOption(props: {
   return (
     <label
       className={cn(
-        'flex min-h-14 cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3',
+        'relative flex min-h-14 cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3',
         'has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/40',
         props.checked ? 'border-primary bg-secondary/60' : 'border-border hover:bg-muted/60',
       )}

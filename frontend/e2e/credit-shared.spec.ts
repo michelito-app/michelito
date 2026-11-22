@@ -68,6 +68,11 @@ test('a credit starts a new group with the expense it pays back and another paym
   // 2. The expense: the dinner fits (RD$ 500 is a sixth of it); search by amount finds it.
   const dinner = flow.getByRole('checkbox', { name: /RESTAURANTE COMPARTIDO/ })
   await expect(dinner).toHaveAccessibleName(new RegExp(`RESTAURANTE COMPARTIDO.*${t('shared.credit.fits')}`))
+  // Checking a row far down the list does not scroll the whole dialog (its header stays).
+  const boxes = flow.getByRole('list', { name: t('shared.credit.expense') }).getByRole('checkbox')
+  await boxes.last().check({ force: true })
+  expect(await flow.evaluate((d) => d.scrollTop)).toBe(0)
+  await boxes.last().uncheck({ force: true })
   await flow.getByPlaceholder(t('shared.credit.search')).fill('3,000')
   await expect(dinner).toBeVisible()
   await dinner.check({ force: true })
