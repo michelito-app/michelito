@@ -70,7 +70,7 @@ export function CreditPaymentSheet({ tx, onClose }: { tx: Tx; onClose: () => voi
   const [creating, setCreating] = useState(false)
   if (creating) {
     return (
-      <BottomSheet title={t('shared.credit.newTitle')} onClose={onClose} full>
+      <BottomSheet title={t('shared.credit.newTitle')} onClose={onClose} full className="flex-1 pb-0">
         <CreditGroupFlow
           tx={tx}
           onBack={groups.length > 0 ? () => setCreating(false) : null}
@@ -129,8 +129,10 @@ function ExistingGroupSheet({
                 </Chip>
               ))}
               <Chip on={false} onClick={onNew}>
-                <Plus size={16} aria-hidden="true" />
-                {t('shared.credit.newGroup')}
+                <span className="inline-flex items-center gap-1.5">
+                  <Plus size={16} aria-hidden="true" />
+                  {t('shared.credit.newGroup')}
+                </span>
               </Chip>
             </div>
           </fieldset>

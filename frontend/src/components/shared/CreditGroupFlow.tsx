@@ -87,7 +87,7 @@ export function CreditGroupFlow({ tx, onBack, onDone }: CreditGroupFlowProps) {
   const back = index > 0 ? () => setStep(STEPS[index - 1]) : onBack
 
   return (
-    <div className="flex min-h-full flex-col gap-4" data-testid="credit-group-flow">
+    <div className="flex flex-1 flex-col gap-4" data-testid="credit-group-flow">
       <div className="-mt-2 flex items-center justify-between gap-2">
         {back ? (
           <button
@@ -145,7 +145,9 @@ export function CreditGroupFlow({ tx, onBack, onDone }: CreditGroupFlowProps) {
         />
       )}
       <Failure error={write.error} />
-      <div className="sticky bottom-0 -mx-4 mt-auto border-t border-border bg-card px-4 pt-3">
+      {/* Pinned to the bottom; the sheet drops its own bottom padding for it (WebKit sticks above
+          that padding and the list would show under the button). */}
+      <div className="sticky bottom-0 -mx-4 mt-auto border-t border-border bg-card px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))]">
         <Button className="h-12 w-full rounded-xl text-[15px] font-semibold" disabled={!canNext} onClick={next}>
           {step === 'confirm'
             ? write.isPending
