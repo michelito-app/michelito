@@ -78,6 +78,8 @@ services:
       RESEND_API_KEY_FILE: /run/secrets/resend_api_key
       # The Email Worker's HMAC secret (email forwarding, POST /api/inbound-email).
       MICHELITO_INBOUND_SECRET_FILE: /run/secrets/inbound_secret
+      # Google's OAuth web client (connecting Gmail, read-only; see docs/deployment.md).
+      MICHELITO_GOOGLE_CLIENT_FILE: /run/secrets/google_client
       MICHELITO_OPS_EMAIL: ${MICHELITO_OPS_EMAIL:-}
       # Uploaded PDFs are opened by the pdfworker container, never in this one.
       MICHELITO_PDF_WORKER_SOCKET: /run/michelito-pdf/worker.sock
@@ -88,11 +90,13 @@ services:
       - hosted_secret
       - resend_api_key
       - inbound_secret
+      - google_client
     volumes:
       - hosted_data:/data
       - pdf_socket:/run/michelito-pdf
     # hosted_internal: only Caddy reaches it (no published ports); the demo is not on it. egress:
-    # it sends email (Resend), so unlike the demo it has a way out. It holds no R2 credentials:
+    # it sends email (Resend) and reads connected Gmail mailboxes (Google), so unlike the demo it
+    # has a way out. It holds no R2 credentials:
     # backups run in the `backup` service.
     networks:
       - hosted_internal
@@ -290,6 +294,8 @@ secrets:
     file: ./secrets/resend-api.key
   inbound_secret:
     file: ./secrets/inbound-secret.key
+  google_client:
+    file: ./secrets/google-client.json
   r2_access_key_id:
     file: ./secrets/r2-access-key-id
   r2_secret_access_key:

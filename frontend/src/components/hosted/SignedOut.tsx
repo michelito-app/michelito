@@ -145,6 +145,9 @@ function Landing({ mode, onEnter }: { mode: ModeInfo; onEnter: () => void }) {
         )}
       </div>
       <p className="text-sm text-muted-foreground">{t('auth.landing.invite')}</p>
+      <a href="/privacy" className="inline-flex min-h-11 items-center self-start text-sm text-muted-foreground underline underline-offset-4">
+        {t('auth.landing.privacy')}
+      </a>
     </main>
   )
 }

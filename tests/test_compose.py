@@ -81,6 +81,7 @@ def test_the_hosted_app_gets_its_secrets_as_files() -> None:
         "hosted_secret",
         "resend_api_key",
         "inbound_secret",
+        "google_client",
     }
     env = hosted["environment"]
     assert not any(k.startswith("MICHELITO_R2") for k in env)  # no R2 credentials here
@@ -89,12 +90,21 @@ def test_the_hosted_app_gets_its_secrets_as_files() -> None:
     assert env["MICHELITO_HOSTED_SECRET_FILE"] == "/run/secrets/hosted_secret"
     assert env["RESEND_API_KEY_FILE"] == "/run/secrets/resend_api_key"
     assert env["MICHELITO_INBOUND_SECRET_FILE"] == "/run/secrets/inbound_secret"
+    assert env["MICHELITO_GOOGLE_CLIENT_FILE"] == "/run/secrets/google_client"
     assert env["MICHELITO_HOSTED_PROXIES"] == "172.30.54.2"
     assert env["MICHELITO_HOSTED_HOST"] == "michelito.app"
     assert "ports" not in hosted
     assert hosted["read_only"] is True
     # No secret value is written into the compose file or the environment.
     assert not any(k.endswith(("_KEY", "_SECRET")) for k in env)
+
+
+def test_only_the_hosted_app_gets_googles_client() -> None:
+    config = _config("hosted,ops")
+    assert config["secrets"]["google_client"]["file"].endswith("/secrets/google-client.json")
+    for name, service in config["services"].items():
+        if name != "hosted":
+            assert "google_client" not in {s["source"] for s in service.get("secrets", [])}
 
 
 def test_caddy_routes_each_host_to_its_own_container_with_the_same_headers() -> None:

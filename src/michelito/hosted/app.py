@@ -14,7 +14,12 @@ sign-in service (`hosted.auth`) and the hosted `Mode` for `create_app`:
 - email forwarding (`hosted.forwarding_routes`): `POST /api/inbound-email` needs no session (it
   is signed by the Email Worker with the inbound secret, `Settings.inbound_secret` /
   `MICHELITO_INBOUND_SECRET_FILE`; without one it answers 404) and may carry up to
-  `forwarding.body_limit` bytes.
+  `forwarding.body_limit` bytes;
+- Gmail connected read-only (`hosted.mailbox_routes`), only with Google's OAuth client
+  (`Settings.google_client` / `MICHELITO_GOOGLE_CLIENT_FILE`; without one Settings does not
+  offer it): Google's callback is reachable without a session (it answers with a redirect), and
+  connected mailboxes are read every hour (`mailbox_routes.Sweeper`);
+- the public privacy page (`hosted.privacy`, `/privacy`), which opens no database.
 
 Folder layout (`settings.data`): `accounts.db`, `secret.key` (unless `MICHELITO_HOSTED_SECRET_FILE`
 names another file) and `users/<folder>/michelito.db`, one per account, **encrypted** with the
@@ -49,8 +54,11 @@ from michelito.hosted import (
     forwarding_routes,
     holders_files,
     inbox,
+    mailbox,
+    mailbox_routes,
     onboarding_routes,
     pdf_worker,
+    privacy,
     routes,
 )
 from michelito.hosted.auth import USERS, Policy, SignIn
@@ -79,6 +87,7 @@ OPEN = frozenset(
         "/api/auth/link",
         "/api/auth/link/peek",
         forwarding_routes.INBOUND_PATH,  # signed by the Email Worker instead
+        mailbox.CALLBACK_PATH,  # Google's redirect: without a session it only redirects back
     }
 )
 # `__Host-`: the browser keeps it only with `Secure`, `Path=/` and no `Domain`, so no subdomain
@@ -118,6 +127,9 @@ class Settings:
         default_factory=forwarding_routes.ForwardingCaps
     )
     inbox_background: bool = True  # read forwarded PDFs in a thread (tests: inline)
+    google_client: Path | None = None  # Google's OAuth client file (else the environment)
+    google: mailbox.Google = field(default_factory=mailbox.RealGoogle)  # tests: a fake
+    mailbox_background: bool = True  # read connected mailboxes in a thread (tests: inline)
 
     @property
     def url(self) -> str:
@@ -267,6 +279,7 @@ def create_hosted_app(
         or _same_key(load_secret(data), inbound)
     ):
         raise MasterKeyError("the inbound secret must not be another server key")
+    google_client = mailbox.load_client(settings.google_client)  # ClientError: does not start
     service.seal_placeholders()
     holders_files.absorb(store, service._require_master(), data)  # no plaintext holders
     service.remove_deleted()
@@ -312,10 +325,23 @@ def create_hosted_app(
         clock=clock,
     )
 
+    gmail = mailbox_routes.Hooks(
+        service=service,
+        client=google_client,
+        google=settings.google,
+        redirect_uri=settings.url + mailbox.CALLBACK_PATH,
+        background=settings.mailbox_background,
+        clock=clock,
+    )
+
+    hooks = replace(hooks, on_delete=gmail.revoke_account)  # even with the feature off now
+
     def register(app: FastAPI, connection, load_flow) -> None:  # noqa: ANN001
         routes.register(app, hooks)
         onboarding_routes.register(app, gate, connection, load_flow)
         forwarding_routes.register(app, mail, connection)
+        mailbox_routes.register(app, gmail, connection)
+        privacy.register(app, privacy.contact())
 
     mode = Mode(
         name="hosted",
@@ -340,8 +366,11 @@ def create_hosted_app(
     app.state.dispatcher = dispatcher
     app.state.uploads = gate
     app.state.forwarding = mail
+    app.state.mailbox = gmail
     if settings.sweep:
         app.state.sweeper = Sweeper(gate, flows)
+        if gmail.available:
+            app.state.mailbox_sweeper = mailbox_routes.Sweeper(gmail)
 
     @app.middleware("http")
     async def no_store(request: Request, call_next):  # noqa: ANN001, ANN202

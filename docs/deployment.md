@@ -397,7 +397,8 @@ its own volume (`michelito_hosted_data`) and its own internal network shared onl
 the demo mounts neither and cannot reach it. Caddy has a fixed address on that network
 (`MICHELITO_CADDY_HOSTED_IP`, 172.30.54.2, outside the automatic range, the subnet's upper half) and
 that single address is the hosted app's only trusted proxy. Unlike the demo, the hosted app has
-a way out (`egress`): it sends email through Resend and backups to R2.
+a way out (`egress`): it sends email through Resend and reads connected Gmail mailboxes
+(Google's OAuth and Gmail APIs); backups go to R2 from the `backup` service.
 
 ```
 visitor ─https─▶ Caddy ─┬─ "internal" (172.30.53.0/24) ────────▶ app   (demo, :8600, volume data)
@@ -441,6 +442,8 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
    sudo install -o 10001 -g 10001 -m 400 /dev/stdin r2-secret-access-key
    # email forwarding (needed by compose even before the Worker exists; see below)
    openssl rand -hex 32 | sudo install -o 10001 -g 10001 -m 400 /dev/stdin inbound-secret.key
+   # Google's OAuth client (needed by compose; see "Connecting Gmail" below)
+   sudo install -o 10001 -g 10001 -m 400 ~/client_secret.json google-client.json
    ```
    Keep an **offline copy of `master.key`** in your password manager: without it no backup can
    be restored, and with it (plus a backup) everything can be read.
@@ -455,7 +458,8 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
    (optional: `MICHELITO_HOSTED_NET`, `MICHELITO_HOSTED_RANGE`, `MICHELITO_CADDY_HOSTED_IP` if
    172.30.54.0/24 clashes with something). Check R2's free tier limits before enabling.
    The R2 secrets are mounted only in the `backup` service (profile `ops`, never started by
-   `up`): the web container has the master key, the code-hash secret and the Resend key only.
+   `up`): the web container has the master key, the code-hash secret, the Resend key, the inbound
+   secret and Google's OAuth client only.
    **Recommended** in Cloudflare: turn on the bucket's object lock (or a bucket lifecycle rule
    that keeps objects at least 30 days) so that a stolen R2 token cannot delete or overwrite the
    backups, and give the token object read and write only on that bucket.
@@ -563,6 +567,47 @@ used, and a stalled connection holds one for up to 30 seconds; genuine mail then
 retried by the sender) rather than being lost. The failed-check buckets never refuse a request
 before its tag is checked, so they cannot be used to block signed mail. If it ever matters,
 the Cloudflare rate rule and the Caddy egress-range rule above narrow who can reach the route.
+
+### Connecting Gmail (Google's OAuth client)
+
+People can connect their own Gmail, read-only, so the app reads their merchant receipts (only the
+senders in `michelito.receipts`, the last 12 months, then every hour). The app needs an OAuth
+**web** client from Google Cloud, installed as the Docker secret `google_client`
+(`/opt/michelito/secrets/google-client.json` → `MICHELITO_GOOGLE_CLIENT_FILE`, only in the
+`hosted` service). **Compose refuses to start the stack if that file is missing**, so install it
+before deploying the version that has it. Without `MICHELITO_GOOGLE_CLIENT_FILE` (outside
+compose) the feature is off and Settings does not offer it; a file that is set but is not a
+Google web client (or names addresses that are not Google's) stops the server at start-up and
+says why, like the other secrets.
+
+1. In Google Cloud (a project of its own): the OAuth consent screen, type External, app name
+   Michelito, home page `https://michelito.app`, privacy policy `https://michelito.app/privacy`
+   (public HTML, served by the app itself), authorized domain `michelito.app` (verified in
+   Search Console), and the single scope `https://www.googleapis.com/auth/gmail.readonly`. It
+   is a restricted scope: until Google verifies the app it stays in **Testing**, only for the
+   test users listed there, and Google expires their refresh tokens after 7 days (Settings
+   then shows "connect again").
+2. Credentials → OAuth client ID → **Web application**, with exactly one authorized redirect
+   URI: `https://michelito.app/api/mailbox/google/callback` (it must match
+   `MICHELITO_HOSTED_URL`). Download its JSON (`{"web": {...}}`).
+3. Install it like the other secrets, owned by uid 10001, mode 0400, and remove the download:
+   ```bash
+   sudo install -o 10001 -g 10001 -m 400 ~/client_secret_*.json /opt/michelito/secrets/google-client.json
+   shred -u ~/client_secret_*.json
+   ```
+4. Deploy (or `docker compose up -d hosted`) and check Settings → Gmail.
+
+What is stored per account (in its encrypted database): the refresh token, AES-256-GCM sealed
+under a key derived from the account's data key, the mailbox's address, when it was connected
+and last read. Never an access token, never a message (only the receipts' fields). "Disconnect"
+and deleting the account revoke the token at Google (best effort) and delete it. Each read takes
+at most 200 new messages (the rest come in the next ones); a token Google refuses
+(`invalid_grant`) is left alone until the person connects again.
+
+The hourly read opens every active account's database to see whether it has Gmail connected.
+That is fine for the handful of accounts there are now; with many accounts, keep the list of
+connected ones in `accounts.db` instead. The client secret is never logged; the logs say only
+how many mailboxes were read and error class names.
 
 ### Nightly jobs (cron on the host)
 

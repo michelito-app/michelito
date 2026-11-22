@@ -654,6 +654,13 @@ class Store:
             ).fetchall()
         return [_account(row) for row in rows]
 
+    def active_accounts(self) -> list[Account]:
+        """Every active account (the hourly read of connected mailboxes walks them)."""
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM accounts WHERE status = 'active' ORDER BY id")
+            found = rows.fetchall()
+        return [_account(row) for row in found]
+
     def take_nonce(self, nonce: str, now: int, expires_at: int) -> bool:
         """Record a signed request's nonce; False if it was already seen (a replay). Nonces
         whose window has passed are forgotten first."""

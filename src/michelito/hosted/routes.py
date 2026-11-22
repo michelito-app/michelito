@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from michelito.demo import network
 from michelito.hosted.auth import AuthError, SignIn, normalize, valid_email
-from michelito.hosted.store import Session
+from michelito.hosted.store import Account, Session
 from michelito.i18n import t
 
 T = TypeVar("T")
@@ -81,6 +81,9 @@ class Hooks:
     # Called with the account's id when its sessions end here (sign out, sign out everywhere,
     # deleting the account): what it holds in memory (upload jobs) is dropped.
     on_leave: Callable[[int], None] | None = None
+    # Called with the account just before it is deleted (its key still exists): revoking what
+    # it granted elsewhere (its Gmail). Best effort: it never raises.
+    on_delete: Callable[[Account], None] | None = None
 
 
 # Machine-readable reason of a refusal, for the interface (the `detail` is for people).
@@ -283,7 +286,7 @@ def register(app: FastAPI, hooks: Hooks) -> None:
         older backups of `accounts.db` expire); then its files."""
         session = current(request)
         try:
-            service.delete_account(session)
+            service.delete_account(session, before=hooks.on_delete)
         except AuthError as error:
             raise failure(error) from None
         left(session)

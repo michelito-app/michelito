@@ -3,6 +3,7 @@ import { Laptop, Smartphone } from 'lucide-react'
 import { useState } from 'react'
 import { ForwardingSettings } from '@/components/forwarding/ForwardingSettings'
 import { StepUpSheet } from '@/components/hosted/StepUpSheet'
+import { MailboxSettings } from '@/components/mailbox/MailboxSettings'
 import { LoadError } from '@/components/LoadError'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -31,7 +32,7 @@ function signedOut() {
   window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
 }
 
-/** Hosted mode only: the account, email forwarding and its devices (sign out this one, or everywhere after a
+/** Hosted mode only: the account, email forwarding, the connected Gmail and its devices (sign out this one, or everywhere after a
  * fresh verification). */
 export function SettingsPage() {
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: fetchMe })
@@ -75,6 +76,7 @@ export function SettingsPage() {
         )}
       </section>
       {me.data && <ForwardingSettings email={me.data.email} />}
+      <MailboxSettings />
       <section aria-labelledby="settings-devices" className="flex flex-col gap-3">
         <h2 id="settings-devices" className="text-lg font-semibold">
           {t('auth.devices.title')}

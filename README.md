@@ -432,6 +432,29 @@ Locally, `tests/e2e_hosted_server.py deliver --dir DIR --port P --to ADDRESS --k
 confirmation|locked|stranger` plays the Worker with synthetic emails (`tests/forwarding_helpers.py`).
 Setting up Email Routing and the Worker: [docs/deployment.md](docs/deployment.md#email-forwarding-email-routing-and-the-worker).
 
+### Connecting Gmail: merchant receipts (optional)
+
+Settings → Gmail connects the person's own mailbox, **read-only** (`gmail.readonly`, Google's
+consent screen with PKCE and a single-use `state` bound to the session), to read merchant
+receipts (Amazon's order and shipment confirmations, `michelito.receipts`). Only messages from
+those senders are asked for: the last 12 months on connecting, then every hour in the
+background (one read per account at a time; "check now" at most once a minute). Each one is read
+in memory through the same pipeline as the local sync and only its fields are stored; receipts
+from the person's own mailbox link on their own to a single exact charge (forwarded ones are only
+proposed).
+
+- **Stored**, in the account's encrypted database: the refresh token, AES-256-GCM sealed like the
+  stored PDF passwords; the mailbox's address; when it was connected and last read. Never an
+  access token, never a message. Nothing about the mailbox is logged.
+- **Disconnect** revokes the token at Google and deletes it (receipts already read stay);
+  deleting the account revokes it too. A token Google stops honouring (`invalid_grant`: revoked
+  from the Google account, or expired) shows "connect again" and is not tried again until then.
+  Each read takes at most 200 new messages; the rest come in the next ones.
+- Off unless the server has Google's OAuth client (`MICHELITO_GOOGLE_CLIENT_FILE`, a Docker
+  secret): [docs/deployment.md](docs/deployment.md#connecting-gmail-googles-oauth-client). The
+  public privacy page Google requires is served at `/privacy` (server-rendered, Spanish and
+  English).
+
 ### Hosted deployment
 
 `michelito.app` serves the hosted app and `demo.michelito.app` stays the demo, on the same VPS
@@ -439,7 +462,8 @@ and from the same image, as **separate containers with separate volumes** (`depl
 never mounts the hosted volume and is not even on the hosted app's network. Caddy routes each
 host to its container with the same strict headers; the hosted app trusts `X-Forwarded-For`
 only from Caddy's fixed address, sets `__Host-session` (HTTPS through Caddy) and gets its
-secrets as Docker secrets: the master key, the code-hash secret and the Resend key. Backups
+secrets as Docker secrets: the master key, the code-hash secret, the Resend key, the inbound
+secret and Google's OAuth client. Backups
 run in a separate `backup` service (started only by `docker compose run`), the only one with the
 R2 credentials: the web process never holds them. Uploaded PDFs are opened by a third container,
 `pdfworker` (`michelito pdf-worker`), reached over a Unix socket (`MICHELITO_PDF_WORKER_SOCKET`):

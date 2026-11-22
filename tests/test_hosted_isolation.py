@@ -37,6 +37,7 @@ from pydantic import TypeAdapter
 
 from michelito import db, encrypted
 from michelito.demo import generate
+from michelito.hosted import privacy
 from michelito.hosted.app import OPEN
 from michelito.hosted.onboarding_routes import SHARE_PATH
 from michelito.parsers.common import Statement
@@ -449,9 +450,10 @@ def test_every_route_is_an_api_route_or_the_interfaces_catch_all(world: World) -
         type(route).__name__ for route in routes if not isinstance(route, APIRoute)
     ]
     outside = {route.path for route in routes if not route.path.startswith("/api")}  # type: ignore[attr-defined]
-    # Besides the interface, only the installed app's share target, which opens no database
-    # (test_hosted_upload_limits.py, test_hosted_hardening.py).
-    assert outside == {SPA, SHARE_PATH}
+    # Besides the interface, only the installed app's share target and the privacy page with
+    # its stylesheet, which open no database (test_hosted_upload_limits.py,
+    # test_hosted_hardening.py, test_hosted_mailbox.py).
+    assert outside == {SPA, SHARE_PATH, privacy.PATH, privacy.CSS_PATH}
     anonymous = _client(world.h)
     page = anonymous.get("/settings")
     assert page.status_code == 200 and "Michelito" in page.text

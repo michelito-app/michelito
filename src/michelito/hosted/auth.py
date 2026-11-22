@@ -462,13 +462,19 @@ class SignIn:
             config.ensure_private_dir(place)
         return Workspace(place / DATABASE, place / HOLDERS, key=key)
 
-    def delete_account(self, session: Session) -> None:
+    def delete_account(
+        self, session: Session, before: Callable[[Account], None] | None = None
+    ) -> None:
         """Delete the session's account (step-up required): its wrapped data key is destroyed
         together with the account row, in one transaction that also tombstones its folder,
         **before** any file is touched. From then on its database is unreadable on this server
         (and in backups once the older backups of `accounts.db` expire). Then its folder is
-        removed; if that fails, `remove_deleted` finishes it at the next start."""
+        removed; if that fails, `remove_deleted` finishes it at the next start. `before` runs
+        once the step-up passed and while the key still exists (revoking what the account
+        granted elsewhere); it must not raise."""
         self.require_step_up(session)
+        if before is not None:
+            before(session.account)
         deleted = self.store.delete_account(session.account.id, self._now())
         if deleted is not None:
             self._remove_folder(deleted.folder)

@@ -42,7 +42,7 @@ from pydantic import BaseModel, Field
 from michelito.analysis import changelog
 from michelito.analysis.spending import Movement
 from michelito.demo import network
-from michelito.hosted import onboarding, pdf_worker, uploads
+from michelito.hosted import mailbox, onboarding, pdf_worker, uploads
 from michelito.hosted.guard import widest
 from michelito.hosted.jobs import QUEUED, FileState, Job, Jobs
 from michelito.hosted.limits import Window
@@ -341,7 +341,10 @@ GATE_OPEN_PREFIXES = (
     "/api/onboarding",
     "/api/banks/requests",
 )
-GATE_OPEN_PATHS = frozenset({"/api/mode", "/api/health", "/api/account", "/api/invitations"})
+# Google's callback too: a top-level navigation, it must always get its redirect back.
+GATE_OPEN_PATHS = frozenset(
+    {"/api/mode", "/api/health", "/api/account", "/api/invitations", mailbox.CALLBACK_PATH}
+)
 GATE_CODE = "gate_closed"
 
 

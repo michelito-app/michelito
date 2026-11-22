@@ -35,6 +35,7 @@ FROM_ENV = "MICHELITO_MAIL_FROM"
 PROXIES_ENV = "MICHELITO_HOSTED_PROXIES"
 INSECURE_COOKIE_ENV = "MICHELITO_HOSTED_INSECURE_COOKIE"
 MASTER_KEY_ENV = "MICHELITO_MASTER_KEY_FILE"
+GOOGLE_CLIENT_ENV = "MICHELITO_GOOGLE_CLIENT_FILE"
 DEFAULT_DIR = "~/michelito-hosted"
 DEFAULT_PORT = 8620
 DEFAULT_FROM = "Michelito <codigo@auth.michelito.app>"
@@ -115,6 +116,13 @@ def add_commands(commands: Any) -> None:
         default=[p for p in _env(PROXIES_ENV, "").split(",") if p.strip()],
         metavar="IP_OR_NET",
         help="proxy (Caddy) whose X-Forwarded-For is trusted; repeatable",
+    )
+    hosted.add_argument(
+        "--google-client",
+        default=_env(GOOGLE_CLIENT_ENV, ""),
+        metavar="PATH",
+        help=f"Google's OAuth web client JSON (${GOOGLE_CLIENT_ENV}): connecting Gmail, "
+        "read-only; without it Settings does not offer it",
     )
     _mail_options(hosted)
     _master_option(hosted)
@@ -198,6 +206,7 @@ def cmd_hosted(args: argparse.Namespace, paths: config.Paths) -> int:
     from michelito.hosted.auth import KeyStateError
     from michelito.hosted.keys import MasterKeyError
     from michelito.hosted.lock import FolderBusyError, server_lock
+    from michelito.hosted.mailbox import ClientError
 
     settings = _settings(
         args,
@@ -206,12 +215,13 @@ def cmd_hosted(args: argparse.Namespace, paths: config.Paths) -> int:
         secure_cookie=not args.insecure_cookie,
         proxies=tuple(args.trusted_proxy),
         master_key=master_key_path(args.master_key),
+        google_client=Path(args.google_client).expanduser() if args.google_client else None,
     )
     try:
         with server_lock(directory):  # no rotation (nor a second server) meanwhile
             try:
                 app = create_hosted_app(settings, mailer, STATIC_DIR)
-            except (MasterKeyError, KeyStateError, HostedStateError) as error:
+            except (MasterKeyError, KeyStateError, HostedStateError, ClientError) as error:
                 print(f"Error: {error}", file=sys.stderr)
                 return 2
             ops.count_mail_failures(directory)  # for the daily failure email (counts only)

@@ -8,6 +8,7 @@ export const auth = {
     'Michelito lee los estados de tus bancos, comprueba que cuadran y te muestra a dónde se va el dinero.',
   'auth.landing.demo': 'Ver datos de ejemplo',
   'auth.landing.enter': 'Entrar',
+  'auth.landing.privacy': 'Privacidad',
   'auth.landing.invite': 'Por ahora solo se entra con invitación.',
 
   'auth.signIn.title': 'Entrar',
