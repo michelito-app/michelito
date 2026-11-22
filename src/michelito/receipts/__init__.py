@@ -26,7 +26,8 @@ __all__ = [
 
 
 class ReceiptReader(Protocol):
-    NAME: str
+    @property
+    def NAME(self) -> str: ...  # noqa: N802 (read-only, like the readers' own field)
 
     def matches(self, email: AlertEmail) -> bool: ...
 
