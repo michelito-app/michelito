@@ -61,6 +61,7 @@ from michelito.hosted.notices import Notices
 from michelito.hosted.store import FILENAME, Session, Store
 from michelito.i18n import t
 from michelito.web.app import create_app
+from michelito.web.flow_cache import FlowCache
 from michelito.web.workspace import Mode, Resolution, Workspace
 
 PRODUCT = "Michelito"
@@ -285,11 +286,15 @@ def create_hosted_app(
         store=store, caps=settings.uploads, proxies=proxies, secure_cookie=settings.secure_cookie
     )
 
+    flows = FlowCache()
+
     def leave(account_id: int) -> None:
         """An account's sessions ended here: drop its upload jobs (with their bytes and the key
-        their thread holds) and forget that it was past the gate."""
+        their thread holds), forget that it was past the gate and drop the loaded flows (all of
+        them: they are keyed by database, and the others load again on their next request)."""
         gate.jobs.forget(account_id)
         gate.opened.discard(account_id)
+        flows.clear()
 
     hooks = replace(hooks, on_leave=leave)
     pdf_worker.configure(settings.uploads.worker_slots)
@@ -330,13 +335,13 @@ def create_hosted_app(
         guard=onboarding_routes.gate_guard(gate),
     )
     # The path is never opened: with a mode, every database comes from the provider.
-    app = create_app(data / "unused.db", static_dir, today, mode=mode)
+    app = create_app(data / "unused.db", static_dir, today, mode=mode, flows=flows)
     app.state.service = service
     app.state.dispatcher = dispatcher
     app.state.uploads = gate
     app.state.forwarding = mail
     if settings.sweep:
-        app.state.sweeper = Sweeper(gate)
+        app.state.sweeper = Sweeper(gate, flows)
 
     @app.middleware("http")
     async def no_store(request: Request, call_next):  # noqa: ANN001, ANN202
@@ -350,11 +355,15 @@ def create_hosted_app(
 
 
 class Sweeper:
-    """Every `every` seconds, drop expired upload jobs and shares (and their bytes), even when no
-    request comes. A daemon thread: it ends with the process."""
+    """Every `every` seconds, drop expired upload jobs and shares (and their bytes) and the
+    loaded flows nobody used for a while, even when no request comes. A daemon thread: it ends
+    with the process."""
 
-    def __init__(self, gate: onboarding_routes.Hooks, every: float = 60.0) -> None:
+    def __init__(
+        self, gate: onboarding_routes.Hooks, flows: FlowCache, every: float = 60.0
+    ) -> None:
         self.gate = gate
+        self.flows = flows
         self.every = every
         self._stop = threading.Event()
         threading.Thread(target=self._run, name="michelito-sweeper", daemon=True).start()
@@ -363,6 +372,7 @@ class Sweeper:
         while not self._stop.wait(self.every):
             self.gate.jobs.prune()
             self.gate.shares.prune()
+            self.flows.prune()
 
     def stop(self) -> None:
         self._stop.set()

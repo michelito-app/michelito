@@ -773,7 +773,10 @@ def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
         for child in dict.fromkeys((*_LINK_CHILDREN, *rebuilt, *translated, *touched)):
             if conn.execute(f"PRAGMA foreign_key_check({child})").fetchone() is not None:
                 raise sqlite3.IntegrityError("the migration left rows without their parent row")
-    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    # Only when it changes: setting it rewrites the file's header, and this runs on every open
+    # (an up-to-date database must be left untouched: `web.flow_cache` goes by its file).
+    if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
 # Schemas 13, 14 and 17: the CHECKs that are widened (SQLite does not change them with ALTER: the

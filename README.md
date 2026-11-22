@@ -222,7 +222,12 @@ local board and the demo keep plain SQLite.
   (AES-256-GCM under the master key, with the account's id and folder as associated data, so a
   wrapped key moved to another account does not open) in `accounts.db`. It is unwrapped for each
   request that carries a session of that account, handed to SQLCipher as a raw key (no
-  passphrase, no key derivation) and dropped when the request ends: no key cache.
+  passphrase, no key derivation) and dropped when the request ends: no key cache. What a
+  request computed from the database (the classified transactions, never the key) stays in the
+  server's memory to answer the next requests without reading everything again: only while the
+  file is unchanged, for at most 5 minutes without use, for a few accounts at a time, and it
+  is dropped when any of the account's sessions ends here (sign out, sign out everywhere,
+  deleting the account).
 - **The master key** is a file of exactly 64 hexadecimal characters (`openssl rand -hex 32`;
   raw bytes are refused, and so is a key equal to the code-hash secret), named by
   `--master-key` or `MICHELITO_MASTER_KEY_FILE`. In production

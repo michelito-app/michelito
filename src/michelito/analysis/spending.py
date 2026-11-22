@@ -37,6 +37,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
+from functools import cached_property
 from typing import Any
 
 from michelito import config
@@ -141,9 +142,11 @@ class Movement:
         """The transaction's kind: its category gives it, so correcting the category changes it."""
         return self.category_kind or categories.kind_of(self.ref)
 
-    @property
+    @cached_property
     def month(self) -> str:
-        return self.day.strftime("%Y-%m")
+        # Worked out once: the Summary asks for this dozens of times per movement. (It is not a
+        # field: equality, `replace` and the constructor are unchanged.)
+        return self.day.isoformat()[:7]
 
 
 @dataclass(frozen=True)

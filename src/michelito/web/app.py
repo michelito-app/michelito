@@ -65,6 +65,7 @@ from michelito.web import interest as interest_view
 from michelito.web import links as links_view
 from michelito.web import one_offs as one_offs_view
 from michelito.web import pending as pending_view
+from michelito.web.flow_cache import FlowCache
 from michelito.web.schemas import (
     AccountOut,
     CandidateOut,
@@ -144,6 +145,7 @@ def create_app(
     today: Callable[[], date] | None = None,
     holders_path: Path | None = None,
     mode: Mode | None = None,
+    flows: FlowCache | None = None,
 ) -> FastAPI:
     """FastAPI app over the database at `db_path`.
 
@@ -158,12 +160,17 @@ def create_app(
     `mode`: a mode other than the local one (the public demo, `michelito.demo.app`): where each
     request's database comes from (`web.workspace`), which hosts and authors are accepted and
     its own routes. Without it, the database is always `db_path`.
+
+    `flows`: where the loaded flow is kept between requests (`flow_cache`); a mode that must
+    drop it at given moments (the hosted app, when sessions end) passes its own.
     """
     # The user's local date (`config.local_today`), not the server's.
     today = today or (lambda: config.local_today())
     holders_file = holders_path or config.Paths(db_path.parent).holders
     mode = mode or local_mode(Workspace(db_path, holders_file))
     app = FastAPI(title="michelito", docs_url=None, redoc_url=None, openapi_url=None)
+    flows = FlowCache() if flows is None else flows
+    app.state.flows = flows
 
     @app.exception_handler(migrations_v19.MigrationMismatch)
     async def migration_mismatch(request: Request, exc: Exception) -> JSONResponse:  # noqa: ARG001
@@ -249,8 +256,20 @@ def create_app(
     ) -> tuple[Movement, ...]:
         """Every movement (expenses, income, transfers), with up-to-date holders.
 
-        `known`: the category catalog (by default, the database's)."""
-        return spending.load_all(conn, holders.of(workspace(), conn), known, today())
+        `known`: the category catalog (by default, the database's).
+
+        The flow with the database's own catalog is kept between requests while its file is
+        unchanged (`flow_cache`); never inside a transaction, whose rows may still be rolled
+        back, and never with another catalog (a preview of keywords)."""
+        found = holders.of(workspace(), conn)
+        day = today()
+        if conn.in_transaction or (known is not None and known != catalog.load(conn)):
+            return spending.load_all(conn, found, known, day)
+        return flows.get(
+            workspace().database,
+            (repr(found), day),
+            lambda: spending.load_all(conn, found, known, day),
+        )
 
     def load_spending(conn: sqlite3.Connection) -> tuple[Movement, ...]:
         """Only the expenses, with the same criteria as the Summary (holders included)."""
