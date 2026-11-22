@@ -153,3 +153,26 @@ class TestPreviousBankKey:
         with conn:
             marks.set_status(conn, PREVIOUS, "DOP", "confirmed", DAY1)
         assert set(marks.load_for(conn, [_bank_movement(TEXT)])) == {(NEW, "DOP")}
+
+    def test_each_movement_works_out_its_keys_once(self, monkeypatch) -> None:
+        """The board asks for the marks on every request with the same (kept) flow: reading the
+        keys again from each description made the review, transactions and recurring slow."""
+        flow = [_bank_movement(TEXT), _bank_movement("TRANSFERENCIA UNIVERSAL DE FICTICIOS")]
+        old = _mark("confirmed")
+        first = marks.with_previous_keys({(PREVIOUS, "DOP"): old}, flow)
+        calls: list[str] = []
+        for name in ("bank_merchant_key", "previous_bank_key"):
+            real = getattr(cat, name)
+            monkeypatch.setattr(cat, name, lambda text, real=real: calls.append(text) or real(text))
+
+        again = marks.with_previous_keys({(PREVIOUS, "DOP"): old}, flow)
+
+        assert again == first
+        assert calls == []
+        marks.with_previous_keys({}, [replace(flow[0])])  # a new movement does work them out
+        assert calls != []
+
+    def test_a_changed_copy_works_out_its_own_keys(self) -> None:
+        card = replace(_bank_movement(TEXT), merchant="TRANSFERENCIA A")
+        assert _bank_movement(TEXT).previous_bank_key == PREVIOUS
+        assert card.previous_bank_key is None  # not keyed by the bank: no previous key

@@ -26,7 +26,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal, get_args
 
-from michelito.analysis import categories
 from michelito.analysis.recurring import GROUPS, Cadence
 from michelito.i18n import t
 
@@ -97,9 +96,9 @@ def with_previous_keys(
     resolved = dict(marks)
     moved: set[tuple[str, str]] = set()
     for item in items:
-        if item.merchant != categories.bank_merchant_key(item.description):
+        if item.previous_bank_key is None:
             continue  # card (or a key that is not the bank one)
-        old = (categories.previous_bank_key(item.description), item.currency)
+        old = (item.previous_bank_key, item.currency)
         new = (item.merchant, item.currency)
         if old == new or old not in marks:
             continue

@@ -148,6 +148,15 @@ class Movement:
         # field: equality, `replace` and the constructor are unchanged.)
         return self.day.isoformat()[:7]
 
+    @cached_property
+    def previous_bank_key(self) -> str | None:
+        """`categories.previous_bank_key` of the description when this movement is keyed by the
+        bank (`categories.bank_merchant_key`); None otherwise (a card key never changed).
+        Worked out once: the recurring marks ask on every request, over the whole kept flow."""
+        if self.merchant != categories.bank_merchant_key(self.description):
+            return None
+        return categories.previous_bank_key(self.description)
+
 
 @dataclass(frozen=True)
 class MerchantTotal:
