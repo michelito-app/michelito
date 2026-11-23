@@ -3,6 +3,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { t } from '@/i18n'
 import { LoadError } from '@/components/LoadError'
+import { InstallmentSection } from '@/components/installments/InstallmentSection'
 import { FOCUS, PANEL } from '@/components/summary/styles'
 import { ExchangeSection } from '@/components/transactions/ExchangeSection'
 import { InvestmentSection } from '@/components/transactions/InvestmentSection'
@@ -60,7 +61,8 @@ export function LinkPage() {
 
   const tx = query.data
   const amount = amountLines(tx)
-  const anything = tx.ledger !== null || showExchange(tx) || showInvestment(tx)
+  const anything =
+    tx.ledger !== null || tx.installment !== null || showExchange(tx) || showInvestment(tx)
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -100,6 +102,7 @@ export function LinkPage() {
         )}
         {showExchange(tx) && <ExchangeSection tx={tx} />}
         {showInvestment(tx) && <InvestmentSection tx={tx} />}
+        <InstallmentSection tx={tx} />
         {!anything && (
           <p className="text-sm text-muted-foreground">
             {t('links.page.nothing')}

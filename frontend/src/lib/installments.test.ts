@@ -129,6 +129,11 @@ describe('canBeInstallment', () => {
     expect(canBeInstallment(charge, cards)).toBe(true)
   })
 
+  it('offers it on a charge already shared, whose own part is zero', () => {
+    const shared = { ...charge, amount_cents: 0, gross_cents: 15_000, link: 'shared' } as Tx
+    expect(canBeInstallment(shared, cards)).toBe(true)
+  })
+
   it('not on a refund, another account, a non-expense, a provisional, a leg or a planned row', () => {
     expect(canBeInstallment({ ...charge, amount_cents: -15_000 }, cards)).toBe(false)
     expect(canBeInstallment({ ...charge, account: 'checking' }, cards)).toBe(false)

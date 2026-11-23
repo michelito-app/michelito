@@ -81,7 +81,8 @@ const NOT_A_PURCHASE = new Set<Tx['link']>(['exchange', 'investment'])
 export function canBeInstallment(tx: Tx, cards: ReadonlySet<string>): boolean {
   return (
     tx.kind === 'expense' &&
-    tx.amount_cents > 0 &&
+    // A shared charge counts as the statement amount (the user's own part may be zero).
+    (tx.gross_cents ?? tx.amount_cents) > 0 &&
     cards.has(tx.account) &&
     !tx.installment &&
     !tx.provisional &&
