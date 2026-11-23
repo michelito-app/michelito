@@ -14,6 +14,7 @@ import {
   ownerValue,
   parseOwnerValue,
   preferredPerson,
+  knownPerson,
   type PlanForm,
 } from './installmentForm'
 import { COUNT_MAX, NAME_MAX } from './installments'
@@ -33,6 +34,7 @@ function draft(over: Partial<InstallmentDraft> = {}): InstallmentDraft {
       { fingerprint: 'fp-jan', day: '2026-01-14', description: 'STORE', amount_cents: 15_000, number: 2 },
     ],
     number_known: true,
+    suggested_contact_id: null,
     ...over,
   }
 }
@@ -240,6 +242,12 @@ describe('owner choices', () => {
       ]),
     ).toBeNull()
     expect(preferredPerson(people, undefined)).toBeNull()
+  })
+
+  it('suggests a person only when the owner field offers them', () => {
+    expect(knownPerson(people, people[0].id)).toBe(people[0].id)
+    expect(knownPerson(people, 12345)).toBeNull()
+    expect(knownPerson(people, null)).toBeNull()
   })
 
   it('adds the plan person when they are not in the list', () => {

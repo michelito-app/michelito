@@ -121,6 +121,7 @@ class DraftOut(BaseModel):
     paid_before: int  # the earlier installments found in a row
     earlier: list[EarlierOut]  # those charges, oldest first, with the number each would be
     number_known: bool  # false: the card's data starts there, the number cannot be deduced
+    suggested_contact_id: int | None  # the person the charge is already shared with
 
 
 PersonName = Annotated[str, Field(min_length=1, max_length=NAME_MAX)]
@@ -268,6 +269,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
             move = _charge(flow, fingerprint)
             earlier = _earlier(flow, move, installment_store.taken(conn))
             labels = {i.key: i.label for i in account_data.account_infos(conn)}
+            suggested = installment_owner.suggested(conn, fingerprint)
         by_fp = {m.fingerprint: m for m in flow}
         chain = [by_fp[fp] for fp in earlier]
         charge = installment_store.charge_of(move)
@@ -291,6 +293,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
                 for index, m in enumerate(chain[:-1])
             ],
             number_known=_number_known(flow, move, chain),
+            suggested_contact_id=suggested,
         )
 
     @app.post("/api/installments", status_code=201)

@@ -86,6 +86,16 @@ def _contact_name(conn: sqlite3.Connection, contact_id: int) -> str:
     return str(row[0])
 
 
+def suggested(conn: sqlite3.Connection, fingerprint: str) -> int | None:
+    """The person a charge is already shared with, when its group is just the two of them
+    (the likely owner of a plan made from it)."""
+    group_id = _shared_in(conn, fingerprint)
+    if group_id is None:
+        return None
+    others = _members(conn, group_id) - {ledger_store.me_id(conn)}
+    return next(iter(others)) if len(others) == 1 else None
+
+
 def group_for(conn: sqlite3.Connection, contact_id: int, fingerprint: str | None = None) -> int:
     """Where a person's installments go: the group the charge is already shared in with them,
     else a group of just the two of them, else a new one (named "you and <name>" in the UI

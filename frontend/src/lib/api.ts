@@ -429,6 +429,7 @@ export interface InstallmentDraft {
   paid_before: number // the earlier installments found in a row
   earlier: InstallmentEarlier[]
   number_known: boolean // false: the card's data starts at this charge
+  suggested_contact_id: number | null // the person the charge is already shared with
 }
 
 /** Whose a plan is: a known person (`contact_id`), a new one by name, or neither (the user's). */

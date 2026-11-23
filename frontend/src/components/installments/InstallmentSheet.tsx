@@ -4,7 +4,7 @@ import { BottomSheet } from '@/components/ui/bottom-sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import type { InstallmentPlan } from '@/lib/api'
-import { preferredPerson } from '@/lib/installmentForm'
+import { knownPerson, preferredPerson } from '@/lib/installmentForm'
 import { useInstallmentDraft, useInstallmentPeople } from '@/lib/installmentQueries'
 import { useGroup } from '@/lib/sharedQueries'
 import { CreateForm } from './CreateForm'
@@ -66,7 +66,10 @@ function SheetBody({
     <CreateForm
       draft={draft.data}
       people={people.data}
-      preferred={preferredPerson(people.data, group.data?.members)}
+      preferred={
+        preferredPerson(people.data, group.data?.members) ??
+        knownPerson(people.data, draft.data.suggested_contact_id)
+      }
       onCreated={onCreated}
     />
   )

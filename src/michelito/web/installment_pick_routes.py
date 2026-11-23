@@ -2,8 +2,8 @@
 
 - `GET /api/installments/people`: the people in the user's groups (the owner field: mine
   / a person / a new one).
-- `GET /api/installments/charges`: the recent charges a new plan can start from (card charges
-  not in a plan yet), newest first. With `plan_id`, the ones that can be linked to that plan
+- `GET /api/installments/charges`: the recent charges a new plan can start from (credit card
+  charges not in a plan yet), newest first. With `plan_id`, the ones that can be linked to that plan
   (same card and currency) with the installment number each would be.
 """
 
@@ -24,6 +24,7 @@ from michelito.i18n import t
 Connection = Callable[[], AbstractContextManager[sqlite3.Connection]]
 LoadFlow = Callable[[sqlite3.Connection], Sequence[Movement]]
 CHARGES_MAX = 60
+CREDIT_CARD = "credit_card"  # the account kind installments are charged on
 
 
 class PersonOut(BaseModel):
@@ -42,9 +43,10 @@ class ChargeOut(BaseModel):
     number: int | None  # for a plan: which installment it would be
 
 
-def _startable(move: Movement, taken: set[str]) -> bool:
+def _startable(move: Movement, taken: set[str], cards: set[str]) -> bool:
     return (
-        installment_store.can_be_installment(move)
+        move.account in cards
+        and installment_store.can_be_installment(move)
         and move.fingerprint not in taken
         and bool(installment_match.matcher_of(move.description))
     )
@@ -74,10 +76,12 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow) -> None:
         with connection() as conn:
             flow = load_flow(conn)
             taken = set(installment_store.taken(conn))
-            labels = {i.key: i.label for i in account_data.account_infos(conn)}
+            infos = account_data.account_infos(conn)
             plans = {p.id: p for p in installment_store.load(conn)}
+        labels = {i.key: i.label for i in infos}
+        cards = {i.key for i in infos if i.kind == CREDIT_CARD}
         moves = sorted(
-            (m for m in flow if _startable(m, taken)),
+            (m for m in flow if _startable(m, taken, cards)),
             key=lambda m: (m.day, m.fingerprint),
             reverse=True,
         )

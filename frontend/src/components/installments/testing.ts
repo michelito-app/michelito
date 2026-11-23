@@ -128,6 +128,7 @@ export function draftOf(over: Partial<InstallmentDraft> = {}): InstallmentDraft 
       { fingerprint: 'fp-jan', day: '2026-01-14', description: 'STORE', amount_cents: 15_000, number: 2 },
     ],
     number_known: true,
+    suggested_contact_id: null,
     ...over,
   }
 }

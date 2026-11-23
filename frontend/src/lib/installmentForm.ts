@@ -191,6 +191,11 @@ export function preferredPerson(
   return people.some((person) => person.id === others[0].id) ? others[0].id : null
 }
 
+/** `id` when it is one of the people the owner field offers, else null. */
+export function knownPerson(people: readonly InstallmentPerson[], id: number | null): number | null {
+  return id !== null && people.some((person) => person.id === id) ? id : null
+}
+
 /** The people the owner field offers: the user's groups' people, plus the plan's own if it is not there
  * (its group was archived). */
 export function ownerChoices(

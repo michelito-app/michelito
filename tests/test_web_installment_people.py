@@ -10,9 +10,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from michelito import db
+from michelito.analysis import accounts as account_data
 from michelito.analysis import ledger_store
 from michelito.web.app import create_app
 from tests import live_helpers
+from tests.test_spending import seed
 
 WRITE = {"X-Michelito": "1"}
 STORE = "Store.com*{ref} STORE.COM/BILL"
@@ -299,3 +301,40 @@ def test_earlier_charges_of_another_plan_are_not_offered(client: TestClient) -> 
 
     assert draft["earlier"] == []
     assert created.status_code == 201, created.text
+
+
+def test_only_card_charges_can_start_a_plan(tmp_path: Path) -> None:
+    path = tmp_path / "seeded.db"
+    with closing(db.connect(path)) as conn:
+        seed(conn)  # cards and bank accounts
+        cards = {i.label for i in account_data.account_infos(conn) if i.kind == "credit_card"}
+    client = _client(path)
+
+    found = client.get("/api/installments/charges").json()
+
+    assert found
+    assert {c["account_label"] for c in found} <= cards
+
+
+def test_the_draft_suggests_the_person_a_charge_is_shared_with(path: Path) -> None:
+    client = _client(path)
+    last = _store_rows(client)[-1]
+    with closing(db.connect(path)) as conn, conn:
+        person = ledger_store.contact_for(conn, "Person B")
+        group = ledger_store.create_group(conn, "Us two", [person])
+    client.post(
+        f"/api/shared/groups/{group}/entries",
+        json={
+            "fingerprint": last["fingerprint"],
+            "split": "exact",
+            "shares": [{"contact_id": person, "cents": 15000}],
+        },
+        headers=WRITE,
+    )
+
+    draft = client.get(f"/api/transactions/{last['fingerprint']}/installment-draft").json()
+    first = _store_rows(client)[0]
+    other = client.get(f"/api/transactions/{first['fingerprint']}/installment-draft").json()
+
+    assert draft["suggested_contact_id"] == person
+    assert other["suggested_contact_id"] is None
