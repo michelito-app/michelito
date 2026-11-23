@@ -456,7 +456,8 @@ def sync(
     if found is None:
         return "none"
     try:
-        read_receipts(conn, google.mailbox(client, found.token), limit, stop)
+        opened = google.mailbox(client, found.token)
+        read_receipts(conn, opened, limit, stop)
     except Revoked:
         with conn:
             mark(conn, "reconnect", synced=False, uid=found.uid)
@@ -468,9 +469,30 @@ def sync(
         with conn:
             mark(conn, "failed", synced=False, uid=found.uid)
         return "failed"
+    _fill_address(conn, opened, found.uid)
     with conn:
         mark(conn, None, synced=True, uid=found.uid)
     return "read"
+
+
+def _fill_address(conn: sqlite3.Connection, opened: Mailbox, uid: str) -> None:
+    """The address, if the connection could not read it (best effort: a failure is logged and
+    the read still counts)."""
+    row = conn.execute(f"SELECT address FROM {_TABLE} WHERE id = 1 AND uid = ?", (uid,)).fetchone()
+    if row is None or row[0] is not None:
+        return
+    try:
+        address = opened.address()
+    except Exception as exc:  # noqa: BLE001 - the address is only shown in Settings
+        log.warning("a connected mailbox's address was not read (%s)", type(exc).__name__)
+        return
+    if not address:
+        return
+    with conn:
+        conn.execute(
+            f"UPDATE {_TABLE} SET address = ? WHERE id = 1 AND uid = ? AND address IS NULL",
+            (address[:ADDRESS_MAX], uid),
+        )
 
 
 def gmail_receipts(conn: sqlite3.Connection) -> int:

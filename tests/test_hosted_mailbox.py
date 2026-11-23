@@ -220,6 +220,41 @@ def test_a_read_stores_the_receipts_as_the_mailboxs(
     assert found is not None and found.synced_at is not None and found.problem is None
 
 
+def test_a_read_fills_in_an_address_the_connection_could_not_read(
+    conn: sqlite3.Connection, sealer: Sealer
+) -> None:
+    with conn:
+        mailbox.store(conn, sealer, fake.TOKEN, None)
+
+    assert mailbox.sync(conn, sealer, fake.client(), fake.FakeGoogle()) == "read"
+
+    found = mailbox.status(conn)
+    assert found is not None and found.address == fake.ADDRESS
+
+
+def test_a_read_leaves_a_known_address_alone(conn: sqlite3.Connection, sealer: Sealer) -> None:
+    _connected(conn, sealer)
+    google = fake.FakeGoogle(address_error=RuntimeError("synthetic: must not be asked"))
+
+    assert mailbox.sync(conn, sealer, fake.client(), google) == "read"
+
+    found = mailbox.status(conn)
+    assert found is not None and found.address == fake.ADDRESS
+
+
+def test_an_address_that_still_fails_does_not_fail_the_read(
+    conn: sqlite3.Connection, sealer: Sealer
+) -> None:
+    with conn:
+        mailbox.store(conn, sealer, fake.TOKEN, None)
+    google = fake.FakeGoogle(address_error=RuntimeError("synthetic"))
+
+    assert mailbox.sync(conn, sealer, fake.client(), google) == "read"
+
+    found = mailbox.status(conn)
+    assert found is not None and found.address is None and found.problem is None
+
+
 def test_a_second_read_downloads_nothing_new(conn: sqlite3.Connection, sealer: Sealer) -> None:
     _connected(conn, sealer)
     google = fake.FakeGoogle()
