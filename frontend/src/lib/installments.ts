@@ -44,7 +44,7 @@ export function planSummary(plan: InstallmentPlan): string {
   })
 }
 
-/** "US$ 150.00 al mes · VISA ···4242". */
+/** The installment amount and its card (see the `installments.plan.each` text). */
 export function eachLine(plan: InstallmentPlan): string {
   return t('installments.plan.each', {
     amount: formatMoney(plan.amount_cents, plan.currency),
