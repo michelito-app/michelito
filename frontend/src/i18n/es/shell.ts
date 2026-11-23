@@ -15,6 +15,7 @@ export const shell = {
   'shell.nav.shared': 'Compartidos',
   'shell.nav.investments': 'Inversiones',
   'shell.nav.recurring': 'Recurrentes',
+  'shell.nav.installments': 'Cuotas',
   'shell.nav.reports': 'Reportes',
   'shell.nav.accounts': 'Cuentas',
   'shell.nav.categories': 'Categorías',

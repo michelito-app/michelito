@@ -1,4 +1,5 @@
 import {
+  CalendarRange,
   ChartColumn,
   Ellipsis,
   FileUp,
@@ -92,6 +93,11 @@ const NAV: NavItem[] = [
     to: '/recurring',
     label: t('shell.nav.recurring'),
     icon: <Repeat size={18} strokeWidth={2} aria-hidden="true" />,
+  },
+  {
+    to: '/installments',
+    label: t('shell.nav.installments'),
+    icon: <CalendarRange size={18} strokeWidth={2} aria-hidden="true" />,
   },
   {
     to: '/reports',

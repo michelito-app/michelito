@@ -4,7 +4,6 @@ import { isHosted, useMode } from '@/lib/demo'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { DismissedSection } from '@/components/recurring/DismissedSection'
 import { GroupSection } from '@/components/recurring/GroupSection'
-import { PlansSection } from '@/components/installments/PlansSection'
 import { LoadError } from '@/components/LoadError'
 import { PANEL } from '@/components/summary/styles'
 import { t } from '@/i18n'
@@ -44,14 +43,10 @@ export function RecurringPage() {
         )}
       </Header>
       {data.items.length === 0 && data.dismissed.length === 0 ? (
-        <div className="flex max-w-[960px] flex-col gap-6">
-          <PlansSection />
-          <Empty />
-        </div>
+        <Empty />
       ) : (
         <div className="flex max-w-[960px] flex-col gap-6">
           {data.items.length === 0 && <Empty />}
-          <PlansSection />
           {sections(data).map((section) => (
             <GroupSection
               key={section.group}

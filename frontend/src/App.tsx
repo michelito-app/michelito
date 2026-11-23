@@ -16,6 +16,7 @@ import { LinkPage } from '@/pages/LinkPage'
 import { LogPage } from '@/pages/LogPage'
 import { PendingPage } from '@/pages/PendingPage'
 import { Placeholder } from '@/pages/Placeholder'
+import { InstallmentsPage } from '@/pages/InstallmentsPage'
 import { RecurringPage } from '@/pages/RecurringPage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { ReviewPage } from '@/pages/ReviewPage'
@@ -70,6 +71,7 @@ function AppRoutes({ hosted }: { hosted: boolean }) {
         <Route path="shared/:id" element={<SharedGroupPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
         <Route path="recurring" element={<RecurringPage />} />
+        <Route path="installments" element={<InstallmentsPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="review" element={<ReviewPage />} />
         <Route path="accounts" element={<AccountsPage />} />

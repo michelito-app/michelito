@@ -408,6 +408,15 @@ export interface InstallmentPlan {
   installments: PlanInstallment[]
 }
 
+/** An earlier identical charge on the same card (oldest first), as installment `number`. */
+export interface InstallmentEarlier {
+  fingerprint: string
+  day: string // YYYY-MM-DD
+  description: string
+  amount_cents: number
+  number: number
+}
+
 /** "It is an installment…" prefilled from a charge (GET …/installment-draft). */
 export interface InstallmentDraft {
   fingerprint: string
@@ -416,18 +425,52 @@ export interface InstallmentDraft {
   amount_cents: number
   currency: string
   month: string
-  number: number // which installment the charge seems to be
+  number: number // which installment the charge seems to be (earlier.length + 1)
   paid_before: number // the earlier installments found in a row
+  earlier: InstallmentEarlier[]
+  number_known: boolean // false: the card's data starts at this charge
 }
 
-/** POST /api/installments. Both `group_id` and `contact_id`: a member's plan; neither: mine. */
-export interface InstallmentBody {
+/** Whose a plan is: a known person (`contact_id`), a new one by name, or neither (the user's). */
+export interface InstallmentOwner {
+  contact_id?: number
+  new_person?: string
+}
+
+/** POST /api/installments. `earlier`: the earlier charges checked (absent: all of them);
+ * `number`: only when the user typed it (absent: deduced from the earliest checked charge). */
+export interface InstallmentBody extends InstallmentOwner {
   fingerprint: string
   name: string
   count: number
   number?: number
-  group_id?: number
-  contact_id?: number
+  earlier?: string[]
+}
+
+/** PATCH /api/installments/{id}: only what changed; `owner: {}` makes it the user's. */
+export interface InstallmentEdit {
+  name?: string
+  count?: number
+  owner?: InstallmentOwner
+}
+
+/** A person from the user's groups (GET /api/installments/people). */
+export interface InstallmentPerson {
+  id: number
+  name: string
+}
+
+/** A card charge a plan can start from or link (GET /api/installments/charges); with a plan,
+ * `number` is the installment it would be. */
+export interface InstallmentCharge {
+  fingerprint: string
+  day: string
+  description: string
+  merchant: string
+  account_label: string
+  amount_cents: number
+  currency: string
+  number: number | null
 }
 
 export type CashBoxRole = 'stored' | 'deposit'

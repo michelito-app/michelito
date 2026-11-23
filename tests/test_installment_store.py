@@ -143,7 +143,7 @@ def test_a_charge_shared_by_hand_already_is_linked_without_a_new_expense(
 
     plan = store.load(conn)[0]
     assert plan.links == {1: "a", 2: "b"}
-    assert set(plan.entries) == {2}
+    assert set(plan.entries) == {2}  # the expense shared by hand stays the user's
     assert len(entries(conn)) == 2
 
 

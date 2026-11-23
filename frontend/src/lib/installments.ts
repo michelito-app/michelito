@@ -1,10 +1,8 @@
 // Installment plans ("Plan de cuotas") in the interface (pure logic). The server links the
-// charges and counts what is left (src/michelito/web/installments.py); this only builds texts,
-// the form's state and its request body.
+// charges and counts what is left (src/michelito/web/installments.py); this only builds texts.
+// The forms' state and request bodies live in installmentForm.ts.
 import { t } from '@/i18n'
 import type {
-  InstallmentBody,
-  InstallmentDraft,
   InstallmentPlan,
   InstallmentState,
   Tx,
@@ -52,10 +50,10 @@ export function eachLine(plan: InstallmentPlan): string {
   })
 }
 
-/** A member's plan: "Lo paga Ana · grupo Casa"; null for the user's own. */
-export function ownerLine(plan: InstallmentPlan): string | null {
-  if (plan.group_id === null || plan.contact_name === null || plan.group_name === null) return null
-  return t('installments.plan.paidBy', { contact: plan.contact_name, group: plan.group_name })
+/** A person's plan: "For Ana" (`installments.plan.paidBy`); null for the user's own. */
+export function ownerLine(plan: Pick<InstallmentPlan, 'contact_name'>): string | null {
+  if (plan.contact_name === null) return null
+  return t('installments.plan.paidBy', { contact: plan.contact_name })
 }
 
 /** Accessible name of an installment: "Cuota 2, enero 2026: pagada". */
@@ -90,67 +88,10 @@ export function canBeInstallment(tx: Tx, cards: ReadonlySet<string>): boolean {
   )
 }
 
-export type Owner = 'me' | 'member'
-
-/** The "It is an installment…" form as typed (numbers as text until saved). */
-export interface PlanForm {
-  name: string
-  count: string
-  number: string
-  owner: Owner
-  groupId: number | null
-  contactId: number | null
-}
-
-/** The form prefilled from the draft: its name and installment number, 6 installments (or as
- * many as the number needs). */
-export function initialForm(draft: InstallmentDraft): PlanForm {
-  return {
-    name: draft.name.slice(0, NAME_MAX),
-    count: String(Math.max(DEFAULT_COUNT, draft.number)),
-    number: String(draft.number),
-    owner: 'me',
-    groupId: null,
-    contactId: null,
-  }
-}
-
-/** "Encontramos 2 cuotas anteriores." when earlier installments were found; else null. */
-export function foundLine(draft: Pick<InstallmentDraft, 'paid_before'>): string | null {
-  if (draft.paid_before <= 0) return null
-  return t('installments.form.found', { count: draft.paid_before })
-}
-
-export type BodyResult = { body: InstallmentBody; error: null } | { body: null; error: string }
-
-function wholeNumber(text: string): number | null {
-  const clean = text.trim()
-  return /^\d+$/.test(clean) ? Number(clean) : null
-}
-
-/** The POST body, or the first thing to fix in the form. */
-export function planBody(fingerprint: string, form: PlanForm): BodyResult {
-  const name = form.name.trim()
-  if (name.length === 0 || name.length > NAME_MAX) {
-    return { body: null, error: t('installments.form.invalid.name', { max: NAME_MAX }) }
-  }
-  const count = wholeNumber(form.count)
-  if (count === null || count < COUNT_MIN || count > COUNT_MAX) {
-    return {
-      body: null,
-      error: t('installments.form.invalid.count', { min: COUNT_MIN, max: COUNT_MAX }),
-    }
-  }
-  const number = wholeNumber(form.number)
-  if (number === null || number < 1 || number > count) {
-    return { body: null, error: t('installments.form.invalid.number', { count }) }
-  }
-  const base = { fingerprint, name, count, number }
-  if (form.owner === 'me') return { body: base, error: null }
-  if (form.groupId === null || form.contactId === null) {
-    return { body: null, error: t('installments.form.invalid.member') }
-  }
-  return { body: { ...base, group_id: form.groupId, contact_id: form.contactId }, error: null }
+/** The group a row is shared in as an expense the user paid (null otherwise): its other member
+ * is the owner suggested. */
+export function sharedGroupOf(tx: Pick<Tx, 'ledger'>): number | null {
+  return tx.ledger?.role === 'entry' ? tx.ledger.group_id : null
 }
 
 /** The plan a row belongs to, among the loaded ones. */

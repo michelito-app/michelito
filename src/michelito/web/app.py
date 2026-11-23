@@ -48,6 +48,7 @@ from michelito.web import (
     dossier_routes,
     edit_log,
     insight_routes,
+    installment_pick_routes,
     installment_routes,
     investment_routes,
     ledger_routes,
@@ -918,6 +919,7 @@ def create_app(
     pace_routes.register(app, connection, load_flow, parse_accounts, today)
     live_routes.register(app, connection, load_flow)
     receipt_routes.register(app, connection, load_flow)
+    installment_pick_routes.register(app, connection, load_flow)
     installment_routes.register(app, connection, load_flow)
     log_routes.register(app, connection, load_flow)
     batch_routes.register(app, connection, load_flow)

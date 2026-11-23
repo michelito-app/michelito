@@ -1,20 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
-import type { InstallmentDraft, InstallmentPlan, Tx } from './api'
+import type { InstallmentPlan, Tx } from './api'
 import {
   canBeInstallment,
-  COUNT_MAX,
   eachLine,
-  foundLine,
-  initialForm,
   installmentLabel,
   installmentTag,
   linkedLine,
-  NAME_MAX,
   ownerLine,
-  type PlanForm,
-  planBody,
   planOf,
+  sharedGroupOf,
   planSummary,
   progress,
 } from './installments'
@@ -42,24 +37,6 @@ function plan(over: Partial<InstallmentPlan> = {}): InstallmentPlan {
     installments: [],
     ...over,
   }
-}
-
-function draft(over: Partial<InstallmentDraft> = {}): InstallmentDraft {
-  return {
-    fingerprint: 'fp-3',
-    name: 'STORE COM',
-    account_label: 'VISA ···4242',
-    amount_cents: 15_000,
-    currency: 'USD',
-    month: '2026-02',
-    number: 3,
-    paid_before: 2,
-    ...over,
-  }
-}
-
-function form(over: Partial<PlanForm> = {}): PlanForm {
-  return { ...initialForm(draft()), ...over }
 }
 
 describe('row and detail lines', () => {
@@ -90,10 +67,10 @@ describe('planSummary', () => {
     )
   })
 
-  it("names who pays a member's plan, and nobody for the user's own", () => {
+  it("names the person a plan is for, and nobody for the user's own", () => {
     expect(ownerLine(plan())).toBeNull()
     const member = plan({ group_id: 2, contact_id: 5, group_name: 'Home', contact_name: 'Ana' })
-    expect(ownerLine(member)).toBe(t('installments.plan.paidBy', { contact: 'Ana', group: 'Home' }))
+    expect(ownerLine(member)).toBe(t('installments.plan.paidBy', { contact: 'Ana' }))
   })
 
   it('labels each installment with its month and state', () => {
@@ -146,63 +123,11 @@ describe('canBeInstallment', () => {
   })
 })
 
-describe('the form', () => {
-  it('starts from the draft: its name and number, 6 installments, mine', () => {
-    expect(initialForm(draft())).toEqual({
-      name: 'STORE COM',
-      count: '6',
-      number: '3',
-      owner: 'me',
-      groupId: null,
-      contactId: null,
-    })
-  })
-
-  it('never starts with fewer installments than the number found', () => {
-    expect(initialForm(draft({ number: 9 })).count).toBe('9')
-  })
-
-  it('says how many earlier installments were found', () => {
-    expect(foundLine(draft())).toBe('Encontramos 2 cuotas anteriores.') // spanish-ui
-    expect(foundLine(draft({ paid_before: 1 }))).toBe('Encontramos 1 cuota anterior.') // spanish-ui
-    expect(foundLine(draft({ paid_before: 0 }))).toBeNull()
-  })
-
-  it("builds the user's own plan", () => {
-    expect(planBody('fp-3', form({ name: '  Phone (Store) ' }))).toEqual({
-      body: { fingerprint: 'fp-3', name: 'Phone (Store)', count: 6, number: 3 },
-      error: null,
-    })
-  })
-
-  it("builds a member's plan with the group and the person", () => {
-    const result = planBody('fp-3', form({ owner: 'member', groupId: 2, contactId: 5 }))
-    expect(result.body).toEqual({
-      fingerprint: 'fp-3',
-      name: 'STORE COM',
-      count: 6,
-      number: 3,
-      group_id: 2,
-      contact_id: 5,
-    })
-  })
-
-  it('asks for what is missing or out of range', () => {
-    expect(planBody('f', form({ name: ' ' })).error).toBe(
-      t('installments.form.invalid.name', { max: NAME_MAX }),
-    )
-    expect(planBody('f', form({ name: 'x'.repeat(NAME_MAX + 1) })).body).toBeNull()
-    expect(planBody('f', form({ count: '1' })).error).toBe(
-      t('installments.form.invalid.count', { min: 2, max: COUNT_MAX }),
-    )
-    expect(planBody('f', form({ count: '2.5' })).body).toBeNull()
-    expect(planBody('f', form({ count: String(COUNT_MAX + 1) })).body).toBeNull()
-    expect(planBody('f', form({ number: '7' })).error).toBe(
-      t('installments.form.invalid.number', { count: 6 }),
-    )
-    expect(planBody('f', form({ number: '0' })).body).toBeNull()
-    expect(planBody('f', form({ owner: 'member', groupId: 2 })).error).toBe(
-      t('installments.form.invalid.member'),
-    )
+describe('sharedGroupOf', () => {
+  it('is the group of an expense the user shared, and nothing else', () => {
+    const ledger = { group_id: 3, role: 'entry' } as Tx['ledger']
+    expect(sharedGroupOf({ ledger })).toBe(3)
+    expect(sharedGroupOf({ ledger: { ...ledger!, role: 'payment' } })).toBeNull()
+    expect(sharedGroupOf({ ledger: null })).toBeNull()
   })
 })

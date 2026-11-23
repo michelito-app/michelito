@@ -9,6 +9,10 @@ MESSAGES: dict[str, str] = {
     "analysis.installments.number_taken": "esa cuota ya tiene su cargo",
     "analysis.installments.charge_taken": "ese cargo ya es una cuota",
     "analysis.installments.not_this_plan": "ese cargo no puede ser una cuota de este plan",
+    "analysis.installments.count_below_linked": "ya hay cuotas enlazadas por encima de ese número",
+    "analysis.installments.unknown_person": "no encontramos a esa persona",
+    # The group made for a person's installment plan when the user has none with just them.
+    "analysis.installments.pair_group": "Tú y {name}",
     # --- group A: links, transfers, exchanges, reversals, corrections, accounts, coverage,
     # interest, rates, bcrd ---
     "analysis.accounts.cash_box_name": "Efectivo",

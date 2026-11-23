@@ -171,11 +171,68 @@ def create(
     return int(cursor.lastrowid or 0)
 
 
-def _plan(conn: sqlite3.Connection, plan_id: int) -> Plan:
+def plan(conn: sqlite3.Connection, plan_id: int) -> Plan:
     found = next((p for p in load(conn) if p.id == plan_id), None)
     if found is None:
         raise LookupError(plan_id)
     return found
+
+
+_plan = plan
+
+
+def update(
+    conn: sqlite3.Connection,
+    plan_id: int,
+    now: str,
+    *,
+    name: str | None = None,
+    count: int | None = None,
+) -> None:
+    """A new name (also on the group expenses it recorded) or number of installments (never
+    below an installment already linked)."""
+    found = plan(conn, plan_id)
+    if count is not None:
+        if not 2 <= count <= COUNT_MAX:
+            raise LinkError(t("analysis.installments.count_range", max=COUNT_MAX))
+        if count < max(found.links, default=0):
+            raise LinkError(t("analysis.installments.count_below_linked"))
+        conn.execute("UPDATE installment_plans SET count = ? WHERE id = ?", (count, plan_id))
+    if name is not None:
+        text = ledger_store.clean_name(name, limit=NAME_MAX)
+        conn.execute("UPDATE installment_plans SET name = ? WHERE id = ?", (text, plan_id))
+        for entry_id in found.entries.values():
+            conn.execute("UPDATE ledger_entries SET description = ? WHERE id = ?", (text, entry_id))
+    conn.execute("UPDATE installment_plans SET updated_at = ? WHERE id = ?", (now, plan_id))
+
+
+def forget_entry(conn: sqlite3.Connection, found: Plan, number: int) -> None:
+    """Installment n is no longer a group expense (the link stays)."""
+    entry_id = found.entries.get(number)
+    conn.execute(
+        "UPDATE installment_links SET entry_id = NULL WHERE plan_id = ? AND number = ?",
+        (found.id, number),
+    )
+    if entry_id is not None:
+        _drop_entry(conn, entry_id)
+
+
+def record(conn: sqlite3.Connection, found: Plan, number: int, move: Movement) -> None:
+    """Installment n as the person's share in the plan's group (see `_record_share`)."""
+    entry_id = _record_share(conn, found, move)
+    conn.execute(
+        "UPDATE installment_links SET entry_id = ? WHERE plan_id = ? AND number = ?",
+        (entry_id, found.id, number),
+    )
+
+
+def dismiss(conn: sqlite3.Connection, plan_id: int, fingerprint: str, now: str) -> None:
+    """The charge is not part of the plan: the matching does not propose it again."""
+    conn.execute(
+        "INSERT OR IGNORE INTO installment_dismissals (plan_id, fingerprint, dismissed_at) "
+        "VALUES (?, ?, ?)",
+        (plan_id, fingerprint, now),
+    )
 
 
 def delete(conn: sqlite3.Connection, plan_id: int) -> None:
@@ -193,7 +250,8 @@ def _drop_entry(conn: sqlite3.Connection, entry_id: int) -> None:
 
 def _record_share(conn: sqlite3.Connection, plan: Plan, move: Movement) -> int | None:
     """A member's installment as their whole share of an expense the user paid. None when the
-    charge is already in a group or linked to something else (the person did it by hand)."""
+    charge is already in a group or linked to something else (the person did it by hand: that
+    expense stays theirs, the plan never edits or deletes it)."""
     if plan.group_id is None or plan.contact_id is None:
         return None
     if move.fingerprint in ledger_store.linked_fingerprints(conn):
@@ -264,11 +322,7 @@ def unlink(conn: sqlite3.Connection, plan_id: int, fingerprint: str, now: str) -
         )
         if entry_id is not None:
             _drop_entry(conn, entry_id)
-    conn.execute(
-        "INSERT OR IGNORE INTO installment_dismissals (plan_id, fingerprint, dismissed_at) "
-        "VALUES (?, ?, ?)",
-        (plan_id, fingerprint, now),
-    )
+    dismiss(conn, plan_id, fingerprint, now)
 
 
 def charge_of(move: Movement) -> Charge:

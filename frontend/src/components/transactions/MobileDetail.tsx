@@ -46,7 +46,7 @@ import { ReceiptBox } from '@/components/receipts/ReceiptBox'
 import { InstallmentSection } from '@/components/installments/InstallmentSection'
 import { InstallmentSheet } from '@/components/installments/InstallmentSheet'
 import { useCardAccounts } from '@/components/installments/useCardAccounts'
-import { canBeInstallment } from '@/lib/installments'
+import { canBeInstallment, sharedGroupOf } from '@/lib/installments'
 import { bankName, receiptTitle } from '@/lib/receipts'
 import { RecurringSection } from './RecurringSection'
 import { ReserveSection } from './ReserveSection'
@@ -303,7 +303,12 @@ export function MobileDetail({
       {sheet === 'reimbursement' && <CreditPaymentSheet tx={tx} onClose={close} />}
       {sheet === 'debitPayment' && <DebitPaymentSheet tx={tx} onClose={close} />}
       {sheet === 'installment' && !tx.installment && (
-        <InstallmentSheet tx={tx} onClose={close} onCreated={() => setSheet(null)} />
+        <InstallmentSheet
+          fingerprint={tx.fingerprint}
+          sharedGroupId={sharedGroupOf(tx)}
+          onClose={close}
+          onCreated={() => setSheet(null)}
+        />
       )}
       {sheet !== null &&
         !(sheet === 'shared' && tx.ledger === null) &&

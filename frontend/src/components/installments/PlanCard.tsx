@@ -1,11 +1,10 @@
-import { Check, Clock, TriangleAlert, UsersRound } from 'lucide-react'
+import { Check, Clock, Pencil, TriangleAlert, UsersRound } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { FOCUS } from '@/components/summary/styles'
-import { Action, ConfirmBox, Failure } from '@/components/transactions/linkParts'
+import { Action } from '@/components/transactions/linkParts'
 import { t } from '@/i18n'
 import type { InstallmentPlan, InstallmentState } from '@/lib/api'
-import { useDeleteInstallment } from '@/lib/installmentQueries'
 import {
   eachLine,
   installmentLabel,
@@ -16,6 +15,7 @@ import {
 import { groupPath } from '@/lib/links'
 import { monthName } from '@/lib/months'
 import { cn } from '@/lib/utils'
+import { EditPlanSheet } from './EditPlanSheet'
 
 const STATE_CLASS: Record<InstallmentState, string> = {
   paid: 'border-primary/30 bg-[#F6FAF8] text-primary',
@@ -29,8 +29,8 @@ const STATE_ICON: Record<InstallmentState, ReactNode> = {
   missing: <TriangleAlert size={12} aria-hidden="true" />,
 }
 
-/** A plan's card: how many are paid and what is left, each installment's state, whose it is (a
- * member's links to the group) and "Delete plan" with a confirmation. */
+/** A plan's card: how many are paid and what is left, each installment's state, whom it is for
+ * (a person's links to the group they share) and "Edit", which opens `EditPlanSheet`. */
 export function PlanCard({ plan }: { plan: InstallmentPlan }) {
   const titleId = useId()
   const owner = ownerLine(plan)
@@ -84,53 +84,40 @@ export function PlanCard({ plan }: { plan: InstallmentPlan }) {
           {t('installments.plan.missing', { count: plan.missing.length })}
         </p>
       )}
-      {owner && plan.group_id !== null && (
-        <Link
-          to={groupPath(plan.group_id)}
-          data-testid="installment-owner"
-          className={cn(
-            '-mx-1 inline-flex min-h-11 items-center gap-1.5 self-start rounded-[10px] px-1 text-[13px] font-semibold text-primary no-underline hover:bg-muted',
-            FOCUS,
-          )}
-        >
-          <UsersRound size={15} aria-hidden="true" />
-          {owner}
-        </Link>
-      )}
-      <DeletePlan plan={plan} />
+      <footer className="flex flex-wrap items-center justify-between gap-2">
+        {owner && plan.group_id !== null ? (
+          <Link
+            to={groupPath(plan.group_id)}
+            data-testid="installment-owner"
+            className={cn(
+              '-mx-1 inline-flex min-h-11 items-center gap-1.5 rounded-[10px] px-1 text-[13px] font-semibold text-primary no-underline hover:bg-muted',
+              FOCUS,
+            )}
+          >
+            <UsersRound size={15} aria-hidden="true" />
+            {owner}
+          </Link>
+        ) : (
+          <span className="text-[13px] text-muted-foreground">{t('installments.plan.mine')}</span>
+        )}
+        <EditPlan plan={plan} />
+      </footer>
     </article>
   )
 }
 
-function DeletePlan({ plan }: { plan: InstallmentPlan }) {
-  const [asking, setAsking] = useState(false)
-  const remove = useDeleteInstallment()
-  if (asking) {
-    return (
-      <>
-        <ConfirmBox
-          label={t('installments.plan.deleteLabel', { name: plan.name })}
-          confirmLabel={t('installments.plan.confirmButton')}
-          busy={remove.isPending}
-          onConfirm={() => remove.mutate(plan.id)}
-          onCancel={() => setAsking(false)}
-        >
-          {plan.group_name
-            ? t('installments.plan.confirmGroup', { group: plan.group_name })
-            : t('installments.plan.confirm')}
-        </ConfirmBox>
-        <Failure error={remove.error} />
-      </>
-    )
-  }
+function EditPlan({ plan }: { plan: InstallmentPlan }) {
+  const [open, setOpen] = useState(false)
   return (
     <div>
       <Action
-        label={t('installments.plan.deleteLabel', { name: plan.name })}
-        onClick={() => setAsking(true)}
+        label={t('installments.plan.editLabel', { name: plan.name })}
+        onClick={() => setOpen(true)}
       >
-        {t('installments.plan.delete')}
+        <Pencil size={15} aria-hidden="true" />
+        {t('installments.plan.edit')}
       </Action>
+      {open && <EditPlanSheet plan={plan} onClose={() => setOpen(false)} />}
     </div>
   )
 }

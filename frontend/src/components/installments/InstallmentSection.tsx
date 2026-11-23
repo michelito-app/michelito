@@ -4,7 +4,7 @@ import { Action, Failure, SECTION, SECTION_TITLE } from '@/components/transactio
 import { t } from '@/i18n'
 import type { Tx } from '@/lib/api'
 import { useChangeInstallmentLink, useInstallments } from '@/lib/installmentQueries'
-import { canBeInstallment, linkedLine, planOf, planSummary } from '@/lib/installments'
+import { canBeInstallment, linkedLine, planOf, planSummary, sharedGroupOf } from '@/lib/installments'
 import { useCardAccounts } from './useCardAccounts'
 import { InstallmentSheet } from './InstallmentSheet'
 
@@ -57,7 +57,8 @@ export function InstallmentSection({ tx, bare, onUnlinked }: InstallmentSectionP
       )}
       {open && (
         <InstallmentSheet
-          tx={tx}
+          fingerprint={tx.fingerprint}
+          sharedGroupId={sharedGroupOf(tx)}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false)

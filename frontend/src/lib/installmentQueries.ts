@@ -1,17 +1,24 @@
-// Installment plans: their cards, the "It is an installment…" draft and the writes. A write
-// changes the rows' tags, Recurring's forecast, To review and (a member's plan) the shared
-// groups: all of them are invalidated.
+// Installment plans: their cards, the "It is an installment…" draft, the people and charges
+// the screens choose from, and the writes. A write changes the rows' tags, Recurring's
+// forecast, To review, the people (a new one may be created) and the shared groups: all of
+// them are invalidated.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   type InstallmentBody,
+  type InstallmentCharge,
   type InstallmentDraft,
+  type InstallmentEdit,
+  type InstallmentPerson,
   type InstallmentPlan,
   request,
 } from './api'
 import { queryKeys } from './queries'
 
 export const installmentKeys = {
+  // Also the prefix of the people and the charges: a write refreshes them too.
   all: ['installments'] as const,
+  people: ['installments', 'people'] as const,
+  charges: (planId: number | null) => ['installments', 'charges', planId ?? 'new'] as const,
   // Under the transactions' key: it changes with them.
   draft: (fingerprint: string) =>
     [...queryKeys.transactions, 'installment-draft', fingerprint] as const,
@@ -44,6 +51,25 @@ export function useInstallmentDraft(fingerprint: string, enabled = true) {
   })
 }
 
+/** The owner field: the people in the user's groups. */
+export function useInstallmentPeople() {
+  return useQuery({
+    queryKey: installmentKeys.people,
+    queryFn: () => request<InstallmentPerson[]>('/api/installments/people'),
+  })
+}
+
+/** Recent card charges a new plan can start from; with `planId`, the ones that plan can link
+ * (each with the installment it would be). */
+export function useInstallmentCharges(planId: number | null = null, enabled = true) {
+  const query = planId === null ? '' : `?plan_id=${planId}`
+  return useQuery({
+    enabled,
+    queryKey: installmentKeys.charges(planId),
+    queryFn: () => request<InstallmentCharge[]>(`/api/installments/charges${query}`),
+  })
+}
+
 function useInvalidatePlans() {
   const client = useQueryClient()
   return () =>
@@ -73,7 +99,23 @@ export function useCreateInstallment() {
   })
 }
 
-/** "Delete plan": the plan and the group expenses it recorded; the transactions stay. */
+export interface PlanEdit {
+  id: number
+  body: InstallmentEdit
+}
+
+/** "Edit plan": a new name, number of installments or owner. */
+export function useEditInstallment() {
+  const invalidate = useInvalidatePlans()
+  return useMutation({
+    mutationFn: ({ id, body }: PlanEdit) =>
+      request<InstallmentPlan>(planPath(id), { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: invalidate,
+  })
+}
+
+/** "Delete plan": the plan and the group expenses it recorded; the charges become loose
+ * expenses again. */
 export function useDeleteInstallment() {
   const invalidate = useInvalidatePlans()
   return useMutation({
