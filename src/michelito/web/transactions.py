@@ -19,6 +19,7 @@ from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.web.installments import Tag
 from michelito.web.links import RowLinks
+from michelito.web.loans import Tag as LoanTag
 from michelito.web.receipts import ReceiptView
 
 Scope = Literal["transaction", "merchant"]
@@ -55,6 +56,7 @@ class TxView:
     cash_state: str = ""  # an unanswered scheduled cash occurrence: "pending" or "unconfirmed"
     receipts: tuple[ReceiptView, ...] = ()  # the merchant receipts linked to it (`web.receipts`)
     installment: Tag | None = None  # the installment plan it is part of (`web.installments`)
+    loan: LoanTag | None = None  # the loan it pays (`web.loans`)
 
     @property
     def suggested_one_off(self) -> bool:

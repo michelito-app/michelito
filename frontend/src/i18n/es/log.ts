@@ -32,6 +32,7 @@ export const log = {
   'log.kind.reviewed': 'Para revisar',
   'log.kind.receipt': 'Recibo del comercio',
   'log.kind.installment': 'Plan de cuotas',
+  'log.kind.loan': 'Préstamo',
   'log.kind.keywords': 'Palabras clave',
   'log.kind.category_kind': 'Tipo de categoría',
   'log.kind.category_deleted': 'Categoría borrada',

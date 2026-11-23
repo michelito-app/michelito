@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from michelito import db
-from michelito.analysis import installment_store, live_match, receipt_match
+from michelito.analysis import installment_store, live_match, loan_store, receipt_match
 from michelito.config import ARCHIVE_ONLY
 from michelito.i18n import t
 from michelito.parsers import StatementParser, detect, labeler, popular_web, splitter
@@ -358,6 +358,14 @@ def _reconcile(conn: sqlite3.Connection, after: int) -> None:
     except Exception as exc:  # noqa: BLE001 - plans are an extra: the statement stays
         _LOG.warning(
             "matching installment plans failed (%s); the next sync retries", type(exc).__name__
+        )
+    # Loans: every charge with a loan's number, from any account.
+    try:
+        with conn:
+            loan_store.reconcile_stored(conn, _now())
+    except Exception as exc:  # noqa: BLE001 - loans are an extra: the statement stays
+        _LOG.warning(
+            "matching loan payments failed (%s); the next sync retries", type(exc).__name__
         )
 
 

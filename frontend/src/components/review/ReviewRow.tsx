@@ -9,6 +9,7 @@ import { useLinkToReserve } from '@/lib/budgetQueries'
 import { useChangeInvestment, useDecideProvisional, useDecideReceipt, useEditTransaction } from '@/lib/queries'
 import { itemPayments } from '@/lib/coverPlan'
 import { useChangeInstallmentLink } from '@/lib/installmentQueries'
+import { loanAccountKey } from '@/lib/loans'
 import { confirmPossiblePayment, ledger, useLedgerWrite } from '@/lib/sharedQueries'
 import {
   amountText,
@@ -90,6 +91,8 @@ export function ReviewRow({ item, selection, busy, onReviewed, onOneOff }: Revie
           <UnconfirmedActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'installment_off_script' && item.plan_id != null ? (
           <InstallmentActions item={item} busy={busy} />
+        ) : item.kind === 'loan_difference' && item.loan_id != null ? (
+          <LoanActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_receipt' && item.receipt_id != null ? (
           <ReceiptActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_reserve' && item.reserve_id != null ? (
@@ -310,6 +313,32 @@ function ReceiptActions({ item, busy, onReviewed }: InvestmentActionsProps) {
 /** A charge off its installment plan's script: "It is installment n" (when the server names
  * one) links it; "It is not part of the plan" refuses it for good (what marking it reviewed
  * means for this kind, so there is no separate "Already reviewed"). */
+/** A loan whose statement disagrees: open the loan's card, or "Done". */
+function LoanActions({ item, busy, onReviewed }: InvestmentActionsProps) {
+  const navigate = useNavigate()
+  return (
+    <>
+      <Button
+        className={ACTION}
+        aria-label={t('loans.review.openLabel', { merchant: item.merchant })}
+        disabled={busy || item.loan_id == null}
+        onClick={() => navigate(`/accounts?account=${loanAccountKey(item.loan_id ?? 0)}`)}
+      >
+        {t('loans.review.open')}
+      </Button>
+      <Button
+        variant="outline"
+        className={SECONDARY}
+        aria-label={reviewedLabel(item)}
+        disabled={busy}
+        onClick={() => onReviewed(item, true)}
+      >
+        {t('review.row.done')}
+      </Button>
+    </>
+  )
+}
+
 function InstallmentActions({ item, busy }: Pick<InvestmentActionsProps, 'item' | 'busy'>) {
   const change = useChangeInstallmentLink()
   const pending = busy || change.isPending

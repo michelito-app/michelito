@@ -19,6 +19,8 @@ from michelito.analysis import (
     ledger_store,
     links,
     live_store,
+    loan_review,
+    loan_store,
     rates,
     receipt_match,
     receipt_store,
@@ -26,6 +28,7 @@ from michelito.analysis import (
 )
 from michelito.analysis import one_off_dismissals as dismissals
 from michelito.analysis import recurring_marks as marks
+from michelito.analysis.report import money
 from michelito.analysis.review import Kind
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
@@ -77,6 +80,7 @@ def register(
             reversals=live_store.reversals(conn),
             receipts=_receipt_proposals(conn, flow),
             **_installments(conn, flow),
+            **_loans(conn, flow),
         )
 
     @app.get("/api/review")
@@ -274,4 +278,36 @@ def _installments(conn: sqlite3.Connection, flow: Sequence[Movement]) -> dict:
             )
             for fp, off in found.off_script.items()
         },
+    }
+
+
+def _loans(conn: sqlite3.Connection, flow: Sequence[Movement]) -> dict:
+    """The loans' linked payments and the months whose statement disagrees."""
+    loans = loan_store.load(conn)
+    if not loans:
+        return {}
+    by_fp = {m.fingerprint: m for m in flow}
+    differences: dict[str, tuple[int, str]] = {}
+    for loan in loans:
+        paid = [
+            loan_review.Payment(fp, by_fp[fp].day, loan_store.payment_amount(by_fp[fp]))
+            for fp in loan.links
+            if fp in by_fp
+        ]
+        found = loan_review.differences(
+            loan.contract, loan.rates, loan.anchors, loan.statement_lines, paid
+        )
+        for difference in found:
+            if not difference.fingerprints:
+                continue
+            reason = t(
+                f"web.review.loan_{difference.kind}",
+                name=loan.name,
+                expected=money(difference.expected, loan.currency),
+                found=money(difference.found, loan.currency),
+            )
+            differences.setdefault(difference.fingerprints[0], (loan.id, reason))
+    return {
+        "loans": frozenset(fp for loan in loans for fp in loan.links),
+        "loan_differences": differences,
     }

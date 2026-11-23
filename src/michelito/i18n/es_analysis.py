@@ -2,6 +2,22 @@
 error details, seed category names and labels the UI shows."""
 
 MESSAGES: dict[str, str] = {
+    # Loans (`loan_store`).
+    "analysis.loans.number_length": (
+        "el número del préstamo debe tener al menos {min} letras o dígitos"
+    ),
+    "analysis.loans.number_taken": "ya hay un préstamo con ese número",
+    "analysis.loans.principal_positive": "el monto del préstamo debe ser mayor que cero",
+    "analysis.loans.term_range": "el plazo debe estar entre 1 y {max} meses",
+    "analysis.loans.rate_range": "la tasa debe estar entre 0 % y 100 % al año",
+    "analysis.loans.start_after_rate": (
+        "hay un cambio de tasa antes de esa fecha: quítalo antes de mover el inicio"
+    ),
+    "analysis.loans.starting_rate": "la tasa inicial del contrato no se puede quitar; cámbiala",
+    "analysis.loans.balance_negative": "el balance no puede ser negativo",
+    "analysis.loans.not_a_payment": "ese movimiento no puede ser un pago de este préstamo",
+    "analysis.loans.payment_taken": "ese pago ya es de otro préstamo",
+    "analysis.loans.unknown_number": "no hay ningún préstamo con el número de ese estado",
     # Installment plans (`installment_store`).
     "analysis.installments.member_needs_group": "un plan de otra persona necesita su grupo",
     "analysis.installments.count_range": "el plan debe tener entre 2 y {max} cuotas",

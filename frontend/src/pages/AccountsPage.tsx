@@ -2,13 +2,17 @@ import { useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router'
 import { AccountList } from '@/components/accounts/AccountList'
 import { CashBoxCard } from '@/components/cashBox/CashBoxCard'
+import { LoanCard } from '@/components/loans/LoanCard'
 import { StatementsPanel } from '@/components/accounts/StatementsPanel'
 import { LoadError } from '@/components/LoadError'
 import { PANEL } from '@/components/summary/styles'
 import { t } from '@/i18n'
 import { Skeleton } from '@/components/ui/skeleton'
 import { resolveAccount } from '@/lib/accounts'
+import type { Loan } from '@/lib/api'
 import { CASH_BOX_ID, CASH_BOX_KEY, CASH_KIND, localToday } from '@/lib/cashBox'
+import { useLoans } from '@/lib/loanQueries'
+import { loanIdOf } from '@/lib/loans'
 import { useAccounts, useCashBox } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
@@ -18,6 +22,7 @@ export function AccountsPage() {
   const [params, setParams] = useSearchParams()
   const accounts = useAccounts()
   const cash = useCashBox()
+  const loans = useLoans()
   const location = useLocation()
   const panel = useRef<HTMLElement>(null)
 
@@ -34,8 +39,10 @@ export function AccountsPage() {
   const cashChosen =
     params.get('account') === CASH_BOX_KEY ||
     (params.get('account') === null && location.hash === `#${CASH_BOX_ID}`)
+  const loanId = loanIdOf(params.get('account'))
+  const loan = loanId === null ? undefined : loans.data?.find((l) => l.id === loanId)
   const selected = resolveAccount(withStatements, params.get('account'))
-  if (selected === null && !cashChosen) return <NoAccounts />
+  if (selected === null && !cashChosen && loanId === null) return <NoAccounts />
 
   function select(key: string) {
     setParams({ account: key })
@@ -54,12 +61,21 @@ export function AccountsPage() {
       <div className="flex flex-wrap items-start gap-6">
         <AccountList
           accounts={withStatements}
-          selected={cashChosen || selected === null ? CASH_BOX_KEY : selected.key}
+          selected={
+            loanId !== null
+              ? (params.get('account') ?? '')
+              : cashChosen || selected === null
+                ? CASH_BOX_KEY
+                : selected.key
+          }
           today={today}
           onSelect={select}
           cash={cash.data ?? null}
+          loans={loans.data ?? []}
         />
-        {cashChosen || selected === null ? (
+        {loanId !== null ? (
+          <LoanPanel loan={loan} pending={loans.isPending} />
+        ) : cashChosen || selected === null ? (
           <div className="flex min-w-0 flex-[3_1_560px] flex-col">
             <CashBoxCard today={today} />
           </div>
@@ -68,6 +84,16 @@ export function AccountsPage() {
         )}
       </div>
     </>
+  )
+}
+
+function LoanPanel({ loan, pending }: { loan: Loan | undefined; pending: boolean }) {
+  if (loan !== undefined) return <LoanCard loan={loan} />
+  if (pending) return <Skeleton className="h-96 min-w-0 flex-[3_1_560px] rounded-2xl" />
+  return (
+    <div className={cn(PANEL, 'min-w-0 flex-[3_1_560px] px-6 py-10 text-center text-sm')}>
+      {t('loans.card.unknown')}
+    </div>
   )
 }
 

@@ -80,6 +80,7 @@ Kind = Literal[
     "reversal",
     "possible_receipt",
     "installment_off_script",
+    "loan_difference",
 ]
 KINDS: tuple[Kind, ...] = get_args(Kind)
 
@@ -121,6 +122,7 @@ class Item:
     receipt_id: int | None = None  # possible receipt: the merchant receipt proposed for it
     plan_id: int | None = None  # installment off script: the plan the charge looks like
     installment_number: int | None = None  # ... and the installment it would be
+    loan_id: int | None = None  # loan difference: the loan whose statement disagrees
 
 
 @dataclass(frozen=True)

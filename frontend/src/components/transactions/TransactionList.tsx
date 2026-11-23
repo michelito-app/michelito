@@ -7,6 +7,7 @@ import { colorFor, customColors } from '@/lib/categories'
 import { type LinkBadge, linkBadges } from '@/lib/links'
 import { bankName, receiptTitle } from '@/lib/receipts'
 import { installmentTag } from '@/lib/installments'
+import { loanTag } from '@/lib/loans'
 import { useCategories } from '@/lib/queries'
 import {
   AMOUNT_TONE_CLASS,
@@ -370,6 +371,11 @@ function RowBody({ tx, color }: { tx: Tx; color: string }) {
         {tx.installment && (
           <span data-testid="installment-tag" className="truncate text-xs font-medium text-primary">
             {installmentTag(tx)}
+          </span>
+        )}
+        {tx.loan && (
+          <span data-testid="loan-tag" className="truncate text-xs font-medium text-primary">
+            {loanTag(tx)}
           </span>
         )}
       </span>

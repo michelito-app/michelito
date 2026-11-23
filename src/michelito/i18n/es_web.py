@@ -3,12 +3,23 @@ change-log text the routes return to the UI."""
 
 MESSAGES: dict[str, str] = {
     # Installment plans (`web.installment_routes`).
+    "web.loans.unknown": "ese préstamo no existe",
+    "web.loans.none": "sin préstamo",
+    "web.loans.log_payment": "pago del préstamo {name}",
     "web.installments.unknown": "ese plan de cuotas no existe",
     "web.installments.not_a_charge": "solo un cargo de tarjeta puede ser una cuota",
     "web.installments.number_over_count": "la cuota no puede pasar del total de cuotas",
     "web.installments.none": "sin plan de cuotas",
     "web.installments.log_plan": "plan de cuotas {name}",
     "web.installments.log_number": "cuota {number} de {name}",
+    "web.review.loan_payments": (
+        "{name}: el estado del préstamo dice que se pagó {expected} este mes "
+        "y los pagos enlazados suman {found}"
+    ),
+    "web.review.loan_contract": (
+        "{name}: el estado del préstamo deja un balance de {found} "
+        "y el contrato esperaba {expected}"
+    ),
     "web.review.installment_amount": "{name}: la cuota {number} llegó por otro monto",
     "web.review.installment_repeated": "{name}: hay más de un cargo para la cuota {number}",
     "web.review.installment_after_end": "{name}: llegó un cargo después de la última cuota",

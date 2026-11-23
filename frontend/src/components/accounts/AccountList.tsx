@@ -1,10 +1,11 @@
 import { FOCUS } from '@/components/summary/styles'
 import { t } from '@/i18n'
-import type { Account, CashBox } from '@/lib/api'
+import type { Account, CashBox, Loan } from '@/lib/api'
 import { balanceText, CASH_BOX_KEY } from '@/lib/cashBox'
 import { amountText, cutLine, groupAccounts, isCreditCard, statusText } from '@/lib/accounts'
 import { categoryColor } from '@/lib/categories'
 import { payNote } from '@/lib/interest'
+import { balanceText as loanBalance, loanAccountKey, remainingLine } from '@/lib/loans'
 import { cn } from '@/lib/utils'
 
 interface AccountListProps {
@@ -14,6 +15,8 @@ interface AccountListProps {
   onSelect: (key: string) => void
   /** The cash account («Efectivo»), listed with the others (null while it loads). */
   cash?: CashBox | null
+  /** The loans, a liability each (with a negative balance, like a card). */
+  loans?: readonly Loan[]
 }
 
 const GROUP_TITLE = 'text-[13px] font-semibold tracking-[0.04em] text-muted-foreground uppercase'
@@ -25,6 +28,7 @@ export function AccountList({
   today,
   onSelect,
   cash = null,
+  loans = [],
 }: AccountListProps) {
   const { cards, others } = groupAccounts(accounts)
   // The chip colour follows the order of the whole list, not the group's.
@@ -46,6 +50,19 @@ export function AccountList({
           />
         ))
       )}
+      {loans.length > 0 && (
+        <>
+          <h2 className={cn(GROUP_TITLE, 'mt-3')}>{t('loans.list.group')}</h2>
+          {loans.map((loan) => (
+            <LoanButton
+              key={loan.id}
+              loan={loan}
+              pressed={selected === loanAccountKey(loan.id)}
+              onSelect={onSelect}
+            />
+          ))}
+        </>
+      )}
       <h2 className={cn(GROUP_TITLE, 'mt-3')}>{t('accounts.list.others')}</h2>
       {cash && (
         <CashButton cash={cash} pressed={selected === CASH_BOX_KEY} onSelect={onSelect} />
@@ -65,6 +82,37 @@ export function AccountList({
         ))
       )}
     </div>
+  )
+}
+
+interface LoanButtonProps {
+  loan: Loan
+  pressed: boolean
+  onSelect: (key: string) => void
+}
+
+/** A loan: what is owed (negative) and what is left; it opens the loan's card. */
+function LoanButton({ loan, pressed, onSelect }: LoanButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      data-testid="loan-account"
+      onClick={() => onSelect(loanAccountKey(loan.id))}
+      className={cn(
+        'flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl bg-card px-5 py-[18px] text-left text-foreground transition-colors',
+        pressed
+          ? 'border-2 border-primary px-[19px] py-[17px]'
+          : 'border border-border hover:border-[#D6D6D0]',
+        FOCUS,
+      )}
+    >
+      <span className="flex min-w-0 flex-col">
+        <span className="text-[15px] font-semibold [overflow-wrap:anywhere]">{loan.name}</span>
+        <span className="text-xs text-muted-foreground">{remainingLine(loan)}</span>
+      </span>
+      <span className="text-base font-bold whitespace-nowrap tabular-nums">{loanBalance(loan)}</span>
+    </button>
   )
 }
 

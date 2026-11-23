@@ -74,6 +74,7 @@ def test_february_has_one_item_of_each_kind_found(client: TestClient) -> None:
         "receipt_id",
         "plan_id",
         "installment_number",
+        "loan_id",
     }
     assert third["investment_id"] is None
     assert third["provisional"] is False

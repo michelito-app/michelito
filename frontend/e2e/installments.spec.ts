@@ -76,7 +76,7 @@ async function goToInstallments(page: Page): Promise<void> {
   }
   await expect(page).toHaveURL(/\/installments$/)
   await expect(
-    page.getByRole('heading', { level: 1, name: t('installments.page.title') }),
+    page.getByRole('heading', { level: 1, name: t('loans.page.title') }),
   ).toBeVisible()
 }
 

@@ -33,6 +33,7 @@ class ReviewItemOut(BaseModel):
     receipt_id: int | None = None  # possible receipt: the merchant receipt proposed for it
     plan_id: int | None = None  # installment off script: the plan it looks like
     installment_number: int | None = None  # ... and the installment it would be (if any)
+    loan_id: int | None = None  # loan difference: the loan whose statement disagrees
 
     @classmethod
     def of(cls, view: ReviewView) -> ReviewItemOut:
@@ -61,6 +62,7 @@ class ReviewItemOut(BaseModel):
             receipt_id=item.receipt_id,
             plan_id=item.plan_id,
             installment_number=item.installment_number,
+            loan_id=item.loan_id,
         )
 
 

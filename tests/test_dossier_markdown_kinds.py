@@ -80,7 +80,13 @@ def test_no_english_kind_value_reaches_the_markdown(built: dossier.Dossier) -> N
 
 
 # Review kinds added after the rename: they never had an old stored value.
-NEWER_REVIEW_KINDS = ("unconfirmed", "reversal", "possible_receipt", "installment_off_script")
+NEWER_REVIEW_KINDS = (
+    "unconfirmed",
+    "reversal",
+    "possible_receipt",
+    "installment_off_script",
+    "loan_difference",
+)
 
 
 @pytest.mark.parametrize("kind", [k for k in review.KINDS if k not in NEWER_REVIEW_KINDS])

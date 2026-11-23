@@ -98,6 +98,13 @@ TRACKED = (
     "installment_plans",
     "installment_links",
     "installment_dismissals",
+    # Loans (schema 26); statement lines too, so undoing a deleted loan brings them back.
+    "loans",
+    "loan_rates",
+    "loan_balances",
+    "loan_links",
+    "loan_dismissals",
+    "loan_statement_lines",
 )
 _CAPTURE = "changelog_capture"
 

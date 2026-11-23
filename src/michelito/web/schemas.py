@@ -26,6 +26,7 @@ from michelito.web import pending as pending_view
 from michelito.web import recurring as recurring_view
 from michelito.web import summary as summary_view
 from michelito.web.installments import Tag
+from michelito.web.loans import Tag as LoanTag
 from michelito.web.receipts import ReceiptView
 from michelito.web.recurring_schemas import GroupKey
 from michelito.web.transactions import TxView
@@ -448,6 +449,15 @@ class InstallmentTagOut(BaseModel):
         return cls(plan_id=v.plan_id, name=v.name, number=v.number, count=v.count)
 
 
+class LoanTagOut(BaseModel):
+    loan_id: int
+    name: str
+
+    @classmethod
+    def of(cls, v: LoanTag) -> LoanTagOut:
+        return cls(loan_id=v.loan_id, name=v.name)
+
+
 class ReceiptItemOut(BaseModel):
     """An item name the browser extension read from the order's page."""
 
@@ -560,6 +570,7 @@ class TxOut(BaseModel):
     receipts: list[ReceiptOut] = Field(default_factory=list)
     # The installment plan it is part of ("installment 3/6 · Phone").
     installment: InstallmentTagOut | None = None
+    loan: LoanTagOut | None = None  # the loan it pays ("loan · Car")
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
@@ -568,6 +579,7 @@ class TxOut(BaseModel):
             fingerprint=v.fingerprint,
             receipts=[ReceiptOut.of(r) for r in v.receipts],
             installment=None if v.installment is None else InstallmentTagOut.of(v.installment),
+            loan=None if v.loan is None else LoanTagOut.of(v.loan),
             provisional=v.provisional,
             approved=v.approved,
             cash_state=v.cash_state,

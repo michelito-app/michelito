@@ -105,6 +105,7 @@ const KINDS = [
   'reviewed',
   'receipt',
   'installment',
+  'loan',
   'keywords',
   'category_kind',
   'category_deleted',

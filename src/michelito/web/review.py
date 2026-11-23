@@ -83,6 +83,10 @@ class Context:
     # price rises) and the off-script ones (fingerprint -> the plan and what the item says).
     installments: Collection[str] = frozenset()
     off_script: Mapping[str, tuple[int, int | None, str]] = field(default_factory=dict)
+    # Loans: their linked payments (hidden like installments) and the months whose loan
+    # statement disagrees (fingerprint of the month's first payment -> the loan and the reason).
+    loans: Collection[str] = frozenset()
+    loan_differences: Mapping[str, tuple[int, str]] = field(default_factory=dict)
 
     @cached_property
     def hints(self) -> dict[str, review.Hint]:
@@ -122,7 +126,10 @@ def month_items(ctx: Context, month: str) -> list[ReviewView]:
         i
         for i in found
         if i.fingerprint not in shown
-        and not (i.kind in _INSTALLMENT_HIDES and i.fingerprint in ctx.installments)
+        and not (
+            i.kind in _INSTALLMENT_HIDES
+            and (i.fingerprint in ctx.installments or i.fingerprint in ctx.loans)
+        )
     ]
     found = [
         *proposed,
@@ -131,6 +138,7 @@ def month_items(ctx: Context, month: str) -> list[ReviewView]:
         *_reversal_items(ctx, mine, month),
         *_receipt_items(ctx, mine, month),
         *_installment_items(ctx, mine, month),
+        *_loan_items(ctx, mine, month),
         *_rule_items(ctx, mine, month),
         *_reserve_items(ctx, mine, month),
         *found,
@@ -288,6 +296,34 @@ def _installment_items(ctx: Context, mine: Sequence[Movement], month: str) -> li
                 amount_dop=to_dop(amount, move.currency, rate_for(ctx.rates, month)),
                 reason=reason,
                 plan_id=plan_id,
+            )
+        )
+    return items
+
+
+def _loan_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[review.Item]:
+    """A month whose loan statement disagrees with its payments or with the contract, on the
+    month's first linked payment."""
+    items = []
+    for move in mine:
+        found = ctx.loan_differences.get(move.fingerprint)
+        if found is None or move.month != month:
+            continue
+        loan_id, reason = found
+        amount = abs(move.gross if move.gross is not None else move.amount)
+        items.append(
+            review.Item(
+                kind="loan_difference",
+                fingerprint=move.fingerprint,
+                day=move.day,
+                merchant=move.merchant,
+                description=move.description,
+                account=move.account,
+                amount=amount,
+                currency=move.currency,
+                amount_dop=to_dop(amount, move.currency, rate_for(ctx.rates, month)),
+                reason=reason,
+                loan_id=loan_id,
             )
         )
     return items

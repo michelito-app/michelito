@@ -367,6 +367,101 @@ export interface Tx {
   approved?: boolean // hosted: it entered because the person approved an unverified email
   receipts?: Receipt[] // the merchant receipts linked to it (order confirmations, shipments)
   installment?: TxInstallment | null // the installment plan it is part of ("cuota 3/6")
+  loan?: TxLoan | null // the loan it pays
+}
+
+export type LoanCurrency = 'DOP' | 'USD'
+
+/** The loan a row pays. */
+export interface TxLoan {
+  loan_id: number
+  name: string
+}
+
+/** A loan's card (GET /api/loans). Rates are in hundredths of a percent (1250 = 12.50 %). */
+export interface Loan {
+  id: number
+  name: string
+  number: string
+  currency: LoanCurrency
+  principal_cents: number
+  term: number
+  start_date: string
+  rate_bp: number // in force today
+  rates: LoanRate[]
+  balances: LoanBalance[] // real balances the user entered
+  balance_cents: number // today
+  paid_cents: number // the linked payments
+  interest_statements_cents: number
+  interest_estimated_cents: number
+  installments_left: number
+  next_due: string | null
+  next_payment_cents: number | null
+  end_date: string | null
+  statement_months: number
+  payments: LoanPayment[] // newest first
+  differences: LoanDifference[]
+  schedule: LoanRow[]
+}
+
+export interface LoanRate {
+  effective: string
+  rate_bp: number
+}
+
+export interface LoanBalance {
+  day: string
+  balance_cents: number
+}
+
+export interface LoanPayment {
+  fingerprint: string
+  day: string
+  description: string
+  account_label: string
+  amount_cents: number
+  origin: 'automatic' | 'confirmed'
+}
+
+export interface LoanDifference {
+  kind: 'payments' | 'contract'
+  month: string
+  expected_cents: number
+  found_cents: number
+  fingerprints: string[]
+}
+
+export interface LoanRow {
+  number: number
+  due: string
+  payment_cents: number
+  interest_cents: number
+  principal_cents: number
+  other_cents: number
+  balance_cents: number
+  rate_bp: number
+  source: 'contract' | 'statement'
+}
+
+export interface LoanBody {
+  name: string
+  number: string
+  currency: LoanCurrency
+  principal_cents: number
+  rate_bp: number
+  term: number
+  start_date: string
+}
+
+export type LoanEdit = Partial<Omit<LoanBody, 'currency' | 'rate_bp'>>
+
+/** A recent charge a loan can link by hand (GET /api/loans/{id}/candidates). */
+export interface LoanCandidate {
+  fingerprint: string
+  day: string
+  description: string
+  account_label: string
+  amount_cents: number
 }
 
 /** A row's place in an installment plan: installment `number` of `count`. */
@@ -690,6 +785,7 @@ export type ReviewKind =
   | 'reversal'
   | 'possible_receipt'
   | 'installment_off_script'
+  | 'loan_difference'
 
 /** A transaction to review (GET /api/review and /api/review/history). */
 export interface ReviewItem {
@@ -715,6 +811,7 @@ export interface ReviewItem {
   provisional?: boolean // still provisional (from a bank alert): it can be discarded
   receipt_id?: number | null // possible receipt: the merchant receipt proposed for it
   plan_id?: number | null // installment off script: the plan the charge looks like
+  loan_id?: number | null // loan difference: the loan whose statement disagrees
   installment_number?: number | null // ... and the installment it would be (null: none)
 }
 
