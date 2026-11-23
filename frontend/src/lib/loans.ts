@@ -1,7 +1,7 @@
 // Loans in the interface (pure logic). The server links the payments and computes
 // the schedule (src/michelito/web/loans.py); this only builds texts, the form's bodies and the
 // loan's place in the Accounts list.
-import { t } from '@/i18n'
+import { LOCALE, t } from '@/i18n'
 import type { Loan, LoanBody, LoanCurrency, LoanDifference, LoanEdit, Tx } from './api'
 import { formatMoney, parseCents } from './links'
 import { monthPhrase } from './months'
@@ -13,6 +13,16 @@ export const NUMBER_MAX = 40
 export const TERM_MAX = 600
 const RATE_MAX_BP = 10_000
 const BP_PER_PERCENT = 100
+
+const withCents = new Intl.NumberFormat(LOCALE, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+/** The bank's installment to the cent, as the bank prints it: "RD$ 7,756.66". */
+export function installmentText(cents: number, currency: LoanCurrency): string {
+  return `${currency === 'USD' ? 'US$' : 'RD$'} ${withCents.format(cents / 100)}`
+}
 
 /** A loan in Accounts: `?account=loan-7`. */
 const ACCOUNT_PREFIX = 'loan-'
@@ -97,10 +107,20 @@ export interface LoanForm {
   rate: string
   term: string
   start: string
+  installment: string // the bank's, from the start ('' = computed from the contract)
 }
 
 export function emptyForm(today: string): LoanForm {
-  return { name: '', number: '', currency: 'DOP', principal: '', rate: '', term: '', start: today }
+  return {
+    name: '',
+    number: '',
+    currency: 'DOP',
+    principal: '',
+    rate: '',
+    term: '',
+    start: today,
+    installment: '',
+  }
 }
 
 export function formOf(loan: Loan): LoanForm {
@@ -112,7 +132,21 @@ export function formOf(loan: Loan): LoanForm {
     rate: String(Number(((loan.rates[0]?.rate_bp ?? loan.rate_bp) / BP_PER_PERCENT).toFixed(2))),
     term: String(loan.term),
     start: loan.start_date,
+    installment: startingInstallment(loan)?.toString() ?? '',
   }
+}
+
+/** The bank's installment from the start, in money (null: none). */
+function startingInstallment(loan: Loan): number | null {
+  const found = loan.installments.find((entry) => entry.effective === loan.start_date)
+  return found === undefined ? null : found.installment_cents / 100
+}
+
+/** The installment field: '' is none, anything else must be an amount above zero. */
+function parseInstallment(text: string): { cents: number | null } | null {
+  if (text.trim() === '') return { cents: null }
+  const cents = parseCents(text)
+  return cents === null ? null : { cents }
 }
 
 type Result<T> = { error: string; body: null } | { error: null; body: T }
@@ -124,6 +158,7 @@ type FormError =
   | 'loans.form.error.rate'
   | 'loans.form.error.term'
   | 'loans.form.error.start'
+  | 'loans.form.error.installment'
 
 function fail<T>(key: FormError): Result<T> {
   return { error: t(key), body: null }
@@ -151,6 +186,8 @@ export function loanBody(form: LoanForm): Result<LoanBody> {
   const term = parseTerm(form.term)
   if (term === null) return fail('loans.form.error.term')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.start)) return fail('loans.form.error.start')
+  const installment = parseInstallment(form.installment)
+  if (installment === null) return fail('loans.form.error.installment')
   return {
     error: null,
     body: {
@@ -161,6 +198,7 @@ export function loanBody(form: LoanForm): Result<LoanBody> {
       rate_bp: rate,
       term,
       start_date: form.start,
+      ...(installment.cents === null ? {} : { installment_cents: installment.cents }),
     },
   }
 }
@@ -185,5 +223,10 @@ export function loanEdit(loan: Loan, form: LoanForm): Result<LoanEdit> {
   if (term !== loan.term) body.term = term
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.start)) return fail('loans.form.error.start')
   if (form.start !== loan.start_date) body.start_date = form.start
+  const installment = parseInstallment(form.installment)
+  if (installment === null) return fail('loans.form.error.installment')
+  const before = startingInstallment(loan)
+  const beforeCents = before === null ? null : Math.round(before * 100)
+  if (installment.cents !== beforeCents) body.installment_cents = installment.cents
   return { error: null, body }
 }

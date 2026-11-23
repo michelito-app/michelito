@@ -55,3 +55,28 @@ test('a loan made in Deudas links its payments and opens in Accounts', async ({ 
     .click()
   await expect(payments).toHaveCount(3)
 })
+
+test("the bank's installment is set when creating and changed on the card", async ({ page }) => {
+  await page.goto('/installments')
+  await page.getByRole('button', { name: t('loans.section.new') }).click()
+  const form = page.getByTestId('loan-form')
+  await form.getByLabel(t('loans.form.name')).fill(NAME)
+  await form.getByLabel(t('loans.form.number')).fill('0000000088')
+  await form.getByLabel(t('loans.form.principal')).fill('500,000')
+  await form.getByLabel(t('loans.form.rate')).fill('12')
+  await form.getByLabel(t('loans.form.term')).fill('60')
+  await form.getByLabel(t('loans.form.start')).fill('2025-11-10')
+  await form.getByLabel(t('loans.form.installment')).fill('12,345.67')
+  await form.getByRole('button', { name: t('loans.form.submit') }).click()
+
+  const summary = page.getByTestId('loan-summary')
+  await summary.getByRole('link', { name: t('loans.list.openLabel', { name: NAME }) }).click()
+  const installments = page.getByTestId('loan-card').getByTestId('loan-installments')
+  await expect(installments.getByRole('listitem')).toHaveCount(1)
+  await expect(installments).toContainText('12,345.67')
+
+  await installments.getByRole('button', { name: t('loans.installments.add') }).click()
+  await installments.getByLabel(t('loans.installments.amount'), { exact: true }).fill('15,000')
+  await installments.getByRole('button', { name: t('loans.installments.save') }).click()
+  await expect(installments.getByRole('listitem')).toHaveCount(2)
+})

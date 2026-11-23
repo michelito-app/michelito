@@ -144,6 +144,14 @@ export function LoanFormSheet({ loan, onClose, onSaved }: LoanFormSheetProps) {
             className={FIELD}
           />
         </Field>
+        <Field label={t('loans.form.installment')} hint={t('loans.form.installmentHint')}>
+          <input
+            value={form.installment}
+            inputMode="decimal"
+            onChange={(event) => change({ installment: event.target.value })}
+            className={cn(FIELD, 'tabular-nums')}
+          />
+        </Field>
         <p className="text-[13px] text-ink-2">{t('loans.form.spending')}</p>
         {invalid && <FormAlert>{invalid}</FormAlert>}
         {failure && <FormAlert>{t('loans.form.saveError', { message: failure.message })}</FormAlert>}

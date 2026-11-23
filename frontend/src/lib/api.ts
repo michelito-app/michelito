@@ -389,6 +389,8 @@ export interface Loan {
   start_date: string
   rate_bp: number // in force today
   rates: LoanRate[]
+  installment_cents: number | null // the bank's, in force today
+  installments: LoanInstallment[] // what the bank charges, from a day on
   balances: LoanBalance[] // real balances the user entered
   balance_cents: number // today
   paid_cents: number // the linked payments
@@ -407,6 +409,11 @@ export interface Loan {
 export interface LoanRate {
   effective: string
   rate_bp: number
+}
+
+export interface LoanInstallment {
+  effective: string
+  installment_cents: number
 }
 
 export interface LoanBalance {
@@ -451,9 +458,14 @@ export interface LoanBody {
   rate_bp: number
   term: number
   start_date: string
+  installment_cents?: number // the bank's, from the start
 }
 
-export type LoanEdit = Partial<Omit<LoanBody, 'currency' | 'rate_bp'>>
+export type LoanEdit = Partial<
+  Omit<LoanBody, 'currency' | 'rate_bp' | 'installment_cents'> & {
+    installment_cents: number | null // the bank's from the start; null: none
+  }
+>
 
 /** A recent charge a loan can link by hand (GET /api/loans/{id}/candidates). */
 export interface LoanCandidate {

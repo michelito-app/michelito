@@ -6,6 +6,7 @@ import {
   differenceText,
   emptyForm,
   formOf,
+  installmentText,
   interestLine,
   loanAccountKey,
   loanBody,
@@ -28,6 +29,8 @@ const LOAN: Loan = {
   start_date: '2026-01-15',
   rate_bp: 1250,
   rates: [{ effective: '2026-01-15', rate_bp: 1250 }],
+  installment_cents: null,
+  installments: [],
   balances: [],
   balance_cents: 7_500_000,
   paid_cents: 2_665_464,
@@ -54,6 +57,11 @@ describe('loans', () => {
   it('its balance reads negative, like a card', () => {
     expect(balanceText(LOAN)).toBe('−RD$ 75,000')
     expect(balanceText({ ...LOAN, balance_cents: 0 })).toBe('RD$ 0')
+  })
+
+  it("the bank's installment shows its cents", () => {
+    expect(installmentText(775_666, 'DOP')).toBe('RD$ 7,756.66')
+    expect(installmentText(12_000, 'USD')).toBe('US$ 120.00')
   })
 
   it('the share already paid off', () => {
@@ -140,6 +148,8 @@ describe('loans', () => {
         start_date: '2026-01-15',
       },
     })
+    expect(loanBody({ ...form, installment: '9,000.50' }).body?.installment_cents).toBe(900_050)
+    expect(loanBody({ ...form, installment: 'x' }).error).toBe(t('loans.form.error.installment'))
     expect(loanBody({ ...form, name: '' }).error).toBe(t('loans.form.error.name'))
     expect(loanBody({ ...form, number: '12' }).error).toBe(t('loans.form.error.number'))
     expect(loanBody({ ...form, principal: '0' }).error).toBe(t('loans.form.error.principal'))
@@ -155,5 +165,29 @@ describe('loans', () => {
       error: null,
       body: { name: 'Carro', term: 24 },
     })
+  })
+
+  it("editing sets, changes or clears the bank's installment from the start", () => {
+    expect(loanEdit(LOAN, { ...formOf(LOAN), installment: '9000' })).toEqual({
+      error: null,
+      body: { installment_cents: 900_000 },
+    })
+    const fixed: Loan = {
+      ...LOAN,
+      installment_cents: 900_000,
+      installments: [
+        { effective: '2026-01-15', installment_cents: 900_000 },
+        { effective: '2026-06-01', installment_cents: 950_000 },
+      ],
+    }
+    expect(formOf(fixed).installment).toBe('9000')
+    expect(loanEdit(fixed, formOf(fixed))).toEqual({ error: null, body: {} })
+    expect(loanEdit(fixed, { ...formOf(fixed), installment: ' ' })).toEqual({
+      error: null,
+      body: { installment_cents: null },
+    })
+    expect(loanEdit(fixed, { ...formOf(fixed), installment: '0' }).error).toBe(
+      t('loans.form.error.installment'),
+    )
   })
 })

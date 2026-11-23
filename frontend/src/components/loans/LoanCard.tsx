@@ -16,6 +16,7 @@ import {
 import { longDay } from '@/lib/months'
 import { cn } from '@/lib/utils'
 import { LoanBalances } from './LoanBalances'
+import { LoanInstallments } from './LoanInstallments'
 import { LoanFormSheet } from './LoanFormSheet'
 import { LoanPayments } from './LoanPayments'
 import { LoanRates } from './LoanRates'
@@ -93,6 +94,7 @@ export function LoanCard({ loan }: { loan: Loan }) {
       {loan.differences.length > 0 && <Differences loan={loan} />}
       <LoanPayments loan={loan} />
       <LoanRates loan={loan} />
+      <LoanInstallments loan={loan} />
       <LoanBalances loan={loan} />
       <LoanSchedule loan={loan} />
     </article>

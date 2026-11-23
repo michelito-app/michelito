@@ -170,3 +170,52 @@ def test_undoing_a_deleted_loan_brings_its_statement_lines_back(
     (back,) = client.get("/api/loans").json()
     assert back["statement_months"] == 1
     assert back["interest_statements_cents"] == 100_000
+
+
+def test_the_banks_installment_drives_the_projection(client: TestClient) -> None:
+    loan = _create(client, installment_cents=1_000_000)
+
+    assert loan["installment_cents"] == 1_000_000
+    assert loan["installments"] == [{"effective": "2026-01-15", "installment_cents": 1_000_000}]
+    assert loan["next_payment_cents"] == 1_000_000
+    assert loan["end_date"] == "2026-12-15"
+
+    later = client.put(
+        f"/api/loans/{loan['id']}/installments/2026-05-01",
+        json={"installment_cents": 900_000},
+        headers=WRITE,
+    ).json()
+    assert later["installment_cents"] == 1_000_000  # still the April one today
+    assert later["next_payment_cents"] == 900_000  # May's charge is the new one
+    assert [i["effective"] for i in later["installments"]] == ["2026-01-15", "2026-05-01"]
+
+    gone = client.delete(f"/api/loans/{loan['id']}/installments/2026-05-01", headers=WRITE)
+    assert gone.json()["next_payment_cents"] == 1_000_000
+
+
+def test_editing_sets_or_clears_the_installment_from_the_start(client: TestClient) -> None:
+    loan = _create(client)
+    assert loan["installment_cents"] is None
+    assert loan["installments"] == []
+
+    path = f"/api/loans/{loan['id']}"
+    edited = client.patch(path, json={"installment_cents": 1_000_000}, headers=WRITE).json()
+    assert edited["installments"] == [{"effective": "2026-01-15", "installment_cents": 1_000_000}]
+    assert edited["end_date"] == "2026-12-15"
+
+    renamed = client.patch(path, json={"name": "Carro"}, headers=WRITE).json()
+    assert renamed["installment_cents"] == 1_000_000  # left out: unchanged
+
+    cleared = client.patch(path, json={"installment_cents": None}, headers=WRITE).json()
+    assert cleared["installments"] == []
+    assert cleared["end_date"] == "2027-01-15"
+
+
+def test_a_bank_installment_of_zero_is_refused(client: TestClient) -> None:
+    loan = _create(client)
+    refused = client.put(
+        f"/api/loans/{loan['id']}/installments/2026-05-01",
+        json={"installment_cents": 0},
+        headers=WRITE,
+    )
+    assert refused.status_code == 422

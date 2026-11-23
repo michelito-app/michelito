@@ -16,7 +16,14 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from michelito.analysis.loan_schedule import Anchor, Contract, Rate, StatementLine, schedule
+from michelito.analysis.loan_schedule import (
+    Anchor,
+    Contract,
+    Installment,
+    Rate,
+    StatementLine,
+    schedule,
+)
 
 Kind = Literal["payments", "contract"]
 PAYMENT_TOLERANCE = Decimal("1.00")
@@ -49,11 +56,14 @@ def differences(
     anchors: Sequence[Anchor],
     statements: Sequence[StatementLine],
     payments: Sequence[Payment],
+    installments: Sequence[Installment] = (),
 ) -> list[Difference]:
     if not statements:
         return []
-    expected = {row.month: row for row in schedule(contract, rates, anchors)}
-    actual = {row.month: row for row in schedule(contract, rates, anchors, statements)}
+    expected = {row.month: row for row in schedule(contract, rates, anchors, (), installments)}
+    actual = {
+        row.month: row for row in schedule(contract, rates, anchors, statements, installments)
+    }
     months = sorted({_month(line.day) for line in statements})
     found = []
     for month in months:

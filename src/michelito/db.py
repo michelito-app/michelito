@@ -22,12 +22,14 @@ from michelito import (
     migrations_v24,
     migrations_v25,
     migrations_v26,
+    migrations_v27,
 )
 from michelito.analysis import catalog
 from michelito.i18n import t
 from michelito.parsers import banreservas_account, bhd_savings, popular_web
 from michelito.parsers.common import Section, Statement, Transaction
 
+# 27: the bank's installment of a loan, from a day on (`migrations_v27`);
 # 26: loans, their rates, real balances, statement lines and payments (`migrations_v26`);
 # 25: installment plans and their charges (`migrations_v25`);
 # 24: merchant receipts and their links to transactions (`migrations_v24`);
@@ -36,7 +38,7 @@ from michelito.parsers.common import Section, Statement, Transaction
 # parts and payments on behalf of others (`migrations_v21`); 20: live sync
 # (`migrations_live`); 19: the shared ledger (`migrations_v19`); 18: stored values in English
 # (`migrations_v18`).
-SCHEMA_VERSION = migrations_v26.VERSION
+SCHEMA_VERSION = migrations_v27.VERSION
 DUPLICATE_PERIOD_INDEX = "statements_unique_period"
 DUPLICATE_PRINTOUT_INDEX = "statements_unique_printout"
 # Parser of Popular's printouts: the account's currency is given by hand (ingest).
@@ -774,6 +776,7 @@ def _migrate_in_transaction(conn: sqlite3.Connection, rebuild: bool) -> None:
     migrations_v24.apply(conn)
     migrations_v25.apply(conn)  # after the ledger and receipts it refers to
     migrations_v26.apply(conn)
+    migrations_v27.apply(conn)  # after the loans it refers to
     conn.execute(HOLDERS_SCHEMA)
     # Only after rebuilding tables, and only the rebuilt ones (and the children of `links`): an
     # unrelated orphan (from another table, from before) must not prevent opening the database.

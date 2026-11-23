@@ -295,7 +295,12 @@ def _loans(conn: sqlite3.Connection, flow: Sequence[Movement]) -> dict:
             if fp in by_fp
         ]
         found = loan_review.differences(
-            loan.contract, loan.rates, loan.anchors, loan.statement_lines, paid
+            loan.contract,
+            loan.rates,
+            loan.anchors,
+            loan.statement_lines,
+            paid,
+            loan.installments,
         )
         for difference in found:
             if not difference.fingerprints:

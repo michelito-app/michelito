@@ -15,6 +15,7 @@ MESSAGES: dict[str, str] = {
     ),
     "analysis.loans.starting_rate": "la tasa inicial del contrato no se puede quitar; cámbiala",
     "analysis.loans.balance_negative": "el balance no puede ser negativo",
+    "analysis.loans.installment_positive": "la cuota del banco tiene que ser mayor que cero",
     "analysis.loans.not_a_payment": "ese movimiento no puede ser un pago de este préstamo",
     "analysis.loans.payment_taken": "ese pago ya es de otro préstamo",
     "analysis.loans.unknown_number": "no hay ningún préstamo con el número de ese estado",

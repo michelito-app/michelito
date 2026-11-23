@@ -2,8 +2,8 @@
 
 A loan's card: its linked payments and what they add up to, the balance today, the interest
 paid (from the loan statements where they exist, estimated from the contract otherwise), the
-installments left and the expected end, the rate history and the differences for review
-(`loan_review`).
+installments left and the expected end, the bank's installment, the rate history and the
+differences for review (`loan_review`).
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ class LoanView:
     payments: tuple[PaymentView, ...]  # newest first
     differences: tuple[Difference, ...]
     rate: Decimal  # in force today
+    installment: Decimal | None  # the bank's, in force today
 
     @property
     def paid(self) -> Decimal:
@@ -84,15 +85,22 @@ def view(
         loan.anchors,
         loan.statement_lines,
         [Payment(p.fingerprint, p.day, p.amount) for p in payments],
+        loan.installments,
     )
     return LoanView(
         loan=loan,
         summary=loan_schedule.summary(
-            loan.contract, loan.rates, loan.anchors, loan.statement_lines, today
+            loan.contract,
+            loan.rates,
+            loan.anchors,
+            loan.statement_lines,
+            today,
+            loan.installments,
         ),
         payments=payments,
         differences=tuple(found),
         rate=loan_schedule.rate_on(loan.rates, today),
+        installment=loan_schedule.installment_on(loan.installments, today),
     )
 
 

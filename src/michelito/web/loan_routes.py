@@ -6,6 +6,9 @@
 - `PATCH /api/loans/{id}`: name, number (relinks) or contract. `DELETE`: the loan (the payments
   stay as they are).
 - `PUT|DELETE /api/loans/{id}/rates/{effective}`: a rate from that day on.
+- `PUT|DELETE /api/loans/{id}/installments/{effective}`: what the bank charges from that day on
+  (the schedule uses it instead of the computed installment). `POST` and `PATCH` take
+  `installment_cents` too: the one from the start (`null` in a `PATCH` removes it).
 - `PUT|DELETE /api/loans/{id}/balances/{day}`: the real balance on that day (from the bank).
 - `PUT|DELETE /api/loans/{id}/transactions/{fingerprint}`: "it is a payment of this loan" / "it
   is not" (not linked again).
@@ -34,6 +37,7 @@ from michelito.analysis.links import LinkError
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.migrations_v26 import NAME_MAX, NUMBER_MAX, RATE_MAX_BP, TERM_MAX
+from michelito.migrations_v27 import INSTALLMENT_MAX_CENTS
 from michelito.web import edit_log
 from michelito.web import loans as view
 
@@ -46,6 +50,7 @@ CANDIDATES_MAX = 60
 Cents = Annotated[int, Field(gt=0, le=10**13)]
 RateBp = Annotated[int, Field(ge=0, le=RATE_MAX_BP)]
 Term = Annotated[int, Field(ge=1, le=TERM_MAX)]
+InstallmentCents = Annotated[int, Field(gt=0, le=INSTALLMENT_MAX_CENTS)]
 
 
 def _cents(amount: Decimal) -> int:
@@ -60,6 +65,11 @@ def _bp(annual: Decimal) -> int:
 class RateOut(BaseModel):
     effective: str
     rate_bp: int
+
+
+class InstallmentOut(BaseModel):
+    effective: str
+    installment_cents: int
 
 
 class BalanceOut(BaseModel):
@@ -106,6 +116,8 @@ class LoanOut(BaseModel):
     start_date: str
     rate_bp: int  # in force today
     rates: list[RateOut]
+    installment_cents: int | None  # the bank's, in force today
+    installments: list[InstallmentOut]
     balances: list[BalanceOut]
     balance_cents: int  # today
     paid_cents: int  # the linked payments
@@ -136,6 +148,13 @@ class LoanOut(BaseModel):
             rates=[
                 RateOut(effective=r.effective.isoformat(), rate_bp=_bp(r.annual))
                 for r in loan.rates
+            ],
+            installment_cents=None if v.installment is None else _cents(v.installment),
+            installments=[
+                InstallmentOut(
+                    effective=i.effective.isoformat(), installment_cents=_cents(i.amount)
+                )
+                for i in loan.installments
             ],
             balances=[
                 BalanceOut(day=a.day.isoformat(), balance_cents=_cents(a.balance))
@@ -208,6 +227,7 @@ class LoanBody(BaseModel):
     rate_bp: RateBp
     term: Term
     start_date: date
+    installment_cents: InstallmentCents | None = None  # the bank's, from the start
 
 
 class EditBody(BaseModel):
@@ -216,14 +236,28 @@ class EditBody(BaseModel):
     principal_cents: Cents | None = None
     term: Term | None = None
     start_date: date | None = None
+    installment_cents: InstallmentCents | None = None  # the bank's from the start; null: none
 
 
 class RateBody(BaseModel):
     rate_bp: RateBp
 
 
+class InstallmentBody(BaseModel):
+    installment_cents: InstallmentCents
+
+
 class BalanceBody(BaseModel):
     balance_cents: Annotated[int, Field(ge=0, le=10**13)]
+
+
+def _starting_installment(conn: sqlite3.Connection, loan_id: int, cents: int | None) -> None:
+    """The bank's installment from the loan's (current) start: set, or removed with None."""
+    start = loan_store.plan(conn, loan_id).contract.start
+    if cents is None:
+        loan_store.delete_installment(conn, loan_id, start)
+    else:
+        loan_store.set_installment(conn, loan_id, start, cents)
 
 
 def _movement(flow: Sequence[Movement], fingerprint: str) -> Movement:
@@ -305,6 +339,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow, today: T
                     term=body.term,
                     start=body.start_date,
                     now=now,
+                    installment_cents=body.installment_cents,
                 )
                 loan_store.reconcile(conn, flow, now)
             return loan_out(conn, loan_id)
@@ -326,6 +361,8 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow, today: T
                     term=body.term,
                     start=body.start_date,
                 )
+                if "installment_cents" in body.model_fields_set:
+                    _starting_installment(conn, loan_id, body.installment_cents)
                 loan_store.reconcile(conn, flow, now)
             return loan_out(conn, loan_id)
 
@@ -351,6 +388,22 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow, today: T
             loan = loan_of(conn, loan_id)
             with on_loan(conn, loan):
                 loan_store.delete_rate(conn, loan_id, effective)
+            return loan_out(conn, loan_id)
+
+    @app.put("/api/loans/{loan_id}/installments/{effective}")
+    def put_installment(loan_id: int, effective: date, body: InstallmentBody) -> LoanOut:
+        with connection() as conn:
+            loan = loan_of(conn, loan_id)
+            with on_loan(conn, loan):
+                loan_store.set_installment(conn, loan_id, effective, body.installment_cents)
+            return loan_out(conn, loan_id)
+
+    @app.delete("/api/loans/{loan_id}/installments/{effective}")
+    def delete_installment(loan_id: int, effective: date) -> LoanOut:
+        with connection() as conn:
+            loan = loan_of(conn, loan_id)
+            with on_loan(conn, loan):
+                loan_store.delete_installment(conn, loan_id, effective)
             return loan_out(conn, loan_id)
 
     @app.put("/api/loans/{loan_id}/balances/{day}")

@@ -1,8 +1,11 @@
-"""Loans as stored (schema 26, `migrations_v26`; the schedule is `loan_schedule`).
+"""Loans as stored (schemas 26 and 27, `migrations_v26` and `v27`; the schedule is in
+`loan_schedule`).
 
-- `load` gives every loan with its contract, rates, real balances, statement lines and linked
-  payments; `taken` and `dismissed`, what the matching needs to know about the links.
-- `create`, `update`, `delete`; `set_rate`/`delete_rate`, `set_balance`/`delete_balance`;
+- `load` gives every loan with its contract, rates, the bank's installments, real balances,
+  statement lines and linked payments; `taken` and `dismissed`, what the matching needs to
+  know about the links.
+- `create`, `update`, `delete`; `set_rate`/`delete_rate`, `set_installment`/
+  `delete_installment`, `set_balance`/`delete_balance`;
   `add_statement_lines` (what a loan statement parser stores).
 - `link` ("it is a payment of this loan", by hand) and `unlink` (it is not: refused, so it is
   not linked again).
@@ -21,10 +24,11 @@ from decimal import Decimal
 
 from michelito.analysis import ledger_store, loan_match
 from michelito.analysis.links import LinkError
-from michelito.analysis.loan_schedule import Anchor, Contract, Rate, StatementLine
+from michelito.analysis.loan_schedule import Anchor, Contract, Installment, Rate, StatementLine
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.migrations_v26 import NAME_MAX, NUMBER_MAX, RATE_MAX_BP, TERM_MAX
+from michelito.migrations_v27 import INSTALLMENT_MAX_CENTS
 
 _CENTS = 100
 _BP = 100  # rate_bp per percent
@@ -38,6 +42,7 @@ class Loan:
     currency: str
     contract: Contract
     rates: tuple[Rate, ...] = ()
+    installments: tuple[Installment, ...] = ()  # what the bank charges, from a day on
     anchors: tuple[Anchor, ...] = ()
     statement_lines: tuple[StatementLine, ...] = ()
     links: dict[str, str] = field(default_factory=dict)  # fingerprint -> origin
@@ -65,10 +70,24 @@ def _grouped(conn: sqlite3.Connection, query: str) -> dict[int, list[tuple]]:
     return found
 
 
+def _installments(conn: sqlite3.Connection) -> dict[int, list[tuple]]:
+    """The bank's installments (none before schema 27)."""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'loan_installments'"
+    ).fetchone()
+    if row is None:
+        return {}
+    return _grouped(
+        conn,
+        "SELECT loan_id, effective, installment_cents FROM loan_installments ORDER BY effective",
+    )
+
+
 def load(conn: sqlite3.Connection) -> list[Loan]:
     if not _has_tables(conn):
         return []
     rates = _grouped(conn, "SELECT loan_id, effective, rate_bp FROM loan_rates ORDER BY effective")
+    installments = _installments(conn)
     balances = _grouped(conn, "SELECT loan_id, day, balance_cents FROM loan_balances ORDER BY day")
     lines = _grouped(
         conn,
@@ -89,6 +108,10 @@ def load(conn: sqlite3.Connection) -> list[Loan]:
             contract=Contract(amount_of(int(r[4])), int(r[5]), date.fromisoformat(str(r[6]))),
             rates=tuple(
                 Rate(date.fromisoformat(day), Decimal(bp) / _BP) for day, bp in rates.get(r[0], [])
+            ),
+            installments=tuple(
+                Installment(date.fromisoformat(day), amount_of(c))
+                for day, c in installments.get(r[0], [])
             ),
             anchors=tuple(
                 Anchor(date.fromisoformat(day), amount_of(c)) for day, c in balances.get(r[0], [])
@@ -164,8 +187,10 @@ def create(
     term: int,
     start: date,
     now: str,
+    installment_cents: int | None = None,
 ) -> int:
-    """A new loan with its contract; its rate is in force from the start."""
+    """A new loan with its contract; its rate (and the bank's installment, if given) is in
+    force from the start."""
     clean = _number(conn, number)
     _check_contract(principal_cents, term)
     _check_rate(rate_bp)
@@ -185,6 +210,8 @@ def create(
     )
     loan_id = int(cursor.lastrowid or 0)
     set_rate(conn, loan_id, start, rate_bp)
+    if installment_cents is not None:
+        set_installment(conn, loan_id, start, installment_cents)
     return loan_id
 
 
@@ -200,7 +227,8 @@ def update(
     start: date | None = None,
 ) -> None:
     """A new name, number (the automatic links go; `reconcile` finds the new ones) or contract.
-    A new start date moves the starting rate with it; never past a later rate change."""
+    A new start date moves the starting rate (and the bank's installment from the start) with
+    it; never past a later rate change."""
     found = plan(conn, loan_id)
     if principal_cents is not None or term is not None:
         _check_contract(
@@ -229,6 +257,11 @@ def update(
             "UPDATE loan_rates SET effective = ? WHERE loan_id = ? AND effective = ?",
             (start.isoformat(), loan_id, found.contract.start.isoformat()),
         )
+        if not any(found.contract.start < i.effective <= start for i in found.installments):
+            conn.execute(
+                "UPDATE loan_installments SET effective = ? WHERE loan_id = ? AND effective = ?",
+                (start.isoformat(), loan_id, found.contract.start.isoformat()),
+            )
     changes["updated_at"] = now
     columns = ", ".join(f"{column} = ?" for column in changes)
     conn.execute(f"UPDATE loans SET {columns} WHERE id = ?", (*changes.values(), loan_id))  # noqa: S608 (fixed column names)
@@ -256,6 +289,27 @@ def delete_rate(conn: sqlite3.Connection, loan_id: int, effective: date) -> None
         raise LinkError(t("analysis.loans.starting_rate"))
     conn.execute(
         "DELETE FROM loan_rates WHERE loan_id = ? AND effective = ?",
+        (loan_id, effective.isoformat()),
+    )
+
+
+def set_installment(
+    conn: sqlite3.Connection, loan_id: int, effective: date, installment_cents: int
+) -> None:
+    """What the bank charges each month from `effective` on (replaces that day's)."""
+    if not 0 < installment_cents <= INSTALLMENT_MAX_CENTS:
+        raise LinkError(t("analysis.loans.installment_positive"))
+    conn.execute(
+        "INSERT INTO loan_installments (loan_id, effective, installment_cents) VALUES (?, ?, ?) "
+        "ON CONFLICT (loan_id, effective) DO UPDATE SET "
+        "installment_cents = excluded.installment_cents",
+        (loan_id, effective.isoformat(), installment_cents),
+    )
+
+
+def delete_installment(conn: sqlite3.Connection, loan_id: int, effective: date) -> None:
+    conn.execute(
+        "DELETE FROM loan_installments WHERE loan_id = ? AND effective = ?",
         (loan_id, effective.isoformat()),
     )
 

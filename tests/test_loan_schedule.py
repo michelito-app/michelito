@@ -6,6 +6,7 @@ from decimal import Decimal
 from michelito.analysis.loan_schedule import (
     Anchor,
     Contract,
+    Installment,
     Rate,
     StatementLine,
     balance_at,
@@ -175,3 +176,93 @@ def test_a_real_balance_of_zero_ends_the_loan() -> None:
     assert len(rows) == 2
     assert found.installments_left == 0
     assert found.balance == Decimal("0")
+
+
+def test_the_banks_installment_replaces_the_computed_one_and_ends_sooner() -> None:
+    fixed = (Installment(date(2026, 1, 15), Decimal("10000.00")),)
+
+    rows = schedule(CONTRACT, RATES, installments=fixed)
+
+    assert len(rows) == 11
+    assert all(r.payment == Decimal("10000.00") for r in rows[:-1])
+    assert rows[-1].payment < Decimal("10000.00")  # the last one pays what is left
+    assert rows[-1].balance == Decimal("0.00")
+    assert rows[-1].due == date(2026, 12, 15)
+
+
+def test_a_lower_bank_installment_moves_the_end_later() -> None:
+    fixed = (Installment(date(2026, 1, 15), Decimal("8000.00")),)
+
+    rows = schedule(CONTRACT, RATES, installments=fixed)
+
+    assert len(rows) == 14
+    assert rows[-1].balance == Decimal("0.00")
+    assert Decimal(0) < rows[-1].payment <= Decimal("8000.00")
+
+
+def test_a_bank_installment_applies_from_the_first_due_date_on_or_after_it() -> None:
+    fixed = (Installment(date(2026, 4, 16), Decimal("10000.00")),)
+
+    rows = schedule(CONTRACT, RATES, installments=fixed)
+
+    assert [r.payment for r in rows[:3]] == [Decimal("8884.88")] * 3
+    assert rows[3].due == date(2026, 5, 15)
+    assert rows[3].payment == Decimal("10000.00")
+    assert rows[-1].balance == Decimal("0.00")
+
+
+def test_the_last_bank_installment_in_force_wins() -> None:
+    fixed = (
+        Installment(date(2026, 1, 15), Decimal("10000.00")),
+        Installment(date(2026, 6, 16), Decimal("9000.00")),
+    )
+
+    rows = schedule(CONTRACT, RATES, installments=fixed)
+
+    assert rows[4].payment == Decimal("10000.00")
+    assert rows[5].due == date(2026, 7, 15)
+    assert rows[5].payment == Decimal("9000.00")
+
+
+def test_with_a_bank_installment_a_new_rate_keeps_it_and_moves_the_end() -> None:
+    fixed = (Installment(date(2026, 1, 15), Decimal("8884.88")),)
+    rates = (*RATES, Rate(date(2026, 7, 15), Decimal("24")))
+
+    rows = schedule(CONTRACT, rates, installments=fixed)
+
+    assert all(r.payment == Decimal("8884.88") for r in rows[:-1])
+    assert len(rows) > 12
+    assert rows[-1].balance == Decimal("0.00")
+
+
+def test_a_real_balance_with_the_bank_installment_sets_the_end() -> None:
+    fixed = (Installment(date(2026, 1, 15), Decimal("10000.00")),)
+    anchors = (Anchor(date(2026, 10, 20), Decimal("15000.00")),)
+
+    rows = schedule(CONTRACT, RATES, anchors, installments=fixed)
+
+    assert rows[-1].due == date(2026, 12, 15)  # 10,000 in November, the rest in December
+    assert rows[-2].balance == Decimal("5150.00")  # 15,000 + 150 of interest - 10,000
+    assert rows[-1].payment == Decimal("5201.50")  # 5,150 + 51.50 of interest
+    assert rows[-1].balance == Decimal("0.00")
+
+
+def test_a_bank_installment_below_the_interest_is_ignored_while_it_is() -> None:
+    fixed = (Installment(date(2026, 1, 15), Decimal("900.00")),)
+
+    rows = schedule(CONTRACT, RATES, installments=fixed)
+
+    assert [r.interest for r in rows[:3]] == [Decimal(v) for v in ("1000.00", "921.15", "841.51")]
+    assert [r.payment for r in rows[:3]] == [Decimal(v) for v in ("8884.88", "8884.88", "900.00")]
+    assert rows[-1].balance == Decimal("0.00")
+
+
+def test_the_summary_follows_the_bank_installment() -> None:
+    fixed = (Installment(date(2026, 1, 15), Decimal("10000.00")),)
+
+    found = summary(CONTRACT, RATES, (), (), date(2026, 4, 30), installments=fixed)
+
+    assert found.end == date(2026, 12, 15)
+    assert found.installments_left == 8
+    assert found.next_payment is not None
+    assert found.next_payment.payment == Decimal("10000.00")

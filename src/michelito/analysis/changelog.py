@@ -105,6 +105,7 @@ TRACKED = (
     "loan_links",
     "loan_dismissals",
     "loan_statement_lines",
+    "loan_installments",  # schema 27
 )
 _CAPTURE = "changelog_capture"
 

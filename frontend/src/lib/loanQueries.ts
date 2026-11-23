@@ -79,6 +79,18 @@ export function useLoanRate() {
   )
 }
 
+/** What the bank charges each month from a day on (or its removal). */
+export function useLoanInstallment() {
+  return useLoanWrite(({ id, day, value }: DatedChange) =>
+    request<Loan>(
+      `${loanPath(id)}/installments/${day}`,
+      value === null
+        ? { method: 'DELETE' }
+        : { method: 'PUT', body: JSON.stringify({ installment_cents: value }) },
+    ),
+  )
+}
+
 /** The real balance on a day, from the bank (or its removal). */
 export function useLoanBalance() {
   return useLoanWrite(({ id, day, value }: DatedChange) =>

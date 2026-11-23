@@ -1,4 +1,4 @@
-"""Loans as stored (`analysis.loan_store`, schema 26), made-up values."""
+"""Loans as stored (`analysis.loan_store`, schemas 26 and 27), made-up values."""
 
 import sqlite3
 from collections.abc import Iterator
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from michelito import db, migrations_v26
+from michelito import db, migrations_v26, migrations_v27
 from michelito.analysis import loan_store as store
 from michelito.analysis.links import LinkError
 from michelito.analysis.loan_schedule import StatementLine
@@ -68,9 +68,16 @@ def create(conn: sqlite3.Connection, number: str = NUMBER) -> int:
 
 
 def test_the_schema_has_the_loan_tables(conn: sqlite3.Connection) -> None:
-    assert db.SCHEMA_VERSION == migrations_v26.VERSION
+    assert db.SCHEMA_VERSION == migrations_v27.VERSION > migrations_v26.VERSION
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"loans", "loan_rates", "loan_balances", "loan_links", "loan_statement_lines"} <= tables
+    assert {
+        "loans",
+        "loan_rates",
+        "loan_balances",
+        "loan_links",
+        "loan_statement_lines",
+        "loan_installments",
+    } <= tables
 
 
 def test_a_new_loan_keeps_its_contract_and_its_starting_rate(conn: sqlite3.Connection) -> None:
@@ -197,3 +204,55 @@ def test_moving_the_start_past_a_rate_change_is_refused(conn: sqlite3.Connection
         (date(2026, 2, 1), Decimal("12")),
         (date(2026, 6, 1), Decimal("15")),
     ]
+
+
+def test_the_banks_installment_is_kept_with_its_history(conn: sqlite3.Connection) -> None:
+    loan_id = create(conn)
+    with conn:
+        store.set_installment(conn, loan_id, date(2026, 1, 15), 900_000)
+        store.set_installment(conn, loan_id, date(2026, 6, 1), 950_000)
+        store.set_installment(conn, loan_id, date(2026, 6, 1), 960_000)  # replaces that day's
+
+    loan = store.plan(conn, loan_id)
+    assert [(i.effective, i.amount) for i in loan.installments] == [
+        (date(2026, 1, 15), Decimal("9000")),
+        (date(2026, 6, 1), Decimal("9600")),
+    ]
+    with conn:
+        store.delete_installment(conn, loan_id, date(2026, 1, 15))
+    assert [i.effective for i in store.plan(conn, loan_id).installments] == [date(2026, 6, 1)]
+
+
+def test_a_bank_installment_must_be_positive(conn: sqlite3.Connection) -> None:
+    loan_id = create(conn)
+    with pytest.raises(LinkError):
+        store.set_installment(conn, loan_id, date(2026, 1, 15), 0)
+
+
+def test_a_new_loan_can_start_with_the_banks_installment(conn: sqlite3.Connection) -> None:
+    with conn:
+        loan_id = store.create(
+            conn,
+            name="Car loan",
+            number=NUMBER,
+            currency="DOP",
+            principal_cents=10_000_000,
+            rate_bp=1200,
+            term=12,
+            start=date(2026, 1, 15),
+            now=NOW,
+            installment_cents=900_000,
+        )
+
+    (found,) = store.plan(conn, loan_id).installments
+    assert (found.effective, found.amount) == (date(2026, 1, 15), Decimal("9000"))
+
+
+def test_moving_the_start_moves_the_installment_from_the_start(conn: sqlite3.Connection) -> None:
+    loan_id = create(conn)
+    with conn:
+        store.set_installment(conn, loan_id, date(2026, 1, 15), 900_000)
+        store.update(conn, loan_id, NOW, start=date(2026, 2, 1))
+
+    (found,) = store.plan(conn, loan_id).installments
+    assert found.effective == date(2026, 2, 1)

@@ -10,6 +10,10 @@ exist.
   on; the installment stays and the end moves (an extra payment shortens the loan). If the
   installment no longer covers the interest, it is recomputed over the months left instead.
   A real balance of zero ends the loan.
+- **The bank's installment** (`Installment`, when the person enters what the bank charges)
+  replaces the computed one from the first due date on or after its day; the latest one in force
+  wins. The end follows from it (a new rate or a real balance keeps it and moves the end). One
+  that does not even cover the interest is ignored.
 - **The last installment** pays whatever is left, so the cents the rounding leaves never make
   an extra month.
 - **Statement lines** are the truth for the installment of their month (principal, interest,
@@ -48,6 +52,14 @@ class Contract:
 class Rate:
     effective: date
     annual: Decimal  # percent per year, e.g. 12.5
+
+
+@dataclass(frozen=True)
+class Installment:
+    """What the bank charges each month from `effective` on."""
+
+    effective: date
+    amount: Decimal
 
 
 @dataclass(frozen=True)
@@ -150,6 +162,12 @@ def rate_on(rates: Sequence[Rate], day: date) -> Decimal:
     return found
 
 
+def installment_on(installments: Sequence[Installment], day: date) -> Decimal | None:
+    """The bank's installment in force on `day`, if there is one by then."""
+    inside = [i for i in installments if i.effective <= day]
+    return max(inside, key=lambda i: i.effective).amount if inside else None
+
+
 def _statement_row(number: int, due: date, lines: Sequence[StatementLine], rate: Decimal) -> Row:
     principal = sum((line.principal for line in lines), Decimal(0))
     interest = sum((line.interest for line in lines), Decimal(0))
@@ -173,6 +191,7 @@ def schedule(
     rates: Sequence[Rate],
     anchors: Sequence[Anchor] = (),
     statements: Sequence[StatementLine] = (),
+    installments: Sequence[Installment] = (),
 ) -> tuple[Row, ...]:
     """Every installment from the first to the one that pays the loan off."""
     by_month: dict[str, list[StatementLine]] = {}
@@ -211,6 +230,10 @@ def schedule(
             end = _replan(balance, rate, installment, number - 1, end)
             if _months_to_pay(balance, rate, installment) is None:
                 installment = installment_for(balance, rate, end - number + 1)
+        fixed = installment_on(installments, due)
+        months = None if fixed is None else _months_to_pay(balance, rate, fixed)
+        if fixed is not None and months is not None:
+            installment, end = fixed, number - 1 + months
         interest = _cents(balance * _monthly(rate))
         principal = min(installment - interest, balance)
         if number >= end:
@@ -262,8 +285,9 @@ def summary(
     anchors: Sequence[Anchor],
     statements: Sequence[StatementLine],
     today: date,
+    installments: Sequence[Installment] = (),
 ) -> Summary:
-    rows = schedule(contract, rates, anchors, statements)
+    rows = schedule(contract, rates, anchors, statements, installments)
     due = [r for r in rows if r.due <= today]
     ahead = [r for r in rows if r.due > today]
     return Summary(
