@@ -35,6 +35,7 @@ SECTIONS: tuple[tuple[str, int, bool], ...] = (
     ("who", 1, False),
     ("stored", 6, True),
     ("gmail", 5, False),
+    ("extension", 4, False),
     ("protect", 3, False),
     ("others", 6, True),
     ("keep", 3, False),
@@ -105,6 +106,29 @@ ENGLISH: Mapping[str, str] = {
         "{policy}, including the Limited Use requirements."
     ),
     "privacy.gmail.policy": "Google API Services User Data Policy",
+    "privacy.extension.title": "The Chrome extension for Amazon",
+    "privacy.extension.1": (
+        "The Michelito extension for Chrome is optional and works only on a computer. It reads "
+        "only your Amazon order-history pages (www.amazon.com/your-orders/orders), in your own "
+        "signed-in browser and only when you press its button. It never opens your payment, "
+        "address or account pages, and it never sees your Amazon password."
+    ),
+    "privacy.extension.2": (
+        "From those pages it sends Michelito, per order, only the order number and the names "
+        "of its items, with the quantity and unit price when the page shows them. We store them "
+        "in your encrypted database to show them on the receipts your Amazon emails already "
+        "brought: they do not create receipts or change any figure."
+    ),
+    "privacy.extension.3": (
+        "You link it with a one-time code from Settings, which gives it a token that can only "
+        "send item names; we store only a hash of that token. Revoking it in Settings stops the "
+        "extension at once. The names it already sent stay in your account, like the rest of "
+        "your data, until you delete it."
+    ),
+    "privacy.extension.4": (
+        "In your browser, the extension keeps only that token and the counts of its last run. "
+        "It talks only to michelito.app."
+    ),
     "privacy.protect.title": "How we protect it",
     "privacy.protect.1": (
         "Each account has its own database, encrypted with AES-256 (SQLCipher) under its own "

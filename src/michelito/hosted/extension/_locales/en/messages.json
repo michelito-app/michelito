@@ -1,0 +1,98 @@
+{
+  "name": {
+    "message": "Michelito: Amazon items"
+  },
+  "description": {
+    "message": "Brings the names of the items of your Amazon orders into Michelito, from your order pages."
+  },
+  "linkTitle": {
+    "message": "Link the extension"
+  },
+  "linkLead": {
+    "message": "In Michelito, go to Settings \u2192 Amazon extension, make a code and paste it here."
+  },
+  "codeLabel": {
+    "message": "Link code"
+  },
+  "linkAction": {
+    "message": "Link"
+  },
+  "linking": {
+    "message": "Linking\u2026"
+  },
+  "linked": {
+    "message": "Linked to Michelito."
+  },
+  "walkLead": {
+    "message": "Opens your Amazon orders in a tab, page by page and slowly, and sends Michelito only each order's number and its item names."
+  },
+  "walkAction": {
+    "message": "Last 12 months"
+  },
+  "walkSignIn": {
+    "message": "You need to be signed in to amazon.com in this Chrome."
+  },
+  "running": {
+    "message": "Reading your orders\u2026 page $FIRST$. You can close this window.",
+    "placeholders": {
+      "first": {
+        "content": "$1"
+      }
+    }
+  },
+  "done": {
+    "message": "Done: $FIRST$ orders with names ($SECOND$ already have their email in Michelito).",
+    "placeholders": {
+      "first": {
+        "content": "$1"
+      },
+      "second": {
+        "content": "$2"
+      }
+    }
+  },
+  "doneFailed": {
+    "message": "$FIRST$ orders could not be read from the pages.",
+    "placeholders": {
+      "first": {
+        "content": "$1"
+      }
+    }
+  },
+  "interrupted": {
+    "message": "The reading stopped. Try again."
+  },
+  "unlinkAction": {
+    "message": "Unlink this Chrome"
+  },
+  "unlinkLead": {
+    "message": "To cut access on the server, use Revoke in Michelito's Settings."
+  },
+  "error_bad_code": {
+    "message": "That code does not work. Make a new one in Settings and paste it within 10 minutes."
+  },
+  "error_rate_limited": {
+    "message": "Too many attempts. Wait a few minutes."
+  },
+  "error_signed_out": {
+    "message": "Amazon asked you to sign in. Sign in to amazon.com and try again."
+  },
+  "error_unlinked": {
+    "message": "The extension is no longer linked (it was revoked in Settings). Link it with a new code."
+  },
+  "error_timeout": {
+    "message": "Amazon took too long to load. Try again."
+  },
+  "error_server": {
+    "message": "Michelito could not save the names. Try again later."
+  },
+  "error_running": {
+    "message": "Your orders are already being read."
+  },
+  "error_failed": {
+    "message": "Something failed. Try again."
+  },
+  "privacy": {
+    "message": "What it reads and stores"
+  }
+}

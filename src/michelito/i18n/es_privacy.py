@@ -68,6 +68,29 @@ MESSAGES: dict[str, str] = {
         "Google se ajustan a la {policy}, incluidos los requisitos de uso limitado."
     ),
     "privacy.gmail.policy": "Política de datos de usuario de los servicios de API de Google",
+    "privacy.extension.title": "La extensión de Chrome para Amazon",
+    "privacy.extension.1": (
+        "La extensión de Michelito para Chrome es opcional y solo funciona en una computadora. "
+        "Lee únicamente tus páginas de pedidos de Amazon (www.amazon.com/your-orders/orders), "
+        "en tu propio navegador con tu sesión abierta y solo cuando pulsas su botón. Nunca abre "
+        "tus páginas de pagos, direcciones o cuenta, y nunca ve tu contraseña de Amazon."
+    ),
+    "privacy.extension.2": (
+        "De esas páginas envía a Michelito, por pedido, solo el número de pedido y los nombres "
+        "de sus artículos, con la cantidad y el precio unitario cuando la página los muestra. "
+        "Los guardamos en tu base de datos cifrada para mostrarlos en los recibos que ya "
+        "trajeron tus correos de Amazon: no crean recibos ni cambian ninguna cifra."
+    ),
+    "privacy.extension.3": (
+        "La vinculas con un código de un solo uso de Ajustes, que le da un token que solo puede "
+        "enviar nombres de artículos; guardamos solo un hash de ese token. Revocarlo en Ajustes "
+        "detiene la extensión en el acto. Los nombres que ya envió se quedan en tu cuenta, como "
+        "el resto de tus datos, hasta que la borres."
+    ),
+    "privacy.extension.4": (
+        "En tu navegador, la extensión guarda solo ese token y los conteos de su última "
+        "lectura. Solo habla con michelito.app."
+    ),
     "privacy.protect.title": "Cómo lo protegemos",
     "privacy.protect.1": (
         "Cada cuenta tiene su propia base de datos, cifrada con AES-256 (SQLCipher) con una "

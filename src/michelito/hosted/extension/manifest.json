@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_name__",
+  "description": "__MSG_description__",
+  "version": "1.0.0",
+  "default_locale": "es",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjn/6ttTWliAf1t6gtkrkZCJlwh1xTXWfYDvVTjBk6hMBH4bM5j5TfJzLLeWQdGLjBxI60sCi5vB5msgc+7o9oGxWKciJGr9YmkoklJrdOXlutRb77ZnK02OBJEwO1J0ruSAn/+4HYoiFrhaPLZBg+mg9YK0zP8KiTme/mRum538CXCKePIg+jT/lSwYg5UxnUk4NZMRJkwMFXAmuuAglm1zaaUOR8GKnPRI/m8nDA0a/QgFclm8Jqr9CFmhF0MfYSluPxl5YVGgG/FabAf7C+szYqITEm4AzKRYajb5BqTwOL3QsNgB8tPXx2Xh9piL50lma6c65qzEF1q7jd6CzOQIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": [
+    "https://www.amazon.com/your-orders/orders*",
+    "https://michelito.app/api/extension/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "__MSG_name__",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src https://michelito.app"
+  }
+}

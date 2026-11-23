@@ -61,6 +61,8 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
         "bank_requests",
         "forwarding_addresses",
         "inbound_nonces",
+        "extension_codes",
+        "extension_tokens",
     }
     # "Notify me when it is supported": demand per bank name, tied to no account, email or date.
     assert columns.pop("bank_requests") == {"bank", "requests"}
@@ -73,6 +75,9 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
     # Email forwarding: only the token's hash (the address lives in the encrypted database).
     assert columns["forwarding_addresses"] == {"account_id", "token_hash", "created_at"}
     assert columns["inbound_nonces"] == {"nonce", "expires_at"}
+    # The browser extension: only hashes of its code and token.
+    assert columns["extension_codes"] == {"account_id", "code_hash", "created_at", "expires_at"}
+    assert columns["extension_tokens"] == {"account_id", "token_hash", "created_at", "last_used_at"}
 
 
 def test_migrations_are_forward_and_idempotent(tmp_path: Path) -> None:

@@ -23,6 +23,9 @@ migrations (`MIGRATIONS`, applied in order and recorded in `PRAGMA user_version`
   address stop working at once;
 - `inbound_nonces`: the nonces of signed inbound-email requests, until their time window passes
   (replay protection).
+- `extension_codes` and `extension_tokens`: the browser extension's one-time link code (only its
+  keyed hash, with expiry) and its token (only its SHA-256), one of each per account
+  (`hosted.extension`).
 
 `secure_delete` is on: deleted rows (a wrapped key, an email) are overwritten with zeros, and
 after a deletion or a re-wrap the write-ahead log is checkpointed and truncated, so the old
@@ -177,6 +180,22 @@ MIGRATIONS: tuple[str, ...] = (
         expires_at INTEGER NOT NULL
     );
     CREATE INDEX inbound_nonces_expiry ON inbound_nonces(expires_at);
+    """,
+    # 9: the browser extension (`hosted.extension`): the keyed hash of each account's one-time
+    # link code, and the SHA-256 of its extension token (one of each per account).
+    """
+    CREATE TABLE extension_codes (
+        account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        code_hash TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE extension_tokens (
+        account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER
+    );
     """,
 )
 
@@ -736,10 +755,13 @@ class Store:
             conn.execute("DELETE FROM known_devices WHERE account_id = ?", (account_id,))
 
     def delete_sessions_of(self, account_id: int) -> int:
-        """Every session of the account, and its known devices with them."""
+        """Every session of the account, and its known devices and browser-extension link with
+        them (signing out everywhere also cuts a token copied from a lost computer)."""
         with self.connect() as conn, conn:
             cursor = conn.execute("DELETE FROM sessions WHERE account_id = ?", (account_id,))
             conn.execute("DELETE FROM known_devices WHERE account_id = ?", (account_id,))
+            conn.execute("DELETE FROM extension_tokens WHERE account_id = ?", (account_id,))
+            conn.execute("DELETE FROM extension_codes WHERE account_id = ?", (account_id,))
         return cursor.rowcount
 
 

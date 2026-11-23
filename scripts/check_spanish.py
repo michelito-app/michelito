@@ -56,6 +56,7 @@ ALLOWED_PATHS: dict[str, str] = {
     "uv.lock": "generated",
     "frontend/package-lock.json": "generated",
     "frontend/src/i18n/es/*": "Spanish UI catalog",
+    "src/michelito/hosted/extension/_locales/es/*": "the browser extension's Spanish catalog",
 }
 
 BINARY_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".woff", ".woff2"})

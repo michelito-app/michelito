@@ -448,8 +448,17 @@ class InstallmentTagOut(BaseModel):
         return cls(plan_id=v.plan_id, name=v.name, number=v.number, count=v.count)
 
 
+class ReceiptItemOut(BaseModel):
+    """An item name the browser extension read from the order's page."""
+
+    title: str
+    quantity: int | None
+    price_cents: int | None
+
+
 class ReceiptOut(BaseModel):
-    """A merchant receipt linked to a transaction (only fields read from the email)."""
+    """A merchant receipt linked to a transaction (only fields read from the email, and the
+    item names of its orders when the browser extension sent them)."""
 
     id: int
     merchant: str
@@ -463,6 +472,7 @@ class ReceiptOut(BaseModel):
     order_link: str  # the order's page at the merchant
     email_link: str  # the email in the person's Gmail
     origin: str  # "automatic" or "confirmed"
+    items: list[ReceiptItemOut]
 
     @classmethod
     def of(cls, v: ReceiptView) -> ReceiptOut:
@@ -479,6 +489,10 @@ class ReceiptOut(BaseModel):
             order_link=v.order_link,
             email_link=v.email_link,
             origin=v.origin,
+            items=[
+                ReceiptItemOut(title=i.title, quantity=i.quantity, price_cents=i.price_cents)
+                for i in v.items
+            ],
         )
 
 

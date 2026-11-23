@@ -4,7 +4,7 @@ import { t } from '@/i18n'
 import type { Receipt, Tx } from '@/lib/api'
 import { formatUsd } from '@/lib/money'
 import { useDecideReceipt } from '@/lib/queries'
-import { receiptHeading, safeLink } from '@/lib/receipts'
+import { itemLine, receiptHeading, safeLink } from '@/lib/receipts'
 import { cn } from '@/lib/utils'
 
 const LINK = cn(
@@ -67,7 +67,17 @@ function ReceiptLine({ receipt, busy, onRemove }: ReceiptLineProps) {
           {amountText(receipt)}
         </span>
       </div>
-      {receipt.summary && <span className="text-[13px] text-ink-2">{receipt.summary}</span>}
+      {receipt.items?.length ? (
+        <ul aria-label={t('receipts.box.items')} data-testid="receipt-items" className="flex flex-col gap-0.5">
+          {receipt.items.map((item, index) => (
+            <li key={index} className="text-[13px] break-words text-ink-2">
+              {itemLine(item)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        receipt.summary && <span className="text-[13px] text-ink-2">{receipt.summary}</span>
+      )}
       <span className="font-mono text-[12px] break-all text-muted-foreground">
         {receipt.orders.map((number) => t('receipts.box.order', { order: number })).join(' · ')}
       </span>

@@ -182,3 +182,44 @@ test('the desktop link asks before signing in and leaves the address', async ({
   await other.context().close()
   await desk.context().close()
 })
+
+test('Settings links the Amazon extension with a one-time code and revokes it', async ({
+  page,
+  browser,
+}, info) => {
+  await signIn(page, info, 'extension')
+  await openSettings(page, info)
+  const section = page.getByRole('region', { name: t('extension.title') })
+  await expect(section.getByText(t('extension.notLinked'))).toBeVisible()
+  await expect(section.getByRole('link', { name: t('extension.download') })).toHaveAttribute('href', '/api/extension/download')
+  const zip = await page.request.get('/api/extension/download')
+  expect(zip.status()).toBe(200)
+  expect(zip.headers()['content-type']).toBe('application/zip')
+
+  await section.getByRole('button', { name: t('extension.makeCode') }).click()
+  const code = (await section.getByTestId('extension-code').textContent()) ?? ''
+  expect(code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/)
+
+  // What the extension does: exchange the code, then send one order's item names (made up),
+  // from a context without the session.
+  const outside = await browser.newContext()
+  const linked = await outside.request.post('/api/extension/link', {
+    data: { code },
+    headers: { 'X-Michelito': '1' },
+  })
+  expect(linked.status()).toBe(200)
+  const { token } = (await linked.json()) as { token: string }
+  const bearer = { 'X-Michelito': '1', Authorization: `Bearer ${token}` }
+  const order = { orders: [{ order: '111-1111111-1111111', items: [{ title: 'Synthetic kettle', quantity: 1 }] }] }
+  expect((await outside.request.put('/api/extension/orders', { data: order, headers: bearer })).status()).toBe(200)
+
+  await page.reload()
+  await expect(section.getByTestId('extension-linked')).toContainText(t('extension.orders', { count: 1 }))
+
+  await section.getByRole('button', { name: t('extension.revoke'), exact: true }).click()
+  await section.getByRole('button', { name: t('extension.revokeYes') }).click()
+  await expect(section.getByText(t('extension.revoked'))).toBeVisible()
+  await expect(section.getByText(t('extension.notLinked'))).toBeVisible()
+  expect((await outside.request.put('/api/extension/orders', { data: order, headers: bearer })).status()).toBe(401)
+  await outside.close()
+})

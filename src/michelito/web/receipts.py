@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from datetime import date
 from urllib.parse import quote
 
-from michelito.analysis import receipt_store
+from michelito.analysis import receipt_items, receipt_store
+from michelito.analysis.receipt_items import Item
 from michelito.analysis.receipt_store import Stored
 
 FORWARDING = "forwarding"
@@ -33,6 +34,7 @@ class ReceiptView:
     order_link: str  # the order's page at the merchant
     email_link: str  # the email in the person's Gmail
     origin: str  # who linked it: "automatic" or "confirmed"
+    items: tuple[Item, ...] = ()  # its orders' item names, if the browser extension sent them
 
 
 def email_link(receipt: Stored) -> str:
@@ -43,7 +45,11 @@ def email_link(receipt: Stored) -> str:
     return f"{_GMAIL}#all/{quote(receipt.message_id, safe='')}"
 
 
-def view(receipt: Stored, origin: str) -> ReceiptView:
+def view(
+    receipt: Stored, origin: str, items: dict[str, tuple[Item, ...]] | None = None
+) -> ReceiptView:
+    """`items`: the item names by order number (`analysis.receipt_items`)."""
+    names = items or {}
     return ReceiptView(
         id=receipt.id,
         merchant=receipt.merchant,
@@ -57,6 +63,7 @@ def view(receipt: Stored, origin: str) -> ReceiptView:
         order_link=receipt.link,
         email_link=email_link(receipt),
         origin=origin,
+        items=tuple(item for order in receipt.orders for item in names.get(order, ())),
     )
 
 
@@ -66,9 +73,11 @@ def by_fingerprint(conn: sqlite3.Connection) -> dict[str, tuple[ReceiptView, ...
     if not linked:
         return {}
     origins = receipt_store.origins(conn)
+    orders = [order for receipts in linked.values() for r in receipts for order in r.orders]
+    items = receipt_items.by_order(conn, orders)
     return {
         fingerprint: tuple(
-            view(receipt, origins.get((receipt.id, fingerprint), "automatic"))
+            view(receipt, origins.get((receipt.id, fingerprint), "automatic"), items)
             for receipt in receipts
         )
         for fingerprint, receipts in linked.items()

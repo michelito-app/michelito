@@ -1,0 +1,98 @@
+{
+  "name": {
+    "message": "Michelito: artículos de Amazon"
+  },
+  "description": {
+    "message": "Trae a Michelito los nombres de los artículos de tus pedidos de Amazon, desde tus páginas de pedidos."
+  },
+  "linkTitle": {
+    "message": "Vincula la extensión"
+  },
+  "linkLead": {
+    "message": "En Michelito, ve a Ajustes → Extensión de Amazon, genera un código y pégalo aquí."
+  },
+  "codeLabel": {
+    "message": "Código de vinculación"
+  },
+  "linkAction": {
+    "message": "Vincular"
+  },
+  "linking": {
+    "message": "Vinculando…"
+  },
+  "linked": {
+    "message": "Vinculada con Michelito."
+  },
+  "walkLead": {
+    "message": "Abre tus pedidos de Amazon en una pestaña, página por página y despacio, y envía a Michelito solo el número de cada pedido y los nombres de sus artículos."
+  },
+  "walkAction": {
+    "message": "Últimos 12 meses"
+  },
+  "walkSignIn": {
+    "message": "Necesitas haber iniciado sesión en amazon.com en este Chrome."
+  },
+  "running": {
+    "message": "Leyendo tus pedidos… página $FIRST$. Puedes cerrar esta ventanita.",
+    "placeholders": {
+      "first": {
+        "content": "$1"
+      }
+    }
+  },
+  "done": {
+    "message": "Listo: $FIRST$ pedidos con nombres ($SECOND$ ya tienen su correo en Michelito).",
+    "placeholders": {
+      "first": {
+        "content": "$1"
+      },
+      "second": {
+        "content": "$2"
+      }
+    }
+  },
+  "doneFailed": {
+    "message": "No se pudieron leer $FIRST$ pedidos de las páginas.",
+    "placeholders": {
+      "first": {
+        "content": "$1"
+      }
+    }
+  },
+  "interrupted": {
+    "message": "La lectura se interrumpió. Vuelve a intentarlo."
+  },
+  "unlinkAction": {
+    "message": "Desvincular este Chrome"
+  },
+  "unlinkLead": {
+    "message": "Para cortar el acceso desde el servidor, usa «Revocar» en Ajustes de Michelito."
+  },
+  "error_bad_code": {
+    "message": "Ese código no sirve. Genera uno nuevo en Ajustes y pégalo antes de 10 minutos."
+  },
+  "error_rate_limited": {
+    "message": "Demasiados intentos. Espera unos minutos."
+  },
+  "error_signed_out": {
+    "message": "Amazon pidió iniciar sesión. Entra a amazon.com y vuelve a intentarlo."
+  },
+  "error_unlinked": {
+    "message": "La extensión ya no está vinculada (se revocó en Ajustes). Vincúlala con un código nuevo."
+  },
+  "error_timeout": {
+    "message": "Amazon tardó demasiado en cargar. Vuelve a intentarlo."
+  },
+  "error_server": {
+    "message": "Michelito no pudo guardar los nombres. Vuelve a intentarlo más tarde."
+  },
+  "error_running": {
+    "message": "Ya se están leyendo tus pedidos."
+  },
+  "error_failed": {
+    "message": "Algo falló. Vuelve a intentarlo."
+  },
+  "privacy": {
+    "message": "Qué lee y qué guarda"
+  }
+}

@@ -19,6 +19,8 @@ sign-in service (`hosted.auth`) and the hosted `Mode` for `create_app`:
   (`Settings.google_client` / `MICHELITO_GOOGLE_CLIENT_FILE`; without one Settings does not
   offer it): Google's callback is reachable without a session (it answers with a redirect), and
   connected mailboxes are read every hour (`mailbox_routes.Sweeper`);
+- the browser extension that brings Amazon item names (`hosted.extension_routes`): linked
+  with a one-time code from Settings, it writes with its own scoped token, without a session;
 - the public privacy page (`hosted.privacy`, `/privacy`), which opens no database.
 
 Folder layout (`settings.data`): `accounts.db`, `secret.key` (unless `MICHELITO_HOSTED_SECRET_FILE`
@@ -50,6 +52,7 @@ from starlette.requests import Request
 from michelito import config
 from michelito.demo import network
 from michelito.hosted import (
+    extension_routes,
     forwarding,
     forwarding_routes,
     holders_files,
@@ -62,6 +65,7 @@ from michelito.hosted import (
     routes,
 )
 from michelito.hosted.auth import USERS, Policy, SignIn
+from michelito.hosted.extension import Linker
 from michelito.hosted.keys import MASTER_FILE_ENV, MasterKeyError, load_master
 from michelito.hosted.limits import Caps
 from michelito.hosted.mailer import Dispatcher, Mailer
@@ -88,6 +92,7 @@ OPEN = frozenset(
         "/api/auth/link/peek",
         forwarding_routes.INBOUND_PATH,  # signed by the Email Worker instead
         mailbox.CALLBACK_PATH,  # Google's redirect: without a session it only redirects back
+        *extension_routes.OPEN_PATHS,  # the browser extension: a code or its own token instead
     }
 )
 # `__Host-`: the browser keeps it only with `Secure`, `Path=/` and no `Domain`, so no subdomain
@@ -130,6 +135,9 @@ class Settings:
     google_client: Path | None = None  # Google's OAuth client file (else the environment)
     google: mailbox.Google = field(default_factory=mailbox.RealGoogle)  # tests: a fake
     mailbox_background: bool = True  # read connected mailboxes in a thread (tests: inline)
+    extension: extension_routes.ExtensionCaps = field(
+        default_factory=extension_routes.ExtensionCaps
+    )
 
     @property
     def url(self) -> str:
@@ -336,11 +344,19 @@ def create_hosted_app(
 
     hooks = replace(hooks, on_delete=gmail.revoke_account)  # even with the feature off now
 
+    browser = extension_routes.Hooks(
+        service=service,
+        linker=Linker(store, load_secret(data), clock),
+        caps=settings.extension,
+        proxies=proxies,
+    )
+
     def register(app: FastAPI, connection, load_flow) -> None:  # noqa: ANN001
         routes.register(app, hooks)
         onboarding_routes.register(app, gate, connection, load_flow)
         forwarding_routes.register(app, mail, connection)
         mailbox_routes.register(app, gmail, connection)
+        extension_routes.register(app, browser, connection)
         privacy.register(app, privacy.contact())
 
     mode = Mode(
@@ -357,6 +373,7 @@ def create_hosted_app(
             ("/api/uploads", settings.uploads.body_limit),
             (onboarding_routes.SHARE_PATH, settings.uploads.body_limit),
             (forwarding_routes.INBOUND_PATH, settings.forwarding.body_limit),
+            (extension_routes.ORDERS_PATH, extension_routes.BODY_LIMIT),
         ),
         open_writes=frozenset({onboarding_routes.SHARE_PATH}),
         guard=onboarding_routes.gate_guard(gate),

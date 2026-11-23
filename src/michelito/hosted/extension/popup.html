@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon48.png" width="24" height="24" alt="" />
+      <h1 data-i18n="name"></h1>
+    </header>
+    <section id="unlinked" hidden>
+      <h2 data-i18n="linkTitle"></h2>
+      <p class="lead" data-i18n="linkLead"></p>
+      <form id="link-form">
+        <label for="code" data-i18n="codeLabel"></label>
+        <input id="code" name="code" autocomplete="off" spellcheck="false" maxlength="40" required />
+        <button type="submit" id="link-button" data-i18n="linkAction"></button>
+      </form>
+    </section>
+    <section id="linked" hidden>
+      <p class="ok" data-i18n="linked"></p>
+      <p class="lead" data-i18n="walkLead"></p>
+      <button type="button" id="walk-button" data-i18n="walkAction"></button>
+      <p class="hint" data-i18n="walkSignIn"></p>
+      <button type="button" id="unlink-button" class="quiet" data-i18n="unlinkAction"></button>
+      <p class="hint" data-i18n="unlinkLead"></p>
+    </section>
+    <p id="status" role="status" aria-live="polite"></p>
+    <footer><a href="https://michelito.app/privacy" target="_blank" rel="noopener noreferrer" data-i18n="privacy"></a></footer>
+  </body>
+</html>

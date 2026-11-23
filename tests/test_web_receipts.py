@@ -9,7 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from michelito import db
-from michelito.analysis import receipt_match, receipt_store
+from michelito.analysis import receipt_items, receipt_match, receipt_store
+from michelito.analysis.receipt_items import Item, Order
 from michelito.web.app import create_app
 from tests import live_helpers
 from tests import receipt_samples as samples
@@ -81,9 +82,34 @@ def test_a_linked_transaction_carries_its_receipt(linked: TestClient) -> None:
         ),
         "email_link": "https://mail.google.com/mail/u/0/#all/m-shipment-1",
         "origin": "automatic",
+        "items": [],
     }
     # What the statement printed is untouched.
     assert row["description"] == "AMAZON MKTPL*AB1CD2EF3"
+
+
+def test_a_receipt_shows_the_item_names_the_extension_sent(tmp_path: Path) -> None:
+    path = _database(tmp_path, SHIPMENT_CHARGE, emails=(samples.shipment_email(),))
+    with closing(db.connect(path)) as conn, conn:
+        receipt_items.save(
+            conn,
+            [
+                Order(
+                    samples.FIRST_ORDER,
+                    (Item("Synthetic kettle", 2, 1999), Item("Mug", None, None)),
+                ),
+                Order("333-3333333-3333333", (Item("Another order", 1, None),)),
+            ],
+            NOW,
+        )
+
+    (row,) = _amazon(_client(path))
+
+    (receipt,) = row["receipts"]
+    assert receipt["items"] == [
+        {"title": "Synthetic kettle", "quantity": 2, "price_cents": 1999},
+        {"title": "Mug", "quantity": None, "price_cents": None},
+    ]
 
 
 def test_a_transaction_without_receipts_has_an_empty_list(linked: TestClient) -> None:

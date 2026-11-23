@@ -6,6 +6,11 @@ export const receipts = {
     one: '{count} artículo',
     other: '{count} artículos',
   },
+  'receipts.itemsMore': {
+    one: '{name} y {count} más',
+    other: '{name} y {count} más',
+  },
+  'receipts.box.items': 'Artículos del pedido',
   'receipts.kind.order': 'Pedido',
   'receipts.kind.shipment': 'Envío',
   'receipts.box.title': 'Según el correo del comercio',

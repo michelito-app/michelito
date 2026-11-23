@@ -296,6 +296,15 @@ export interface Receipt {
   order_link: string // the order's page at the merchant
   email_link: string // the email in the person's Gmail
   origin: 'automatic' | 'confirmed'
+  items?: ReceiptItem[] // its orders' item names, when the browser extension sent them
+}
+
+/** An item name the browser extension read from the order's page (quantity and unit price
+ * only when the page showed them). */
+export interface ReceiptItem {
+  title: string
+  quantity: number | null
+  price_cents: number | null
 }
 
 /** "It is this one" / "it is not" about a receipt and a transaction (/api/receipts). */

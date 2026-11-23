@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Receipt, Tx } from './api'
-import { bankName, receiptHeading, receiptTitle, safeLink } from './receipts'
+import { formatUsd } from './money'
+import { bankName, itemLine, receiptHeading, receiptTitle, safeLink } from './receipts'
 
 function receipt(over: Partial<Receipt> = {}): Receipt {
   return {
@@ -47,6 +48,35 @@ describe('receiptTitle', () => {
   it('prefers the shipment, which is the one that says what was charged', () => {
     const order = receipt({ id: 2, kind: 'order', summary: 'Kitchen, Tools, and more', item_count: 6 })
     expect(receiptTitle(tx([order, receipt()]))).toBe('Amazon: 3 artículos, Kitchen') // spanish-ui
+  })
+})
+
+describe('receiptTitle with item names', () => {
+  const item = (title: string, quantity: number | null = null) => ({ title, quantity, price_cents: null })
+
+  it('names the only item', () => {
+    expect(receiptTitle(tx([receipt({ items: [item('Synthetic kettle')] })]))).toBe('Amazon: Synthetic kettle')
+  })
+
+  it('names the first item and counts the rest', () => {
+    const items = [item('Synthetic kettle'), item('Mug'), item('Spoon')]
+    expect(receiptTitle(tx([receipt({ items })]))).toBe('Amazon: Synthetic kettle y 2 más') // spanish-ui
+  })
+
+  it('counts a quantity as more than one', () => {
+    const items = [item('Synthetic kettle', 3)]
+    expect(receiptTitle(tx([receipt({ items })]))).toBe('Amazon: Synthetic kettle (3)')
+  })
+
+  it('falls back to the email summary without names', () => {
+    expect(receiptTitle(tx([receipt({ items: [] })]))).toBe('Amazon: 3 artículos, Kitchen') // spanish-ui
+  })
+})
+
+describe('itemLine', () => {
+  it('shows the quantity and the unit price when known', () => {
+    expect(itemLine({ title: 'Mug', quantity: 2, price_cents: 1250 })).toBe(`2 × Mug · ${formatUsd(1250)}`)
+    expect(itemLine({ title: 'Mug', quantity: null, price_cents: null })).toBe('Mug')
   })
 })
 

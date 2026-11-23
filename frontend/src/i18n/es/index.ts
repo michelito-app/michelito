@@ -27,6 +27,7 @@ import { forwarding } from './forwarding'
 import { receipts } from './receipts'
 import { installments } from './installments'
 import { mailbox } from './mailbox'
+import { extension } from './extension'
 
 /** Each area's messages, by key prefix. */
 export const AREAS = {
@@ -57,6 +58,7 @@ export const AREAS = {
   receipts,
   installments,
   mailbox,
+  extension,
 } as const
 
 export const es = {
@@ -87,4 +89,5 @@ export const es = {
   ...receipts,
   ...installments,
   ...mailbox,
+  ...extension,
 } as const
