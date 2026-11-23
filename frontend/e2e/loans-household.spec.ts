@@ -42,13 +42,14 @@ test('a loan made in Deudas links its payments and opens in Accounts', async ({ 
   await summary.getByRole('link', { name: t('loans.list.openLabel', { name: NAME }) }).click()
 
   await expect(page).toHaveURL(/\/accounts\?account=loan-\d+$/)
-  await expect(page.getByTestId('loan-account')).toHaveAttribute('aria-pressed', 'true')
   const card = page.getByTestId('loan-card')
   await expect(card.getByRole('heading', { name: NAME })).toBeVisible()
   await expect(card.getByTestId('loan-balance')).toContainText('−RD$')
   const payments = card.getByTestId('loan-payments').getByRole('listitem')
   await expect(payments).toHaveCount(4)
 
+  // The action waits in the row's «⋯» menu.
+  await payments.first().getByRole('button', { name: /acciones del pago/i }).click() // spanish-ui
   await payments
     .first()
     .getByRole('button', { name: /no es de este préstamo/i }) // spanish-ui
@@ -71,6 +72,8 @@ test("the bank's installment is set when creating and changed on the card", asyn
 
   const summary = page.getByTestId('loan-summary')
   await summary.getByRole('link', { name: t('loans.list.openLabel', { name: NAME }) }).click()
+  // Rates, installments and the schedule live under the folded «Detalles».
+  await page.getByTestId('loan-details').locator('summary').click()
   const installments = page.getByTestId('loan-card').getByTestId('loan-installments')
   await expect(installments.getByRole('listitem')).toHaveCount(1)
   await expect(installments).toContainText('12,345.67')

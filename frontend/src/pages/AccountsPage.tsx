@@ -1,30 +1,32 @@
-import { useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router'
-import { AccountList } from '@/components/accounts/AccountList'
+import { AccountDetail } from '@/components/accounts/AccountDetail'
+import { AccountGroups } from '@/components/accounts/AccountGroups'
+import { DetailPage } from '@/components/accounts/DetailPage'
+import { NetWorthHeader } from '@/components/accounts/NetWorthHeader'
+import { NetWorthSummary } from '@/components/accounts/NetWorthSummary'
 import { CashBoxCard } from '@/components/cashBox/CashBoxCard'
 import { LoanCard } from '@/components/loans/LoanCard'
-import { StatementsPanel } from '@/components/accounts/StatementsPanel'
 import { LoadError } from '@/components/LoadError'
 import { PANEL } from '@/components/summary/styles'
 import { t } from '@/i18n'
 import { Skeleton } from '@/components/ui/skeleton'
-import { resolveAccount } from '@/lib/accounts'
 import type { Loan } from '@/lib/api'
 import { CASH_BOX_ID, CASH_BOX_KEY, CASH_KIND, localToday } from '@/lib/cashBox'
 import { useLoans } from '@/lib/loanQueries'
 import { loanIdOf } from '@/lib/loans'
-import { useAccounts, useCashBox } from '@/lib/queries'
+import { useAccounts, useCashBox, useNetWorth } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
-/** Accounts screen: the chosen account lives in the URL (`?account=<key>`); by default, the
- * first credit card. */
+/** Accounts screen. Without `?account=` it is the overview: net worth with its chart, every
+ * account in grouped rows and, on a wide screen, the summary on the right. With
+ * `?account=<key>` (a statement account, `loan-<id>` or the cash box) it is that account's page. */
 export function AccountsPage() {
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
   const accounts = useAccounts()
   const cash = useCashBox()
   const loans = useLoans()
+  const worth = useNetWorth()
   const location = useLocation()
-  const panel = useRef<HTMLElement>(null)
 
   if (accounts.isError) {
     return (
@@ -33,66 +35,77 @@ export function AccountsPage() {
   }
   if (accounts.isPending) return <PageSkeleton />
 
-  // The cash account has no statements: picking it shows its own card in the panel's place
-  // (also when a link arrives with #cash-box).
+  const today = localToday()
+  const requested = params.get('account')
   const withStatements = accounts.data.filter((a) => a.kind !== CASH_KIND)
   const cashChosen =
-    params.get('account') === CASH_BOX_KEY ||
-    (params.get('account') === null && location.hash === `#${CASH_BOX_ID}`)
-  const loanId = loanIdOf(params.get('account'))
-  const loan = loanId === null ? undefined : loans.data?.find((l) => l.id === loanId)
-  const selected = resolveAccount(withStatements, params.get('account'))
-  if (selected === null && !cashChosen && loanId === null) return <NoAccounts />
+    requested === CASH_BOX_KEY || (requested === null && location.hash === `#${CASH_BOX_ID}`)
+  const loanId = loanIdOf(requested)
+  const chosen = withStatements.find((a) => a.key === requested)
 
-  function select(key: string) {
-    setParams({ account: key })
-    // On a phone the panel sits below the list: scroll it into view.
-    const top = panel.current?.getBoundingClientRect().top ?? 0
-    if (top > window.innerHeight * 0.6) {
-      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      panel.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
-    }
+  if (loanId !== null) {
+    const loan = loans.data?.find((l) => l.id === loanId)
+    return (
+      <DetailPage>
+        <LoanPanel loan={loan} pending={loans.isPending} today={today} />
+      </DetailPage>
+    )
+  }
+  if (cashChosen) {
+    return (
+      <DetailPage>
+        <CashBoxCard today={today} titled />
+      </DetailPage>
+    )
+  }
+  if (chosen !== undefined) return <AccountDetail account={chosen} today={today} />
+  if (
+    withStatements.length === 0 &&
+    !cash.isPending &&
+    !loans.isPending &&
+    cash.data == null &&
+    (loans.data ?? []).length === 0
+  ) {
+    return <NoAccounts />
   }
 
-  const today = localToday()
   return (
     <>
       <Header />
-      <div className="flex flex-wrap items-start gap-6">
-        <AccountList
-          accounts={withStatements}
-          selected={
-            loanId !== null
-              ? (params.get('account') ?? '')
-              : cashChosen || selected === null
-                ? CASH_BOX_KEY
-                : selected.key
-          }
-          today={today}
-          onSelect={select}
-          cash={cash.data ?? null}
-          loans={loans.data ?? []}
-        />
-        {loanId !== null ? (
-          <LoanPanel loan={loan} pending={loans.isPending} />
-        ) : cashChosen || selected === null ? (
-          <div className="flex min-w-0 flex-[3_1_560px] flex-col">
-            <CashBoxCard today={today} />
-          </div>
-        ) : (
-          <StatementsPanel ref={panel} account={selected} today={today} />
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="flex min-w-0 flex-col gap-5">
+          {worth.isError ? (
+            <LoadError what={t('accounts.netWorth.loadWhat')} error={worth.error} onRetry={() => worth.refetch()} />
+          ) : worth.data === undefined ? (
+            <Skeleton className="h-64 rounded-2xl" />
+          ) : (
+            <>
+              <NetWorthHeader worth={worth.data} />
+              <NetWorthSummary worth={worth.data} className="lg:hidden" />
+            </>
+          )}
+          <AccountGroups
+            accounts={withStatements}
+            loans={loans.data ?? []}
+            cash={cash.data ?? null}
+            worth={worth.data}
+            today={today}
+          />
+        </div>
+        {worth.data !== undefined && (
+          <NetWorthSummary worth={worth.data} className="sticky top-6 hidden lg:flex" />
         )}
       </div>
     </>
   )
 }
 
-function LoanPanel({ loan, pending }: { loan: Loan | undefined; pending: boolean }) {
-  if (loan !== undefined) return <LoanCard loan={loan} />
-  if (pending) return <Skeleton className="h-96 min-w-0 flex-[3_1_560px] rounded-2xl" />
+function LoanPanel({ loan, pending, today }: { loan: Loan | undefined; pending: boolean; today: string }) {
+  if (loan !== undefined) return <LoanCard loan={loan} today={today} />
+  if (pending) return <Skeleton className="h-96 rounded-2xl" />
   return (
-    <div className={cn(PANEL, 'min-w-0 flex-[3_1_560px] px-6 py-10 text-center text-sm')}>
-      {t('loans.card.unknown')}
+    <div className={cn(PANEL, 'px-6 py-10 text-center')}>
+      <h1 className="text-base font-semibold">{t('loans.card.unknown')}</h1>
     </div>
   )
 }
@@ -123,19 +136,12 @@ function NoAccounts() {
 
 function PageSkeleton() {
   return (
-    <div aria-busy="true" aria-label={t('accounts.loading')} className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-9 w-48 rounded-[10px]" />
-        <Skeleton className="h-4 w-80 max-w-full" />
-      </div>
-      <div className="flex flex-wrap items-start gap-6">
-        <div className="flex min-w-0 flex-[2_1_320px] flex-col gap-3">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-[104px] rounded-2xl" />
-          ))}
-        </div>
-        <Skeleton className="h-96 min-w-0 flex-[3_1_560px] rounded-2xl" />
-      </div>
+    <div aria-busy="true" aria-label={t('accounts.loading')} className="flex flex-col gap-5">
+      <Skeleton className="h-9 w-48 rounded-[10px]" />
+      <Skeleton className="h-64 rounded-2xl" />
+      {[0, 1].map((i) => (
+        <Skeleton key={i} className="h-40 rounded-2xl" />
+      ))}
     </div>
   )
 }

@@ -555,16 +555,18 @@ test.describe('compact list', () => {
   })
 })
 
-test('accounts: picking another card changes the panel heading', async ({ page }) => {
+test('accounts: net worth on top; a row opens its account and the back link returns', async ({
+  page,
+}) => {
   await page.goto('/accounts')
-  const heading = page.getByRole('region', { name: /···/ }).getByRole('heading', { level: 2 })
-  const before = await heading.innerText()
+  await expect(page.getByTestId('net-worth-total')).toContainText('RD$')
+  const groups = page.getByTestId('account-groups')
+  await groups.getByRole('link', { name: /VISA DEMO/ }).click()
 
-  const other = before.includes('VISA DEMO') ? 'MC BLACK' : 'VISA DEMO'
-  await page.getByRole('button', { name: new RegExp(other) }).click()
-
-  await expect(heading).toContainText(other)
   await expect(page).toHaveURL(/account=/)
+  await expect(page.getByRole('heading', { level: 1, name: /VISA DEMO/ })).toBeVisible()
+  await page.getByRole('link', { name: t('accounts.backLabel') }).click()
+  await expect(page.getByTestId('account-groups')).toBeVisible()
 })
 
 test('accounts: the statements table fits without horizontal scrolling at 1232 px', async ({
@@ -572,9 +574,9 @@ test('accounts: the statements table fits without horizontal scrolling at 1232 p
 }) => {
   await page.setViewportSize({ width: 1232, height: 961 })
   // The card with interest shows the verdict under the balance: it must fit too.
-  for (const route of ['/accounts', INTEREST_CARD_PAGE]) {
+  for (const route of [INTEREST_CARD_PAGE]) {
     await page.goto(route)
-    const box = page.getByRole('region', { name: t('accounts.table.label') })
+    const box = page.getByRole('region', { name: t('accounts.table.label'), exact: true })
     await expect(box).toBeVisible()
     const overflow = await box.evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(overflow, route).toBeLessThanOrEqual(0)
@@ -585,12 +587,12 @@ test.describe('interest', () => {
   test("accounts: payment strip and what was left of December's statement", async ({ page }) => {
     // The made-up due date (22 Feb 2026) has passed: the strip says it is overdue.
     await page.goto(INTEREST_CARD_PAGE)
-    const panel = page.getByRole('region', { name: /MASTERCARD FICTICIA/ })
+    const panel = page.getByRole('region', { name: t('accounts.panel.byCut') })
     await expect(panel).toContainText(
       t('summary.interest.payOverdue', { amounts: 'RD$ 7,637', day: FEB_22 }),
     )
     await expect(panel).toContainText(t('summary.interest.minimum', { amounts: 'RD$ 380' }))
-    const table = page.getByRole('region', { name: t('accounts.table.label') })
+    const table = page.getByRole('region', { name: t('accounts.table.label'), exact: true })
     const leftOver = escapeRegExp(t('summary.interest.leftOver', { amount: 'RD$ 6,150' }))
     const charged = escapeRegExp(t('summary.interest.charged', { amount: 'RD$ 287' }))
     await expect(table.getByRole('row').filter({ hasText: '28 dic' })).toContainText(
@@ -599,7 +601,8 @@ test.describe('interest', () => {
     await expect(table.getByRole('row').filter({ hasText: '28 nov' })).toContainText(
       t('summary.interest.paidFull'),
     )
-    await expect(page.getByRole('button', { name: /MASTERCARD FICTICIA/ })).toContainText(
+    await page.goto('/accounts')
+    await expect(page.getByRole('link', { name: /MASTERCARD FICTICIA/ })).toContainText(
       t('summary.interest.noteOverdue', { amounts: 'RD$ 7,637', day: FEB_22 }),
     )
   })
@@ -608,7 +611,7 @@ test.describe('interest', () => {
     // The screen compares with the browser's date.
     await page.clock.setFixedTime(new Date('2026-02-15T12:00:00'))
     await page.goto(INTEREST_CARD_PAGE)
-    await expect(page.getByRole('region', { name: /MASTERCARD FICTICIA/ })).toContainText(
+    await expect(page.getByRole('region', { name: t('accounts.panel.byCut') })).toContainText(
       t('summary.interest.pay', { amounts: 'RD$ 7,637', day: FEB_22 }),
     )
   })
@@ -647,8 +650,8 @@ test.describe('interest', () => {
       .click()
     await expect(page).toHaveURL(/\/accounts\?account=ficticio%3Acredit_card$/)
     await expect(
-      page.getByRole('region', { name: /···/ }).getByRole('heading', { level: 2 }),
-    ).toContainText('MASTERCARD FICTICIA')
+      page.getByRole('heading', { level: 1, name: /MASTERCARD FICTICIA/ }),
+    ).toBeVisible()
   })
 
   test('summary: a year without interest says so', async ({ page }) => {

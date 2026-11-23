@@ -31,7 +31,7 @@ function useInvalidateLoans() {
   const client = useQueryClient()
   return () =>
     Promise.all(
-      [loanKeys.all, queryKeys.transactions, queryKeys.reviewAll].map((queryKey) =>
+      [loanKeys.all, queryKeys.transactions, queryKeys.reviewAll, queryKeys.netWorth].map((queryKey) =>
         client.invalidateQueries({ queryKey }),
       ),
     )

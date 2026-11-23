@@ -20,6 +20,8 @@ interface StatementsPanelProps {
   account: Account
   today: string
   ref?: Ref<HTMLElement>
+  /** On the account's own page the name is already above: the panel is titled by its content. */
+  titled?: boolean
 }
 
 const TITLE_ID = 'stm-title'
@@ -27,7 +29,7 @@ const HEAD = 'border-b border-[#EFEFEA] px-2 py-2.5 font-semibold'
 const CELL = 'border-b border-[#F2F2EE] px-2 py-3'
 
 /** Detail of the chosen account: balance, due date, minimum payment and statements by cut. */
-export function StatementsPanel({ account, today, ref }: StatementsPanelProps) {
+export function StatementsPanel({ account, today, ref, titled = true }: StatementsPanelProps) {
   const transactions = `/transactions?${new URLSearchParams({ account: account.key })}`
   return (
     <section
@@ -37,25 +39,35 @@ export function StatementsPanel({ account, today, ref }: StatementsPanelProps) {
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <h2 id={TITLE_ID} className="text-xl font-bold">
-            {account.label}
-          </h2>
-          <span className="text-[13px] text-muted-foreground">{t('accounts.panel.byCut')}</span>
+          {titled ? (
+            <>
+              <h2 id={TITLE_ID} className="text-xl font-bold">
+                {account.label}
+              </h2>
+              <span className="text-[13px] text-muted-foreground">{t('accounts.panel.byCut')}</span>
+            </>
+          ) : (
+            <h2 id={TITLE_ID} className="text-[17px] font-[650] tracking-tight">
+              {t('accounts.panel.byCut')}
+            </h2>
+          )}
           {account.statements.length > 0 && (
             <span className="mt-1 inline-flex w-fit items-center rounded-full bg-secondary px-2.5 py-[3px] text-xs font-semibold text-secondary-foreground">
               {t('accounts.panel.allBalanced')}
             </span>
           )}
         </div>
-        <Link
-          to={transactions}
-          className={cn(
-            'inline-flex h-11 items-center rounded-[10px] border border-[#D6D6D0] px-3.5 text-sm font-semibold text-primary no-underline hover:bg-muted hover:text-secondary-foreground',
-            FOCUS,
-          )}
-        >
-          {t('accounts.panel.viewTransactions')}
-        </Link>
+        {titled && (
+          <Link
+            to={transactions}
+            className={cn(
+              'inline-flex h-11 items-center rounded-[10px] border border-[#D6D6D0] px-3.5 text-sm font-semibold text-primary no-underline hover:bg-muted hover:text-secondary-foreground',
+              FOCUS,
+            )}
+          >
+            {t('accounts.panel.viewTransactions')}
+          </Link>
+        )}
       </div>
       {isCreditCard(account) && account.to_pay !== null && (
         <PayStrip payment={account.to_pay} today={today} />

@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query'
 import {
   type Account,
+  type NetWorth,
   type BatchBody,
   type BatchResult,
   type Candidate,
@@ -90,6 +91,7 @@ export const queryKeys = {
       filters.provisional,
     ] as const,
   accounts: ['accounts'] as const,
+  netWorth: ['net-worth'] as const,
   categories: ['categories'] as const,
   recurringAll: ['recurring'] as const,
   recurring: (month: string | null, selection: Selection) =>
@@ -210,6 +212,14 @@ export function useAccounts() {
   return useQuery({
     queryKey: queryKeys.accounts,
     queryFn: () => request<Account[]>('/api/accounts'),
+  })
+}
+
+/** Net worth today, per group and holding, and its monthly history. */
+export function useNetWorth() {
+  return useQuery({
+    queryKey: queryKeys.netWorth,
+    queryFn: () => request<NetWorth>('/api/net-worth'),
   })
 }
 

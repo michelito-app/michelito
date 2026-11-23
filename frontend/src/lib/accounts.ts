@@ -6,13 +6,7 @@ import { monthName, shortDay } from './months'
 
 const CREDIT_CARD = 'credit_card'
 const DASH = '—'
-const SYMBOLS: Record<string, string> = { DOP: 'RD$', USD: 'US$' }
 const DAY_MS = 86_400_000
-
-export interface AccountGroups {
-  cards: Account[]
-  others: Account[]
-}
 
 export interface Status {
   text: string
@@ -60,40 +54,10 @@ export function shortAccountLabel(label: string): string {
   return `${word} ···${digits.slice(-4)}`
 }
 
-/** Credit cards on one side; debit, savings and the rest on the other. */
-export function groupAccounts(accounts: readonly Account[]): AccountGroups {
-  return {
-    cards: accounts.filter(isCreditCard),
-    others: accounts.filter((a) => !isCreditCard(a)),
-  }
-}
-
-/** The requested account if it exists; otherwise the first card (or the first account). */
-export function resolveAccount(
-  accounts: readonly Account[],
-  requested: string | null,
-): Account | null {
-  return (
-    accounts.find((a) => a.key === requested) ??
-    accounts.find(isCreditCard) ??
-    accounts[0] ??
-    null
-  )
-}
-
 /** Amount in the line's currency; "—" when the statement does not have it. */
 export function amountText(cents: number | null, currency: string): string {
   if (cents === null) return DASH
   return currency === 'USD' ? formatUsd(cents) : formatDop(cents)
-}
-
-/** Cut day and currencies, e.g. "… 20 · RD$ … US$". */
-export function cutLine(account: Account): string {
-  if (account.cut_day === null) return t('accounts.noStatementsYet')
-  const currencies = account.currencies
-    .map((c) => SYMBOLS[c] ?? c)
-    .join(t('accounts.currencyJoin'))
-  return t('accounts.cutLine', { day: account.cut_day, currencies })
 }
 
 /** The statement period ("21 sep – 20 oct"); without a known start, only its end; a portal
@@ -161,4 +125,10 @@ export function footnote(account: Account): string {
   }
   if (account.currencies.length > 1) return t('accounts.footnote.twoCurrencies')
   return t('accounts.footnote.default')
+}
+
+/** What a balance means for net worth: a card's is owed, so it shows negative. */
+export function signedBalance(account: Account, cents: number | null): number | null {
+  if (cents === null) return null
+  return isCreditCard(account) ? -cents : cents
 }

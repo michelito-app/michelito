@@ -66,6 +66,8 @@ export const loans = {
   'loans.payments.unlink': 'No es de este préstamo',
   'loans.payments.unlinkLabel': 'El pago del {day} de {amount} no es de este préstamo',
   'loans.payments.link': 'Enlazar un pago',
+  'loans.payments.menu': 'Acciones del pago del {day} de {amount}',
+  'loans.details.title': 'Detalles',
   'loans.payments.more': {
     one: 'Ver 1 pago más',
     other: 'Ver {count} pagos más',

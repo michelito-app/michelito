@@ -3,17 +3,15 @@ import { t } from '@/i18n'
 import type { Account, StatementLine } from './api'
 import {
   amountText,
-  cutLine,
   cutText,
   dueNote,
   footnote,
-  groupAccounts,
   isCreditCard,
   missingMonth,
   movementLabels,
   periodText,
-  resolveAccount,
   shortAccountLabel,
+  signedBalance,
   splitLabel,
   statusText,
 } from './accounts'
@@ -59,34 +57,6 @@ const SAVINGS = account({
   label: 'Savings 1',
 })
 const VISA = account({ key: 'visa', label: 'Visa' })
-const MC = account({ key: 'mc', label: 'Mastercard' })
-
-describe('groupAccounts', () => {
-  it('separates credit cards from the rest, keeping the order', () => {
-    expect(groupAccounts([VISA, SAVINGS, MC])).toEqual({
-      cards: [VISA, MC],
-      others: [SAVINGS],
-    })
-  })
-  it('leaves a group empty when there are no accounts of that kind', () => {
-    expect(groupAccounts([VISA])).toEqual({ cards: [VISA], others: [] })
-  })
-})
-
-describe('resolveAccount', () => {
-  it('uses the requested account when it exists', () => {
-    expect(resolveAccount([SAVINGS, VISA, MC], 'mc')).toBe(MC)
-    expect(resolveAccount([VISA, SAVINGS], 'bhd:savings:1')).toBe(SAVINGS)
-  })
-  it('without an account (or with an unknown one) picks the first credit card', () => {
-    expect(resolveAccount([SAVINGS, VISA, MC], null)).toBe(VISA)
-    expect(resolveAccount([SAVINGS, VISA, MC], 'missing')).toBe(VISA)
-  })
-  it('without cards picks the first account; without accounts, none', () => {
-    expect(resolveAccount([SAVINGS], null)).toBe(SAVINGS)
-    expect(resolveAccount([], 'visa')).toBeNull()
-  })
-})
 
 describe('movementLabels', () => {
   it('uses purchases and payments only on credit cards', () => {
@@ -127,20 +97,6 @@ describe('amountText', () => {
   })
   it('shows a dash when the statement has no amount', () => {
     expect(amountText(null, 'DOP')).toBe('—')
-  })
-})
-
-describe('cutLine', () => {
-  it('says the cut day and the currencies', () => {
-    expect(cutLine(account())).toBe(t('accounts.cutLine', { day: 20, currencies: 'RD$' }))
-    expect(cutLine(account({ cut_day: 5, currencies: ['DOP', 'USD'] }))).toBe(
-      'Corta el día 5 · RD$ y US$', // spanish-ui
-    )
-  })
-  it('without statements does not make up a cut day', () => {
-    expect(cutLine(account({ cut_day: null, currencies: [], latest: [] }))).toBe(
-      t('accounts.noStatementsYet'),
-    )
   })
 })
 
@@ -258,5 +214,13 @@ describe('shortAccountLabel', () => {
     expect(shortAccountLabel('Ahorro BHD')).toBe('Ahorro BHD') // spanish-data
     expect(shortAccountLabel('BANCO Préstamo 123456')).toBe('BANCO Préstamo 123456') // spanish-data
     expect(shortAccountLabel('ficticio:checking:1')).toBe('ficticio:checking:1')
+  })
+})
+
+describe('signedBalance', () => {
+  it('a card owes its balance; a bank account has it', () => {
+    expect(signedBalance(VISA, 500)).toBe(-500)
+    expect(signedBalance(SAVINGS, 500)).toBe(500)
+    expect(signedBalance(VISA, null)).toBeNull()
   })
 })

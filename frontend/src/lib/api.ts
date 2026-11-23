@@ -1160,3 +1160,37 @@ function detailMessage(detail: unknown): string | null {
     .filter((msg): msg is string => typeof msg === 'string' && msg !== '')
   return messages.length ? messages.join('; ') : null
 }
+
+/** Kinds of holding in net worth (GET /api/net-worth). */
+export type NetWorthGroup = 'cards' | 'loans' | 'banks' | 'cash' | 'investments' | 'owed' | 'owing'
+
+/** One balance in one currency: an account's side, a loan, the cash box, an investment... */
+export interface NetWorthHolding {
+  key: string // the account key, `loan-<id>`, `investment-<id>`, "owed", "owing"
+  label: string
+  group: NetWorthGroup
+  currency: string
+  value_cents: number | null // in its own currency; null: unknown today
+  value_dop_cents: number | null // null: US$ without a rate
+  change_dop_cents: number | null // since the end of last month; null: unknown then
+}
+
+/** Net worth at a month's end (the current month: today). */
+export interface NetWorthPoint {
+  month: string
+  day: string
+  net_cents: number
+  assets_cents: number
+  debts_cents: number
+}
+
+/** Net worth in RD$ cents: today, per group and holding, and its monthly history. */
+export interface NetWorth {
+  net_cents: number
+  assets_cents: number
+  debts_cents: number
+  unconverted: boolean // some US$ value has no rate and does not add up
+  groups: { group: NetWorthGroup; side: 'asset' | 'debt'; total_cents: number }[]
+  holdings: NetWorthHolding[]
+  history: NetWorthPoint[] // oldest first; months before every account is known are left out
+}

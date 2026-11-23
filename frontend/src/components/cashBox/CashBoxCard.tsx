@@ -29,7 +29,7 @@ const SHOWN = 8
 /** The cash account card in Accounts: balance per currency and ≈ RD$, warnings, buttons to
  * write entries and reconcile, the scheduled payments and collections, and the list of money in
  * and out. */
-export function CashBoxCard({ today }: { today: string }) {
+export function CashBoxCard({ today, titled = false }: { today: string; titled?: boolean }) {
   const box = useCashBox()
   const section = useRef<HTMLElement>(null)
   const location = useLocation()
@@ -49,7 +49,11 @@ export function CashBoxCard({ today }: { today: string }) {
       aria-label={t('cashBox.title')}
       className={cn(PANEL, 'flex min-w-0 flex-col gap-4 px-5 py-4')}
     >
-      <h2 className={PANEL_TITLE}>{t('cashBox.title')}</h2>
+      {titled ? (
+        <h1 className="text-[22px] font-bold tracking-tight sm:text-[26px]">{t('cashBox.title')}</h1>
+      ) : (
+        <h2 className={PANEL_TITLE}>{t('cashBox.title')}</h2>
+      )}
       {box.isError && (
         <LoadError what={t('cashBox.load')} error={box.error} onRetry={() => box.refetch()} />
       )}
