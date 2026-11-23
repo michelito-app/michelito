@@ -34,6 +34,9 @@ MESSAGES: dict[str, str] = {
     "analysis.ledger.allocations_need_payer": (
         "«También paga por…» es solo para un pago que otra persona te hizo"
     ),
+    "analysis.ledger.payer_change_needs_received": (
+        "solo se cambia quién pagó en un pago que recibiste"
+    ),
     "analysis.ledger.allocation_not_me": "un pago no puede ser por ti",
     "analysis.ledger.allocations_add_up": "lo que cubre por cada persona tiene que sumar el pago",
     "analysis.ledger.allocation_twice": "una persona aparece dos veces en lo que cubre el pago",

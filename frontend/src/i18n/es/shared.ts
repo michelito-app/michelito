@@ -350,6 +350,9 @@ export const shared = {
   'shared.detail.alsoPaidForHint':
     'Marca a quién más cubría este pago: primero va todo lo que debía {name}, luego los demás en el orden en que los marques.',
   'shared.detail.saveCovers': 'Guardar',
+  'shared.detail.changePayer': 'Cambiar quién pagó',
+  'shared.detail.changePayerHint':
+    '¿Quién te mandó este pago? Todo pasa a ser de esa persona y lo que cubría por otros se borra.',
   'shared.detail.coversSaved': 'Guardado.',
   'shared.cover.title': '¿Ese pago era por alguien más?',
   'shared.cover.yes': 'Sí',

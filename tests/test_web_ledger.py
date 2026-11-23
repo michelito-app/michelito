@@ -412,6 +412,49 @@ class TestPayments:
         assert assigned["unattributed"] == []
         assert _cents(_member(assigned, "Ana")["balance"]) == {"DOP": 100000}
 
+    def test_a_payment_given_to_the_wrong_person_changes_payer(self, client: TestClient) -> None:
+        group, me, people = self._owed(client)
+        body = {
+            "from_contact": people["Ana"],
+            "to_contact": me,
+            "amount_cents": 150000,
+            "day": "2026-01-25",
+            "allocations": [{"contact_id": people["Luis"], "cents": 150000}],
+        }
+        paid = _pay(client, group["id"], body).json()
+        assert _cents(_member(paid, "Luis")["balance"]) == {}
+        [payment] = [i for i in paid["timeline"] if i["kind"] == "payment"]
+        # It was Luis who sent it: all of it becomes his, the covers start over.
+        changed = client.patch(
+            f"/api/shared/payments/{payment['id']}",
+            json={"from_contact": people["Luis"]},
+            headers=WRITE,
+        ).json()
+        [moved] = [i for i in changed["timeline"] if i["kind"] == "payment"]
+        assert moved["from_contact"] == people["Luis"]
+        assert [(a["contact_id"], a["cents"]) for a in moved["allocations"]] == [
+            (people["Luis"], 150000)
+        ]
+        assert _cents(_member(changed, "Luis")["balance"]) == {}
+        assert _cents(_member(changed, "Ana")["balance"]) == {"DOP": 150000}
+
+    def test_a_payment_the_user_made_keeps_its_payer(self, client: TestClient) -> None:
+        group, me, people = self._owed(client)
+        body = {
+            "from_contact": me,
+            "to_contact": people["Ana"],
+            "amount_cents": 1000,
+            "day": "2026-01-25",
+        }
+        found = _pay(client, group["id"], body).json()
+        [payment] = [i for i in found["timeline"] if i["kind"] == "payment"]
+        response = client.patch(
+            f"/api/shared/payments/{payment['id']}",
+            json={"from_contact": people["Luis"]},
+            headers=WRITE,
+        )
+        assert response.status_code == 422
+
     def test_paying_someone_back(self, client: TestClient) -> None:
         group = _group(client, people=[{"name": "Rosa"}])
         me, people = _ids(group)

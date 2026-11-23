@@ -376,7 +376,7 @@ class PaymentBody(BaseModel):
 
 
 class PaymentPatchBody(BaseModel):
-    from_contact: int | None = None  # assign an unattributed payment
+    from_contact: int | None = None  # who sent a payment the user received (assign or fix it)
     accepted: bool | None = None  # "Accept difference"
     fingerprint: str | None = Field(default=None, max_length=200)  # link a transaction
     unlink: bool = False

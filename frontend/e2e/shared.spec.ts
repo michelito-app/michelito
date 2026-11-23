@@ -816,6 +816,41 @@ test('an unattributed payment shows a band; «Asignar» gives it to a person in 
   )
 })
 
+test('a payment given to the wrong person: «change who paid» gives it to the right one', async ({
+  page,
+}) => {
+  const group = await tripGroup(page)
+  const me = group.members.find((m) => m.is_me)!
+  const carola = group.members.find((m) => m.name === 'Carola Ficticia')!
+  const pedro = group.members.find((m) => m.name === 'Pedro Ficticio')!
+  await addPayment(page.request, group.id, {
+    from_contact: carola.id,
+    to_contact: me.id,
+    amount_cents: 75_000,
+    currency: 'DOP',
+    day: '2026-02-10',
+    allocations: [{ contact_id: pedro.id, cents: 75_000 }],
+  })
+  await page.goto(`/shared/${group.id}`)
+  await page.getByTestId('timeline-payment').click()
+  const detail = dialog(page, t('shared.detail.payment'))
+  await detail.getByRole('button', { name: t('shared.detail.changePayer') }).click()
+  await expect(detail).toContainText(t('shared.detail.changePayerHint'))
+  await expect(
+    detail.getByRole('button', { name: t('shared.unattributed.from', { name: 'Carola Ficticia' }) }),
+  ).toHaveCount(0)
+  await noSidewaysScroll(page, 'change payer')
+  await detail.getByRole('button', { name: t('shared.unattributed.from', { name: 'Pedro Ficticio' }) }).click()
+  await expect(detail.getByRole('button', { name: t('shared.detail.changePayer') })).toBeVisible()
+  await expect(detail).toContainText(
+    t('shared.payment.line', { from: 'Pedro Ficticio', to: t('shared.you'), amount: 'RD$ 750' }),
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('timeline-payment')).toContainText(
+    t('shared.payment.line', { from: 'Pedro Ficticio', to: t('shared.you'), amount: 'RD$ 750' }),
+  )
+})
+
 test('a row opens its detail with only what applies; deleting it can be undone', async ({ page }) => {
   const group = await tripGroup(page)
   const carola = group.members.find((m) => m.name === 'Carola Ficticia')!

@@ -20,6 +20,7 @@ import type { Entry, Group, Payment, TimelineItem } from '@/lib/sharedApi'
 import { lastLogId, ledger, useLedgerWrite } from '@/lib/sharedQueries'
 import { cn } from '@/lib/utils'
 import { coverStart, useCoverDraft } from '@/lib/coverDraft'
+import { payerChoices } from '@/lib/paymentPayer'
 import { AlsoPaidFor } from './AlsoPaidFor'
 import { ExpenseForm } from './ExpenseForm'
 import { Chip } from './parts'
@@ -46,6 +47,7 @@ export function ItemSheet({ group, item, onClose, onLink, cover = null }: ItemSh
   const [covering, setCovering] = useState<readonly number[] | null>(cover)
   const [deleted, setDeleted] = useState<{ logId: number | null } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [changingPayer, setChangingPayer] = useState(false)
   const write = useLedgerWrite()
   const undo = useUndo()
   const title = item.kind === 'entry' ? t('shared.detail.entry') : t('shared.detail.payment')
@@ -122,6 +124,9 @@ export function ItemSheet({ group, item, onClose, onLink, cover = null }: ItemSh
         {canCover && (
           <Action onClick={() => setCovering([])}>{t('shared.detail.alsoPaidFor')}</Action>
         )}
+        {item.kind === 'payment' && payerChoices(item, group.members).length > 0 && (
+          <Action onClick={() => setChangingPayer(!changingPayer)}>{t('shared.detail.changePayer')}</Action>
+        )}
         {item.kind === 'payment' && !item.transaction && (
           <Action onClick={() => onLink(item)}>{t('shared.payment.link')}</Action>
         )}
@@ -146,6 +151,9 @@ export function ItemSheet({ group, item, onClose, onLink, cover = null }: ItemSh
           <Action onClick={() => setConfirming(true)}>{t('shared.detail.delete')}</Action>
         )}
       </div>
+      {changingPayer && item.kind === 'payment' && (
+        <ChangePayer group={group} payment={item} onDone={() => setChangingPayer(false)} />
+      )}
       {confirming && (
         <ConfirmBox
           label={t('shared.detail.delete')}
@@ -252,6 +260,35 @@ function PaymentBody({ group, payment }: { group: Group; payment: Payment }) {
       )}
       {payment.transaction && <BankLine tx={payment.transaction} />}
     </>
+  )
+}
+
+/** "Change who paid": the group's other people; picking one gives them all of the payment (who
+ * else it covered starts over), as one change in the log. */
+function ChangePayer({ group, payment, onDone }: { group: Group; payment: Payment; onDone: () => void }) {
+  const write = useLedgerWrite()
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className={cn(LABEL, 'pb-2')}>{t('shared.detail.changePayer')}</legend>
+      <p className="text-[13px] text-muted-foreground">{t('shared.detail.changePayerHint')}</p>
+      <div className="flex flex-wrap gap-2">
+        {payerChoices(payment, group.members).map((member) => (
+          <Chip
+            key={member.id}
+            on={false}
+            onClick={() =>
+              !write.isPending &&
+              write.mutate(() => ledger.patchPayment(payment.id, { from_contact: member.id }), {
+                onSuccess: onDone,
+              })
+            }
+          >
+            {t('shared.unattributed.from', { name: member.name })}
+          </Chip>
+        ))}
+      </div>
+      <Failure error={write.error} />
+    </fieldset>
   )
 }
 

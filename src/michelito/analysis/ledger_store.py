@@ -1046,10 +1046,17 @@ def payment_group(conn: sqlite3.Connection, payment_id: int) -> int:
 
 
 def assign_payment(conn: sqlite3.Connection, payment_id: int, from_contact: int) -> None:
-    """Attributes an unattributed payment to a person of the group."""
+    """Gives a payment the user received to a person of the group: an unattributed one, or one
+    attributed to the wrong person. All of it becomes theirs (who else it covered starts over)."""
     group_id = payment_group(conn, payment_id)
-    if from_contact == me_id(conn):
+    me = me_id(conn)
+    if from_contact == me:
         raise LinkError(t("analysis.ledger.payment_needs_me"))
+    to_contact = conn.execute(
+        "SELECT to_contact FROM ledger_payments WHERE id = ?", (payment_id,)
+    ).fetchone()[0]
+    if int(to_contact) != me:
+        raise LinkError(t("analysis.ledger.payer_change_needs_received"))
     if from_contact not in _members(conn, group_id):
         raise LinkError(t("analysis.ledger.not_member"))
     conn.execute(

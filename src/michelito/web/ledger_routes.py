@@ -791,7 +791,7 @@ def register(  # noqa: C901, PLR0915 (one closure per route, like `web.app`)
 
     @app.patch("/api/shared/payments/{payment_id}")
     def patch_payment(payment_id: int, body: PaymentPatchBody) -> GroupOut:
-        """Assign an unattributed payment, accept the difference, link or unlink its
+        """Set who sent a received payment, accept the difference, link or unlink its
         transaction."""
         with connection() as conn, errors():
             group_id = ledger_store.payment_group(conn, payment_id)
