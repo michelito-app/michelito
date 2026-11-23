@@ -2,9 +2,17 @@
 // the schedule (src/michelito/web/loans.py); this only builds texts, the form's bodies and the
 // loan's place in the Accounts list.
 import { LOCALE, t } from '@/i18n'
-import type { Loan, LoanBody, LoanCurrency, LoanDifference, LoanEdit, Tx } from './api'
+import type {
+  Loan,
+  LoanBody,
+  LoanCurrency,
+  LoanDifference,
+  LoanEdit,
+  LoanEstimate,
+  Tx,
+} from './api'
 import { formatMoney, parseCents } from './links'
-import { monthPhrase } from './months'
+import { dayWithYear, monthPhrase } from './months'
 
 /** Limits the server checks too (src/michelito/migrations_v26.py, analysis/loan_match.py). */
 export const NAME_MAX = 80
@@ -22,6 +30,26 @@ const withCents = new Intl.NumberFormat(LOCALE, {
 /** The bank's installment to the cent, as the bank prints it: "RD$ 7,756.66". */
 export function installmentText(cents: number, currency: LoanCurrency): string {
   return `${currency === 'USD' ? 'US$' : 'RD$'} ${withCents.format(cents / 100)}`
+}
+
+/** "3 linked payments", and how much of the paid total is estimated, if any. */
+export function paidLine(loan: Loan): string {
+  const count = t('loans.card.paidCount', { count: loan.payments.length })
+  if (loan.estimated_cents === 0) return count
+  const amount = formatMoney(loan.estimated_cents, loan.currency)
+  return `${count} · ${t('loans.card.paidEstimated', { amount })}`
+}
+
+/** An estimated payment: its amount and what it stands for. */
+export function estimateText(loan: Loan, estimate: LoanEstimate): { amount: string; note: string } {
+  const day = dayWithYear(estimate.day)
+  return {
+    amount: formatMoney(estimate.amount_cents, loan.currency),
+    note:
+      estimate.kind === 'extra'
+        ? t('loans.estimates.extra', { day })
+        : t('loans.estimates.installment', { day }),
+  }
 }
 
 /** A loan in Accounts: `?account=loan-7`. */

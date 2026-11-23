@@ -3,7 +3,8 @@
 A loan's card: its linked payments and what they add up to, the balance today, the interest
 paid (from the loan statements where they exist, estimated from the contract otherwise), the
 installments left and the expected end, the bank's installment, the rate history and the
-differences for review (`loan_review`).
+differences for review (`loan_review`), and the payments estimated where none is linked
+(`loan_estimates`): they count in what is paid, never as spending.
 """
 
 from __future__ import annotations
@@ -14,8 +15,9 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from michelito.analysis import loan_review, loan_schedule, loan_store
+from michelito.analysis import loan_estimates, loan_review, loan_schedule, loan_store
 from michelito.analysis.accounts import AccountInfo
+from michelito.analysis.loan_estimates import Estimate
 from michelito.analysis.loan_review import Difference, Payment
 from michelito.analysis.loan_schedule import Summary
 from michelito.analysis.loan_store import Loan
@@ -48,10 +50,16 @@ class LoanView:
     differences: tuple[Difference, ...]
     rate: Decimal  # in force today
     installment: Decimal | None  # the bank's, in force today
+    estimates: tuple[Estimate, ...] = ()  # where no payment is linked (never spending)
+
+    @property
+    def estimated(self) -> Decimal:
+        return sum((e.amount for e in self.estimates), Decimal(0))
 
     @property
     def paid(self) -> Decimal:
-        return sum((p.amount for p in self.payments), Decimal(0))
+        """The linked payments and the estimated ones."""
+        return sum((p.amount for p in self.payments), self.estimated)
 
 
 def tags(conn: sqlite3.Connection) -> dict[str, Tag]:
@@ -79,28 +87,23 @@ def view(
         )
         for m in sorted(linked, key=lambda m: (m.day, m.fingerprint), reverse=True)
     )
+    paid = [Payment(p.fingerprint, p.day, p.amount) for p in payments]
     found = loan_review.differences(
-        loan.contract,
-        loan.rates,
-        loan.anchors,
-        loan.statement_lines,
-        [Payment(p.fingerprint, p.day, p.amount) for p in payments],
-        loan.installments,
+        loan.contract, loan.rates, loan.anchors, loan.statement_lines, paid, loan.installments
+    )
+    summary = loan_schedule.summary(
+        loan.contract, loan.rates, loan.anchors, loan.statement_lines, today, loan.installments
     )
     return LoanView(
         loan=loan,
-        summary=loan_schedule.summary(
-            loan.contract,
-            loan.rates,
-            loan.anchors,
-            loan.statement_lines,
-            today,
-            loan.installments,
-        ),
+        summary=summary,
         payments=payments,
         differences=tuple(found),
         rate=loan_schedule.rate_on(loan.rates, today),
         installment=loan_schedule.installment_on(loan.installments, today),
+        estimates=loan_estimates.estimates(
+            loan.contract, summary.rows, loan.anchors, loan.statement_lines, paid, today
+        ),
     )
 
 

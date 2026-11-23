@@ -4,6 +4,7 @@ import type { Loan } from './api'
 import {
   balanceText,
   differenceText,
+  estimateText,
   emptyForm,
   formOf,
   installmentText,
@@ -13,11 +14,13 @@ import {
   loanEdit,
   loanIdOf,
   loanTag,
+  paidLine,
   parseRate,
   progress,
   rateText,
   remainingLine,
 } from './loans'
+import { dayWithYear } from './months'
 
 const LOAN: Loan = {
   id: 7,
@@ -31,6 +34,8 @@ const LOAN: Loan = {
   rates: [{ effective: '2026-01-15', rate_bp: 1250 }],
   installment_cents: null,
   installments: [],
+  estimated_cents: 0,
+  estimates: [],
   balances: [],
   balance_cents: 7_500_000,
   paid_cents: 2_665_464,
@@ -62,6 +67,25 @@ describe('loans', () => {
   it("the bank's installment shows its cents", () => {
     expect(installmentText(775_666, 'DOP')).toBe('RD$ 7,756.66')
     expect(installmentText(12_000, 'USD')).toBe('US$ 120.00')
+  })
+
+  it('what is paid says how much of it is estimated', () => {
+    expect(paidLine(LOAN)).toBe(t('loans.card.paidCount', { count: 0 }))
+    expect(paidLine({ ...LOAN, estimated_cents: 1_776_976 })).toBe(
+      `${t('loans.card.paidCount', { count: 0 })} · ${t('loans.card.paidEstimated', { amount: 'RD$ 17,770' })}`,
+    )
+  })
+
+  it('an estimated payment says what it stands for', () => {
+    expect(
+      estimateText(LOAN, { kind: 'installment', day: '2026-03-15', amount_cents: 888_488 }),
+    ).toEqual({
+      amount: 'RD$ 8,885',
+      note: t('loans.estimates.installment', { day: dayWithYear('2026-03-15') }),
+    })
+    expect(estimateText(LOAN, { kind: 'extra', day: '2026-11-23', amount_cents: 100_000 })).toEqual(
+      { amount: 'RD$ 1,000', note: t('loans.estimates.extra', { day: dayWithYear('2026-11-23') }) },
+    )
   })
 
   it('the share already paid off', () => {

@@ -98,6 +98,12 @@ class PaymentOut(BaseModel):
     origin: str
 
 
+class EstimateOut(BaseModel):
+    kind: Literal["installment", "extra"]
+    day: str
+    amount_cents: int
+
+
 class DifferenceOut(BaseModel):
     kind: Literal["payments", "contract"]
     month: str
@@ -120,7 +126,9 @@ class LoanOut(BaseModel):
     installments: list[InstallmentOut]
     balances: list[BalanceOut]
     balance_cents: int  # today
-    paid_cents: int  # the linked payments
+    paid_cents: int  # the linked payments and the estimated ones
+    estimated_cents: int  # estimated where none is linked (never spending)
+    estimates: list[EstimateOut]
     interest_statements_cents: int  # interest paid per the loan statements
     interest_estimated_cents: int  # ... and estimated from the contract (months without one)
     installments_left: int
@@ -162,6 +170,11 @@ class LoanOut(BaseModel):
             ],
             balance_cents=_cents(found.balance),
             paid_cents=_cents(v.paid),
+            estimated_cents=_cents(v.estimated),
+            estimates=[
+                EstimateOut(kind=e.kind, day=e.day.isoformat(), amount_cents=_cents(e.amount))
+                for e in v.estimates
+            ],
             interest_statements_cents=_cents(found.interest_from_statements),
             interest_estimated_cents=_cents(found.interest_estimated),
             installments_left=found.installments_left,

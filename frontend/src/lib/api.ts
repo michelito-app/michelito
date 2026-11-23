@@ -393,7 +393,9 @@ export interface Loan {
   installments: LoanInstallment[] // what the bank charges, from a day on
   balances: LoanBalance[] // real balances the user entered
   balance_cents: number // today
-  paid_cents: number // the linked payments
+  paid_cents: number // the linked payments and the estimated ones
+  estimated_cents: number // estimated where none is linked (never spending)
+  estimates: LoanEstimate[]
   interest_statements_cents: number
   interest_estimated_cents: number
   installments_left: number
@@ -414,6 +416,14 @@ export interface LoanRate {
 export interface LoanInstallment {
   effective: string
   installment_cents: number
+}
+
+/** A payment the loan estimates: an installment due with none linked, or extra principal that
+ * squares the payments with the latest real balance. It only counts inside the loan. */
+export interface LoanEstimate {
+  kind: 'installment' | 'extra'
+  day: string
+  amount_cents: number
 }
 
 export interface LoanBalance {

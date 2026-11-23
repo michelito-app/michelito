@@ -9,6 +9,7 @@ import {
   balanceText,
   differenceText,
   interestLine,
+  paidLine,
   progress,
   rateText,
   remainingLine,
@@ -16,6 +17,7 @@ import {
 import { longDay } from '@/lib/months'
 import { cn } from '@/lib/utils'
 import { LoanBalances } from './LoanBalances'
+import { LoanEstimates } from './LoanEstimates'
 import { LoanInstallments } from './LoanInstallments'
 import { LoanFormSheet } from './LoanFormSheet'
 import { LoanPayments } from './LoanPayments'
@@ -67,9 +69,7 @@ export function LoanCard({ loan }: { loan: Loan }) {
       <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
         <Figure term={t('loans.card.paid')}>
           <span className="font-semibold">{formatMoney(loan.paid_cents, loan.currency)}</span>
-          <span className="text-muted-foreground">
-            {t('loans.card.paidCount', { count: loan.payments.length })}
-          </span>
+          <span className="text-muted-foreground">{paidLine(loan)}</span>
         </Figure>
         <Figure term={t('loans.card.interest')}>
           <span data-testid="loan-interest">{interestLine(loan)}</span>
@@ -93,6 +93,7 @@ export function LoanCard({ loan }: { loan: Loan }) {
       </p>
       {loan.differences.length > 0 && <Differences loan={loan} />}
       <LoanPayments loan={loan} />
+      <LoanEstimates loan={loan} />
       <LoanRates loan={loan} />
       <LoanInstallments loan={loan} />
       <LoanBalances loan={loan} />

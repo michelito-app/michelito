@@ -28,6 +28,7 @@ export const loans = {
     one: '1 pago enlazado',
     other: '{count} pagos enlazados',
   },
+  'loans.card.paidEstimated': 'incluye {amount} estimados',
   'loans.card.interest': 'Intereses pagados',
   'loans.card.interestEstimated': '{total}, estimado con el contrato',
   'loans.card.interestStatements': '{total}, según los estados del préstamo',
@@ -54,6 +55,12 @@ export const loans = {
   'loans.difference.contract':
     '{month}: el estado deja un balance de {found} y el contrato esperaba {expected}. ¿Cambió la tasa?',
   'loans.payments.title': 'Pagos enlazados',
+  'loans.estimates.title': 'Pagos estimados',
+  'loans.estimates.hint':
+    'Cuotas vencidas sin pago enlazado. Solo cuentan dentro del préstamo, nunca como gasto, y desaparecen solas cuando enlazas el pago o cargas el estado del préstamo.',
+  'loans.estimates.installment': 'cuota del {day} · estimada',
+  'loans.estimates.extra':
+    'abono a capital no registrado (estimado), para cuadrar con el balance del {day}',
   'loans.payments.empty': 'Aún no hay pagos con este número.',
   'loans.payments.byHand': 'enlazado a mano',
   'loans.payments.unlink': 'No es de este préstamo',

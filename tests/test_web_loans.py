@@ -219,3 +219,40 @@ def test_a_bank_installment_of_zero_is_refused(client: TestClient) -> None:
         headers=WRITE,
     )
     assert refused.status_code == 422
+
+
+def test_an_installment_with_no_payment_is_estimated_until_one_is_linked(
+    client: TestClient,
+) -> None:
+    loan = _create(client)
+    assert loan["estimates"] == []
+    assert loan["estimated_cents"] == 0
+    fingerprint = next(p["fingerprint"] for p in loan["payments"] if p["day"] == "2026-03-15")
+
+    unlinked = client.delete(
+        f"/api/loans/{loan['id']}/transactions/{fingerprint}", headers=WRITE
+    ).json()
+    assert unlinked["estimates"] == [
+        {"kind": "installment", "day": "2026-03-15", "amount_cents": 888_488}
+    ]
+    assert unlinked["estimated_cents"] == 888_488
+    assert unlinked["paid_cents"] == loan["paid_cents"]  # the estimate counts as paid
+
+    linked = client.put(f"/api/loans/{loan['id']}/transactions/{fingerprint}", headers=WRITE)
+    assert linked.json()["estimates"] == []
+
+
+def test_an_extra_payment_nobody_recorded_squares_the_real_balance(client: TestClient) -> None:
+    loan = _create(client)
+
+    corrected = client.put(
+        f"/api/loans/{loan['id']}/balances/2026-04-20",
+        json={"balance_cents": 5_000_000},
+        headers=WRITE,
+    ).json()
+
+    (extra,) = corrected["estimates"]
+    assert extra["kind"] == "extra"
+    assert extra["day"] == "2026-04-20"
+    assert extra["amount_cents"] > 2_000_000
+    assert corrected["paid_cents"] == 3 * 888_488 + extra["amount_cents"]
