@@ -13,7 +13,7 @@ import {
   paidLine,
   progress,
   rateText,
-  remainingLine,
+  finishLine,
 } from '@/lib/loans'
 import { longDay } from '@/lib/months'
 import { cn } from '@/lib/utils'
@@ -50,17 +50,25 @@ export function LoanCard({ loan, today }: { loan: Loan; today: string }) {
           </div>
           <EditLoan loan={loan} />
         </header>
-        <div className="flex flex-col gap-1" aria-label={t('loans.card.balance')}>
-          <span className="text-[13px] font-semibold text-muted-foreground">
-            {t('loans.card.balance')}
-          </span>
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] font-semibold text-muted-foreground">{t('loans.card.owe')}</span>
           <span data-testid="loan-balance" className="text-[32px] leading-none font-bold tabular-nums">
             {balanceText(loan)}
           </span>
-          <span className="text-[13px] text-muted-foreground tabular-nums">
-            {t('loans.card.of', { amount: formatMoney(loan.principal_cents, loan.currency) })} ·{' '}
-            {t('loans.card.progress', { share: `${Math.round(share * 100)} %` })} ·{' '}
-            <span data-testid="loan-remaining">{remainingLine(loan)}</span>
+          <div aria-hidden="true" className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full origin-left rounded-full bg-primary transition-transform duration-300"
+              style={{ transform: `scaleX(${share})` }}
+            />
+          </div>
+          <span className="text-[13px] font-semibold tabular-nums">
+            {t('loans.card.paidShare', {
+              share: `${Math.round(share * 100)} %`,
+              amount: formatMoney(loan.principal_cents, loan.currency),
+            })}
+          </span>
+          <span data-testid="loan-remaining" className="text-[13px] text-muted-foreground tabular-nums">
+            {finishLine(loan)}
           </span>
         </div>
         <LoanChart loan={loan} today={today} />
@@ -112,18 +120,22 @@ export function LoanCard({ loan, today }: { loan: Loan; today: string }) {
   )
 }
 
-/** The balance from the start: what is past solid, the schedule ahead dashed. */
+/** What is owed going down to zero: from the start to today solid, the schedule ahead dashed. */
 function LoanChart({ loan, today }: { loan: Loan; today: string }) {
+  const past = loan.schedule.filter((row) => row.due < today)
+  const ahead = loan.schedule.filter((row) => row.due > today)
   const points = [
-    { day: loan.start_date, value: -loan.principal_cents },
-    ...loan.schedule.map((row) => ({ day: row.due, value: -row.balance_cents })),
+    { day: loan.start_date, value: loan.principal_cents },
+    ...past.map((row) => ({ day: row.due, value: row.balance_cents })),
+    { day: today, value: loan.balance_cents },
+    ...ahead.map((row) => ({ day: row.due, value: row.balance_cents })),
   ]
-  const ahead = points.findIndex((p) => p.day > today)
   return (
     <BalanceChart
       points={points}
       format={(cents) => formatMoney(cents, loan.currency)}
-      projectedFrom={ahead < 0 ? undefined : ahead}
+      projectedFrom={ahead.length > 0 ? points.length - ahead.length : undefined}
+      today={today}
     />
   )
 }

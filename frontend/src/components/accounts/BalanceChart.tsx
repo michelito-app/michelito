@@ -16,6 +16,8 @@ interface BalanceChartProps {
   /** Line colour (a CSS colour); the app's primary by default. */
   tone?: string
   className?: string
+  /** ISO day shown as «Hoy» in the reading (and read by default when there is a projection). */
+  today?: string
 }
 
 const WIDTH = 600
@@ -43,6 +45,7 @@ export function BalanceChart({
   projectedFrom,
   tone = 'var(--primary)',
   className,
+  today,
 }: BalanceChartProps) {
   const gradient = useId()
   const [active, setActive] = useState<number | null>(null)
@@ -67,7 +70,7 @@ export function BalanceChart({
     <figure className={cn('flex flex-col gap-1.5', className)}>
       <figcaption className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground tabular-nums">
         <span>
-          {shortDay(points[shown].day)}
+          {points[shown].day === today ? t('accounts.chart.today') : shortDay(points[shown].day)}
           {projectedFrom !== undefined && shown >= split && ` · ${t('accounts.chart.projection')}`}
         </span>
         <span className="font-semibold text-foreground">{format(points[shown].value)}</span>

@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { PANEL } from '@/components/summary/styles'
 import { t } from '@/i18n'
 import type { Account, Tx } from '@/lib/api'
-import { amountText, isCreditCard, signedBalance, statusText } from '@/lib/accounts'
+import { amountText, isCreditCard, statusText } from '@/lib/accounts'
 import { formatMoney } from '@/lib/links'
 import { monthPhrase } from '@/lib/months'
 import { useTransactions } from '@/lib/queries'
@@ -35,11 +35,11 @@ export function AccountDetail({ account, today }: { account: Account; today: str
             {t('accounts.detail.balance')}
           </span>
           <span className="text-[32px] leading-none font-bold tabular-nums">
-            {first ? amountText(signedBalance(account, first.balance_cents), first.currency) : '—'}
+            {first ? amountText(first.balance_cents, first.currency) : '—'}
           </span>
           {rest.map((line) => (
             <span key={line.currency} className="text-sm text-muted-foreground tabular-nums">
-              {amountText(signedBalance(account, line.balance_cents), line.currency)}
+              {amountText(line.balance_cents, line.currency)}
             </span>
           ))}
         </div>
@@ -56,7 +56,7 @@ function StatementChart({ account }: { account: Account }) {
   const currency = account.latest[0]?.currency
   const points = account.statements
     .filter((s) => s.currency === currency && s.balance_cents !== null && !s.printout)
-    .map((s) => ({ day: s.period_end, value: signedBalance(account, s.balance_cents) ?? 0 }))
+    .map((s) => ({ day: s.period_end, value: s.balance_cents ?? 0 }))
     .sort((a, b) => a.day.localeCompare(b.day))
   if (currency === undefined || points.length < 2) return null
   return (

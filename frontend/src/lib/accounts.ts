@@ -127,8 +127,3 @@ export function footnote(account: Account): string {
   return t('accounts.footnote.default')
 }
 
-/** What a balance means for net worth: a card's is owed, so it shows negative. */
-export function signedBalance(account: Account, cents: number | null): number | null {
-  if (cents === null) return null
-  return isCreditCard(account) ? -cents : cents
-}

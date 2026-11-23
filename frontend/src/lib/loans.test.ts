@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
+import { monthPhrase } from './months'
 import type { Loan } from './api'
 import {
   balanceText,
   differenceText,
   estimateText,
   emptyForm,
+  finishLine,
   formOf,
   installmentText,
   interestLine,
@@ -60,7 +62,7 @@ describe('loans', () => {
   })
 
   it('its balance reads negative, like a card', () => {
-    expect(balanceText(LOAN)).toBe('−RD$ 75,000')
+    expect(balanceText(LOAN)).toBe('RD$ 75,000')
     expect(balanceText({ ...LOAN, balance_cents: 0 })).toBe('RD$ 0')
   })
 
@@ -213,5 +215,19 @@ describe('loans', () => {
     expect(loanEdit(fixed, { ...formOf(fixed), installment: '0' }).error).toBe(
       t('loans.form.error.installment'),
     )
+  })
+})
+
+describe('finishLine', () => {
+  it('says when it ends and the installments left', () => {
+    const loan = { installments_left: 3, end_date: '2027-02-07', next_payment_cents: 775_666, currency: 'DOP' as const }
+    expect(finishLine(loan)).toBe(
+      t('loans.card.finish', { count: 3, month: monthPhrase('2027-02'), amount: 'RD$ 7,757' }),
+    )
+  })
+
+  it('says it is paid off when nothing is left', () => {
+    const loan = { installments_left: 0, end_date: null, next_payment_cents: null, currency: 'DOP' as const }
+    expect(finishLine(loan)).toBe(t('loans.card.paidOff'))
   })
 })

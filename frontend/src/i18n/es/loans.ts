@@ -20,6 +20,12 @@ export const loans = {
   'loans.card.number': 'Préstamo ···{last}',
   'loans.card.rate': 'Tasa {rate} al año',
   'loans.card.balance': 'Balance',
+  'loans.card.owe': 'Debes',
+  'loans.card.paidShare': 'Llevas {share} pagado de {amount}',
+  'loans.card.finish': {
+    one: 'Terminas en {month} · 1 cuota de {amount}',
+    other: 'Terminas en {month} · {count} cuotas de {amount}',
+  },
   'loans.card.balanceHint': 'Lo que debes hoy, según el contrato, tus balances y los estados.',
   'loans.card.progress': 'Pagado {share} del monto original',
   'loans.card.of': 'de {amount}',

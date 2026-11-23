@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { FOCUS, PANEL } from '@/components/summary/styles'
 import { t } from '@/i18n'
 import type { Account, CashBox, Loan, NetWorth, NetWorthGroup } from '@/lib/api'
-import { amountText, isCreditCard, signedBalance, statusText } from '@/lib/accounts'
+import { amountText, isCreditCard, statusText } from '@/lib/accounts'
 import { balanceText as cashBalance, CASH_BOX_KEY } from '@/lib/cashBox'
 import { payNote } from '@/lib/interest'
 import { formatMoney } from '@/lib/links'
@@ -41,7 +41,7 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
   return (
     <div data-testid="account-groups" className="flex min-w-0 flex-col gap-4">
       {cards.length > 0 && (
-        <Group title={t('accounts.group.cards')} total={total('cards')} side="debt">
+        <Group title={t('accounts.group.cards')} total={total('cards')}>
           {cards.map((a) => (
             <Row
               key={a.key}
@@ -57,7 +57,7 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
         </Group>
       )}
       {loans.length > 0 && (
-        <Group title={t('accounts.group.loans')} total={total('loans')} side="debt">
+        <Group title={t('accounts.group.loans')} total={total('loans')}>
           {loans.map((loan) => (
             <Row
               key={loan.id}
@@ -74,7 +74,7 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
         </Group>
       )}
       {(banks.length > 0 || cash !== null) && (
-        <Group title={t('accounts.list.others')} total={total('banks', 'cash')} side="asset">
+        <Group title={t('accounts.list.others')} total={total('banks', 'cash')}>
           {banks.map((a) => (
             <Row
               key={a.key}
@@ -100,7 +100,7 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
         </Group>
       )}
       {extras.some((h) => h.group === 'investments') && (
-        <Group title={t('accounts.group.investments')} total={total('investments')} side="asset">
+        <Group title={t('accounts.group.investments')} total={total('investments')}>
           {extras
             .filter((h) => h.group === 'investments')
             .map((h) => (
@@ -117,7 +117,7 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
         </Group>
       )}
       {extras.some((h) => h.group === 'owed' || h.group === 'owing') && (
-        <Group title={t('accounts.group.owed')} total={(total('owed') ?? 0) - (total('owing') ?? 0)} side="asset">
+        <Group title={t('accounts.group.owed')} total={(total('owed') ?? 0) - (total('owing') ?? 0)}>
           {extras
             .filter((h) => h.group === 'owed' || h.group === 'owing')
             .map((h) => (
@@ -126,11 +126,7 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
                 to="/shared"
                 name={h.group === 'owed' ? t('accounts.group.owed') : t('accounts.group.owing')}
                 status={{ text: t('accounts.row.owedHint'), missing: false }}
-                balance={
-                  h.value_cents === null
-                    ? '—'
-                    : formatMoney(h.group === 'owing' ? -h.value_cents : h.value_cents, h.currency)
-                }
+                balance={h.value_cents === null ? '—' : formatMoney(h.value_cents, h.currency)}
                 change={null}
                 side={h.group === 'owing' ? 'debt' : 'asset'}
               />
@@ -144,13 +140,12 @@ export function AccountGroups({ accounts, loans, cash, worth, today }: AccountGr
 interface GroupProps {
   title: string
   total: number | null
-  side: Side
   children: ReactNode
 }
 
-function Group({ title, total, side, children }: GroupProps) {
+function Group({ title, total, children }: GroupProps) {
   const [open, setOpen] = useState(true)
-  const shown = total === null ? '' : formatDop(side === 'debt' ? -total : total)
+  const shown = total === null ? '' : formatDop(total)
   return (
     <section className={cn(PANEL, 'overflow-hidden')}>
       <h2>
@@ -227,16 +222,17 @@ function Row({ to, name, note = null, status, balance, change, side, testId }: R
   )
 }
 
-/** A statement account's latest balance per currency: the first bold, the rest under it. */
+/** A statement account's latest balance per currency (a card's is what it owes): the first bold,
+ * the rest under it. */
 function StatementBalances({ account }: { account: Account }) {
   const [first, ...rest] = account.latest
   if (first === undefined) return <>—</>
   return (
     <span className="flex flex-col items-end">
-      <span>{amountText(signedBalance(account, first.balance_cents), first.currency)}</span>
+      <span>{amountText(first.balance_cents, first.currency)}</span>
       {rest.map((line) => (
         <span key={line.currency} className="text-xs font-normal text-muted-foreground">
-          {amountText(signedBalance(account, line.balance_cents), line.currency)}
+          {amountText(line.balance_cents, line.currency)}
         </span>
       ))}
     </span>

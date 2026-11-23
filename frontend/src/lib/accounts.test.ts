@@ -11,7 +11,6 @@ import {
   movementLabels,
   periodText,
   shortAccountLabel,
-  signedBalance,
   splitLabel,
   statusText,
 } from './accounts'
@@ -214,13 +213,5 @@ describe('shortAccountLabel', () => {
     expect(shortAccountLabel('Ahorro BHD')).toBe('Ahorro BHD') // spanish-data
     expect(shortAccountLabel('BANCO Préstamo 123456')).toBe('BANCO Préstamo 123456') // spanish-data
     expect(shortAccountLabel('ficticio:checking:1')).toBe('ficticio:checking:1')
-  })
-})
-
-describe('signedBalance', () => {
-  it('a card owes its balance; a bank account has it', () => {
-    expect(signedBalance(VISA, 500)).toBe(-500)
-    expect(signedBalance(SAVINGS, 500)).toBe(500)
-    expect(signedBalance(VISA, null)).toBeNull()
   })
 })

@@ -6,7 +6,9 @@ sign-in service (`hosted.auth`) and the hosted `Mode` for `create_app`:
 - database: **only** the one of the session's account (`HostedProvider`), resolved from the
   `__Host-session` cookie on every request. Without a valid session, `/api/*` answers 401 except
   health, mode and the sign-in routes (`OPEN`), and no database is opened;
-- hosts: the public one and loopback; authors: only the user; writes need `X-Michelito: 1`;
+- hosts: the public one and loopback; authors: the user and `claude` (what Claude Code applies
+  through the API on the person's behalf, so their change log shows it); writes need
+  `X-Michelito: 1`;
 - bodies up to `max_body`; system routes (sync, Gmail, secrets, file import) answer 403;
 - its own routes (`hosted.routes`) and the upload and onboarding ones (`hosted.onboarding_routes`):
   `POST /api/uploads` may carry up to `uploads.body_limit` bytes, and the installed app's share
@@ -363,7 +365,8 @@ def create_hosted_app(
         name="hosted",
         provider=provider,
         allowed_hosts=(settings.public_host, *LOOPBACK),
-        authors=("user",),
+        # `claude` only labels the change log entry; the session still decides whose data it is.
+        authors=("user", "claude"),
         blocked=BLOCKED,
         max_body=settings.max_body,
         info={"name": PRODUCT, "demo_url": settings.demo_url},

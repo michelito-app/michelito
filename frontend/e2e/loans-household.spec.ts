@@ -38,13 +38,13 @@ test('a loan made in Deudas links its payments and opens in Accounts', async ({ 
 
   const summary = page.getByTestId('loan-summary')
   await expect(summary).toContainText(NAME)
-  await expect(summary).toContainText('−RD$')
+  await expect(summary).toContainText('RD$')
   await summary.getByRole('link', { name: t('loans.list.openLabel', { name: NAME }) }).click()
 
   await expect(page).toHaveURL(/\/accounts\?account=loan-\d+$/)
   const card = page.getByTestId('loan-card')
   await expect(card.getByRole('heading', { name: NAME })).toBeVisible()
-  await expect(card.getByTestId('loan-balance')).toContainText('−RD$')
+  await expect(card.getByTestId('loan-balance')).toContainText('RD$')
   const payments = card.getByTestId('loan-payments').getByRole('listitem')
   await expect(payments).toHaveCount(4)
 

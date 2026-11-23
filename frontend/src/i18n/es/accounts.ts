@@ -78,6 +78,7 @@ export const accounts = {
   'accounts.row.investmentHint': 'Capital por recuperar',
   'accounts.chart.label': 'Evolución del saldo: de {first} a {last}',
   'accounts.chart.projection': 'Proyección',
+  'accounts.chart.today': 'Hoy',
   'accounts.detail.balance': 'Saldo',
   'accounts.detail.recent': 'Transacciones de {month}',
   'accounts.detail.noRecent': 'Sin transacciones este mes.',

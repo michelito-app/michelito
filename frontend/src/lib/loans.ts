@@ -65,9 +65,22 @@ export function loanIdOf(key: string | null): number | null {
   return Number.isInteger(id) && id > 0 ? id : null
 }
 
-/** What is owed, negative like a card's balance: "−RD$ 75,000". */
+/** What is owed, as a positive amount ("RD$ 75,000"): it sits under «Debes» and in the debts
+ * group, so no sign is needed; only net worth subtracts it. */
 export function balanceText(loan: Pick<Loan, 'balance_cents' | 'currency'>): string {
-  return formatMoney(-loan.balance_cents, loan.currency)
+  return formatMoney(loan.balance_cents, loan.currency)
+}
+
+/** "Terminas en febrero 2027 · 3 cuotas de RD$ 7,757"; paid off when nothing is left. */
+export function finishLine(
+  loan: Pick<Loan, 'installments_left' | 'end_date' | 'next_payment_cents' | 'currency'>,
+): string {
+  if (loan.installments_left === 0 || loan.end_date === null) return t('loans.card.paidOff')
+  return t('loans.card.finish', {
+    count: loan.installments_left,
+    month: monthPhrase(loan.end_date.slice(0, 7)),
+    amount: formatMoney(loan.next_payment_cents ?? 0, loan.currency),
+  })
 }
 
 /** The share of the original amount already paid off (0 to 1). */
