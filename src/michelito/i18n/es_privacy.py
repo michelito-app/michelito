@@ -7,6 +7,12 @@ MESSAGES: dict[str, str] = {
     "privacy.updated": "Última actualización: {date}.",
     "privacy.other_language": "English version below.",
     "privacy.back": "Volver a Michelito",
+    "privacy.home.lead": (
+        "Michelito es una app de finanzas personales. Lee los estados de cuenta que subes o "
+        "reenvías desde tu banco y, si conectas Gmail, tus recibos de Amazon, para mostrarte en "
+        "qué se va tu dinero."
+    ),
+    "privacy.home.policy": "Política de privacidad",
     "privacy.who.title": "Quiénes somos",
     "privacy.who.1": (
         "Michelito (michelito.app) es una app de finanzas personales que administra su propio "

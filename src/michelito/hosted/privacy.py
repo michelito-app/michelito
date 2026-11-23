@@ -25,6 +25,7 @@ PATH = "/privacy"
 CSS_PATH = "/privacy.css"
 CONTACT_ENV = "MICHELITO_OPS_EMAIL"
 UPDATED = "2026-11-22"
+PRODUCT = "Michelito"
 POLICY_URL = "https://developers.google.com/terms/api-services-user-data-policy"
 # A plain address: nothing that could mean something in HTML or in a `mailto:` link.
 _ADDRESS = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}")
@@ -43,6 +44,12 @@ ENGLISH: Mapping[str, str] = {
     "privacy.title": "Privacy at Michelito",
     "privacy.updated": "Last updated: {date}.",
     "privacy.back": "Back to Michelito",
+    "privacy.home.lead": (
+        "Michelito is a personal finance app. It reads the statements you upload or forward "
+        "from your bank and, if you connect Gmail, your Amazon receipts, to show you where your "
+        "money goes."
+    ),
+    "privacy.home.policy": "Privacy policy",
     "privacy.who.title": "Who we are",
     "privacy.who.1": (
         "Michelito (michelito.app) is a personal finance app run by its author. This policy "
@@ -217,14 +224,30 @@ def page(email: str | None) -> str:
     )
 
 
+def _home_part(messages: Mapping[str, str], lang: str) -> str:
+    """One language's lines of the home page."""
+    lead = _text(messages, "privacy.home.lead")
+    policy = _text(messages, "privacy.home.policy")
+    return f'<p lang="{lang}">{lead} <a href="{PATH}">{policy}</a></p>'
+
+
+def home() -> str:
+    """What the home page shows before the interface starts (`Mode.landing`): what the app is and
+    the link to this policy, so Google's branding checker, which runs no JavaScript, finds both."""
+    return (
+        f"<main><h1>{html.escape(PRODUCT)}</h1>"
+        f"{_home_part(i18n.MESSAGES, 'es')}{_home_part(ENGLISH, 'en')}</main>"
+    )
+
+
 def register(app: FastAPI, email: str | None) -> None:
     """The page and its stylesheet; both public, neither opens anything."""
     body = page(email)
 
-    @app.get(PATH, include_in_schema=False)
+    @app.api_route(PATH, methods=["GET", "HEAD"], include_in_schema=False)
     def get_privacy() -> HTMLResponse:
         return HTMLResponse(body)
 
-    @app.get(CSS_PATH, include_in_schema=False)
+    @app.api_route(CSS_PATH, methods=["GET", "HEAD"], include_in_schema=False)
     def get_privacy_css() -> Response:
         return Response(CSS, media_type="text/css")

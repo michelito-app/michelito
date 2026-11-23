@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi import Path as PathParam
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -933,7 +933,7 @@ def create_app(
         return JSONResponse({"detail": t("web.not_found")}, status_code=404)
 
     if static_dir is not None:
-        _mount_spa(app, static_dir)
+        _mount_spa(app, static_dir, mode.landing)
     return app
 
 
@@ -988,11 +988,17 @@ def _body_refusal(request: Request, limit: int) -> Response | None:
     return None
 
 
-def _mount_spa(app: FastAPI, static_dir: Path) -> None:
+_ROOT_DIV = '<div id="root"></div>'
+
+
+def _mount_spa(app: FastAPI, static_dir: Path, landing: str | None) -> None:
+    """The built interface. `HEAD` answers too: some checkers (Google's) ask it first."""
     root = static_dir.resolve()
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str) -> FileResponse:
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    def spa(path: str) -> Response:
+        if not path and landing is not None:
+            return _home(root / "index.html", landing)
         try:
             candidate = (root / path).resolve()
         except ValueError:  # e.g. a null byte in the path
@@ -1000,3 +1006,12 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
         if path and candidate.is_file() and candidate.is_relative_to(root):
             return FileResponse(candidate)
         return FileResponse(root / "index.html")
+
+
+def _home(index: Path, landing: str) -> Response:
+    """The index with `landing` inside its empty `#root`; the plain index if it has none."""
+    text = index.read_text(encoding="utf-8")
+    if _ROOT_DIV not in text:
+        LOG.warning("index.html has no empty #root; the home page goes without its landing")
+        return FileResponse(index)
+    return HTMLResponse(text.replace(_ROOT_DIV, f'<div id="root">{landing}</div>', 1))

@@ -352,6 +352,7 @@ def create_hosted_app(
         max_body=settings.max_body,
         info={"name": PRODUCT, "demo_url": settings.demo_url},
         register=register,
+        landing=privacy.home(),
         body_limits=(
             ("/api/uploads", settings.uploads.body_limit),
             (onboarding_routes.SHARE_PATH, settings.uploads.body_limit),

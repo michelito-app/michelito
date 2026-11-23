@@ -95,7 +95,9 @@ class Mode:
     body size for some exact paths (hosted uploads). `open_writes`: exact paths whose writes do
     not need `X-Michelito` (the installed app's share target, which opens no database). `guard`:
     called (in a thread) with the request and `connection` once the request has its database,
-    before the route; a response it returns stops the request (hosted mode: the upload gate)."""
+    before the route; a response it returns stops the request (hosted mode: the upload gate).
+    `landing`: HTML put inside the interface's `#root` on the home page only, which the interface
+    replaces when it starts (hosted mode: what the app is, for readers that run no JavaScript)."""
 
     name: str
     provider: WorkspaceProvider
@@ -109,3 +111,4 @@ class Mode:
     body_limits: tuple[tuple[str, int], ...] = ()
     open_writes: frozenset[str] = frozenset()
     guard: Guard | None = None
+    landing: str | None = None
