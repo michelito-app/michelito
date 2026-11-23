@@ -24,7 +24,7 @@ from michelito import i18n
 PATH = "/privacy"
 CSS_PATH = "/privacy.css"
 CONTACT_ENV = "MICHELITO_OPS_EMAIL"
-UPDATED = "2026-11-22"
+UPDATED = "2026-11-23"
 PRODUCT = "Michelito"
 POLICY_URL = "https://developers.google.com/terms/api-services-user-data-policy"
 # A plain address: nothing that could mean something in HTML or in a `mailto:` link.
@@ -138,7 +138,8 @@ ENGLISH: Mapping[str, str] = {
     "privacy.keep.2": (
         "When your account is deleted, its key is destroyed at once and its data becomes "
         "unreadable. In the backups it becomes unreadable and is gone within 30 days at most. "
-        "To delete your account, write to us."
+        "You can delete your account yourself from Settings, or write to us and we will delete "
+        "it."
     ),
     "privacy.keep.3": (
         "Disconnecting Gmail revokes Michelito's access to your mailbox. Deleting your account "

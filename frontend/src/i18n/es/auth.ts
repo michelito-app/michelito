@@ -51,6 +51,23 @@ export const auth = {
   'auth.devices.everywhereHint':
     'Cierra la sesión en todos tus dispositivos, este incluido. Te pedimos un código nuevo primero.',
 
+  'auth.delete.title': 'Borrar cuenta',
+  'auth.delete.lead': 'Borra tu cuenta y todos tus datos de Michelito. No se puede deshacer.',
+  'auth.delete.open': 'Borrar mi cuenta…',
+  'auth.delete.dialogTitle': '¿Borrar tu cuenta?',
+  'auth.delete.loses': 'Si la borras:',
+  'auth.delete.lossData':
+    'Se borran todos tus datos: estados de cuenta, movimientos, presupuestos y ajustes.',
+  'auth.delete.lossNow': 'Quedan ilegibles al instante: la clave que los cifra se destruye ahora mismo.',
+  'auth.delete.lossBackups': 'Desaparecen de las copias de seguridad en 30 días como máximo.',
+  'auth.delete.lossGmail': 'Se revoca el acceso de Michelito a tu Gmail.',
+  'auth.delete.lossSessions': 'Se cierra la sesión en todos tus dispositivos.',
+  'auth.delete.typeEmail': 'Para confirmar, escribe tu correo: {email}',
+  'auth.delete.confirm': 'Borrar mi cuenta para siempre',
+  'auth.delete.deleting': 'Borrando…',
+  'auth.delete.cancel': 'Cancelar',
+  'auth.delete.done': 'Tu cuenta y tus datos se borraron. Gracias por usar Michelito.',
+
   'auth.stepUp.title': 'Confirma que eres tú',
   'auth.stepUp.lead': 'Te enviamos un código nuevo a {email}. Escríbelo para seguir.',
   'auth.stepUp.send': 'Enviar el código',

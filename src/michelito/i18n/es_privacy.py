@@ -101,7 +101,8 @@ MESSAGES: dict[str, str] = {
     "privacy.keep.2": (
         "Cuando se borra tu cuenta, su clave se destruye en el acto y sus datos quedan "
         "ilegibles. En las copias de seguridad se vuelven ilegibles y desaparecen a más tardar en "
-        "30 días. Para borrar tu cuenta, escríbenos."
+        "30 días. Puedes borrar tu cuenta tú mismo desde Ajustes, o escribirnos para que la "
+        "borremos."
     ),
     "privacy.keep.3": (
         "Desconectar Gmail revoca el acceso de Michelito a tu correo. Borrar tu cuenta también "

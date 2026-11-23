@@ -121,3 +121,56 @@ export async function requestStepUp(): Promise<void> {
 export async function verifyStepUp(code: string): Promise<void> {
   await request('/api/auth/step-up/verify', { method: 'POST', body: JSON.stringify({ code }) })
 }
+
+/** Deleting the account is confirmed by typing its email: the same address, whatever the case
+ * (a phone keyboard may capitalize the first letter) and without surrounding spaces. */
+export function confirmsEmail(typed: string, email: string): boolean {
+  const value = typed.trim().toLowerCase()
+  return value !== '' && value === email.trim().toLowerCase()
+}
+
+/** `DELETE /api/account`: the account's key is destroyed at once, its Gmail grant revoked and
+ * every session ended. Needs a fresh verification (a 403 `step_up_required` otherwise). */
+export async function deleteAccount(): Promise<void> {
+  await request('/api/account', { method: 'DELETE' })
+}
+
+/** Where the "your account was deleted" notice waits for the signed-out page (this tab only). */
+export type NoticeStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+const DELETED_KEY = 'michelito:account-deleted'
+
+function sessionStore(): NoticeStorage | null {
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+/** Leaves the notice for the signed-out page; without storage it is simply not shown. */
+export function rememberAccountDeleted(storage: NoticeStorage | null = sessionStore()): void {
+  try {
+    storage?.setItem(DELETED_KEY, '1')
+  } catch {
+    // Storage blocked (private window, previews): the notice is a convenience, the deletion
+    // already happened.
+  }
+}
+
+/** Whether the notice is waiting (reading only: safe during render). */
+export function accountDeleted(storage: NoticeStorage | null = sessionStore()): boolean {
+  try {
+    return storage?.getItem(DELETED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Takes the notice away once shown (it shows once). */
+export function forgetAccountDeleted(storage: NoticeStorage | null = sessionStore()): void {
+  try {
+    storage?.removeItem(DELETED_KEY)
+  } catch {
+    // Storage blocked: there was no notice to take away.
+  }
+}

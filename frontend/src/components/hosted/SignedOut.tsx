@@ -5,7 +5,9 @@ import { Input } from '@/components/ui/input'
 import { t } from '@/i18n'
 import { type ModeInfo } from '@/lib/demo'
 import {
+  accountDeleted,
   cooldownLeft,
+  forgetAccountDeleted,
   peekLink,
   requestCode,
   validCode,
@@ -127,8 +129,18 @@ function LinkStep({ token, onSignedIn, onFailed, onCancel }: LinkStepProps) {
 }
 
 function Landing({ mode, onEnter }: { mode: ModeInfo; onEnter: () => void }) {
+  // Read during render, taken away in an effect: StrictMode's second render still sees it.
+  const [deleted] = useState(() => accountDeleted())
+  useEffect(() => {
+    if (deleted) forgetAccountDeleted()
+  }, [deleted])
   return (
     <main className={PAGE}>
+      {deleted && (
+        <p role="status" className="rounded-lg border border-border bg-muted px-4 py-3 text-sm">
+          {t('auth.delete.done')}
+        </p>
+      )}
       <h1 className="text-3xl font-bold tracking-tight">{t('auth.landing.title')}</h1>
       <p className="text-base text-ink-2">{t('auth.landing.lead')}</p>
       <div className="flex flex-col gap-3">

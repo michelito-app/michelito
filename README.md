@@ -240,7 +240,8 @@ local board and the demo keep plain SQLite.
   the person is offline, and losing a device must not lose the data. There is no "not even we
   can read it" mode.
 - **Deleting an account** (`DELETE /api/account`, after a fresh code like "sign out
-  everywhere") first destroys the wrapped data key, in the same transaction as the account, its
+  everywhere"; in Settings, the danger zone at the bottom asks for the account's email first)
+  first destroys the wrapped data key, in the same transaction as the account, its
   sessions, devices, codes and invitations; only then are its files removed. `accounts.db` runs
   with `secure_delete` (deleted rows are zeroed) and its WAL is checkpointed and truncated right
   after, so neither the wrapped key nor the email stay in its free pages or WAL.

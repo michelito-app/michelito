@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Laptop, Smartphone } from 'lucide-react'
 import { useState } from 'react'
 import { ForwardingSettings } from '@/components/forwarding/ForwardingSettings'
+import { DeleteAccount } from '@/components/hosted/DeleteAccount'
 import { StepUpSheet } from '@/components/hosted/StepUpSheet'
 import { MailboxSettings } from '@/components/mailbox/MailboxSettings'
 import { LoadError } from '@/components/LoadError'
@@ -33,7 +34,7 @@ function signedOut() {
 }
 
 /** Hosted mode only: the account, email forwarding, the connected Gmail and its devices (sign out this one, or everywhere after a
- * fresh verification). */
+ * fresh verification), and deleting the account. */
 export function SettingsPage() {
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: fetchMe })
   const devices = useQuery({ queryKey: ['auth', 'devices'], queryFn: fetchDevices })
@@ -106,6 +107,7 @@ export function SettingsPage() {
         </div>
         <p className="text-xs text-muted-foreground">{t('auth.devices.everywhereHint')}</p>
       </section>
+      {me.data && <DeleteAccount email={me.data.email} />}
       {stepUp && me.data && (
         <StepUpSheet
           email={me.data.email}

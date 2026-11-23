@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/lib/api'
 import {
+  type NoticeStorage,
+  accountDeleted,
   cleanCode,
+  confirmsEmail,
   cooldownLeft,
   deviceLabel,
+  forgetAccountDeleted,
   linkToken,
   needsStepUp,
+  rememberAccountDeleted,
   validCode,
   validEmail,
 } from '@/lib/hosted'
@@ -49,3 +54,50 @@ describe('hosted sign-in helpers', () => {
     expect(needsStepUp(new ApiError(401, 'x', 'step_up_required'))).toBe(false)
   })
 })
+
+describe('deleting the account', () => {
+  it('confirms only with the account email, ignoring case and surrounding spaces', () => {
+    expect(confirmsEmail('ana@example.com', 'ana@example.com')).toBe(true)
+    expect(confirmsEmail('  Ana@example.com ', 'ana@example.com')).toBe(true)
+    expect(confirmsEmail('ana@example.com.', 'ana@example.com')).toBe(false)
+    expect(confirmsEmail('', 'ana@example.com')).toBe(false)
+    expect(confirmsEmail('bob@example.com', 'ana@example.com')).toBe(false)
+  })
+
+  it('shows the deleted notice once after the account is deleted', () => {
+    const storage = memoryStorage()
+    expect(accountDeleted(storage)).toBe(false)
+    rememberAccountDeleted(storage)
+    expect(accountDeleted(storage)).toBe(true)
+    expect(accountDeleted(storage)).toBe(true) // reading does not take it away
+    forgetAccountDeleted(storage)
+    expect(accountDeleted(storage)).toBe(false)
+  })
+
+  it('goes on without the notice when storage is unavailable', () => {
+    const broken = {
+      getItem: () => {
+        throw new Error('blocked')
+      },
+      setItem: () => {
+        throw new Error('blocked')
+      },
+      removeItem: () => {
+        throw new Error('blocked')
+      },
+    }
+    expect(() => rememberAccountDeleted(broken)).not.toThrow()
+    expect(() => forgetAccountDeleted(broken)).not.toThrow()
+    expect(accountDeleted(broken)).toBe(false)
+    expect(accountDeleted(null)).toBe(false)
+  })
+})
+
+function memoryStorage(): NoticeStorage {
+  const items = new Map<string, string>()
+  return {
+    getItem: (key) => items.get(key) ?? null,
+    setItem: (key, value) => void items.set(key, value),
+    removeItem: (key) => void items.delete(key),
+  }
+}

@@ -405,13 +405,22 @@ def test_the_privacy_page_is_public_html(tmp_path: Path, monkeypatch: pytest.Mon
     assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
     assert "the interface" not in page.text
     assert LIMITED_USE in page.text
-    assert "gmail.readonly" in page.text and "2026-11-22" in page.text
+    assert "gmail.readonly" in page.text and "2026-11-23" in page.text
     assert '<html lang="es">' in page.text and 'lang="en"' in page.text
     assert "<style" not in page.text and "<script" not in page.text and "style=" not in page.text
     assert 'href="/privacy.css"' in page.text
     assert "mailto:" not in page.text
     assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
     assert anonymous.get("/settings").text == "<p>the interface</p>"
+
+
+def test_the_privacy_page_says_the_account_can_be_deleted_from_settings(tmp_path: Path) -> None:
+    page = hosted(tmp_path).client().get("/privacy")
+
+    assert page.status_code == 200
+    assert "desde Ajustes" in page.text  # spanish-ui
+    assert "from Settings" in page.text
+    assert "Para borrar tu cuenta, escríbenos." not in page.text  # spanish-ui
 
 
 def test_the_privacy_page_shows_the_contact_address_escaped(
