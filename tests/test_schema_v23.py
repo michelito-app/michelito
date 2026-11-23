@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from michelito import db, migrations_v23
+from michelito import config, db, migrations_v23
 from michelito.analysis import (
     cash_activation,
     cash_box,
@@ -87,7 +87,7 @@ def _expected_balances() -> dict[str, Decimal]:
 def _balances(conn: sqlite3.Connection, flow: tuple[spending.Movement, ...]) -> dict[str, Decimal]:
     box = next(b for b in links.load(conn).cash_boxes if b.account_key == CASH_BOX_KEY)
     state = cash_box.state_of(
-        box, cash_box_store.load_entries(conn), flow, rates.load(conn), today=date.today()
+        box, cash_box_store.load_entries(conn), flow, rates.load(conn), today=config.local_today()
     )
     return dict(state.balances)
 
@@ -99,7 +99,7 @@ def test_spending_income_and_balances_are_identical(migrated: Path) -> None:
         assert _totals(flow) == _expected_totals()
         assert _balances(conn, flow) == _expected_balances()
         # The board's pass on the day of the upgrade (and later ones) leaves them as they were.
-        for day in (date.today(), date.today() + timedelta(days=40)):
+        for day in (config.local_today(), config.local_today() + timedelta(days=40)):
             cash_activation.refresh(conn, day, lambda c, d=day: spending.load_all(c, (), None, d))
             after = spending.load_all(conn, (), None, day)
             assert _totals(after) == _expected_totals()
@@ -108,7 +108,7 @@ def test_spending_income_and_balances_are_identical(migrated: Path) -> None:
 
 def test_an_existing_box_is_activated_from_tomorrow_and_renamed(migrated: Path) -> None:
     with closing(db.connect(migrated)) as conn:
-        assert cash_activation.activated_on(conn) == date.today() + timedelta(days=1)
+        assert cash_activation.activated_on(conn) == config.local_today() + timedelta(days=1)
         name = conn.execute("SELECT name FROM accounts WHERE key = ?", (CASH_BOX_KEY,)).fetchone()
         assert name[0] == migrations_v23.NEW_ACCOUNT_NAME
         renamed = conn.execute(
@@ -132,7 +132,7 @@ def test_the_step_is_idempotent_and_keeps_a_renamed_category(migrated: Path) -> 
             conn.execute("SELECT name FROM categories WHERE builtin_key = 'CASH_BOX'").fetchone()[0]
             == "Mine"
         )
-        assert cash_activation.activated_on(conn) == date.today() + timedelta(days=1)
+        assert cash_activation.activated_on(conn) == config.local_today() + timedelta(days=1)
         assert _totals(spending.load_all(conn, ())) == _expected_totals()
 
 
@@ -228,7 +228,7 @@ def test_schema_22_and_21_migrate_to_23_with_identical_figures(tmp_path: Path, s
     with closing(db.connect(path)) as conn:
         assert db.SCHEMA_VERSION >= 23  # noqa: PLR2004 (later schemas only add to it)
         assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
-        assert cash_activation.activated_on(conn) == date.today() + timedelta(days=1)
+        assert cash_activation.activated_on(conn) == config.local_today() + timedelta(days=1)
         assert conn.execute("SELECT COUNT(*) FROM cash_renames").fetchone()[0] == 3
         totals, entries, shared, dismissed, ledger_figures = _everything(conn)
     assert (totals, entries) == expected[:2]
