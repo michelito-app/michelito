@@ -62,6 +62,12 @@ LOAN_BACK = "TRANSF DE ANA PRESTAMO FICTICIA"
 # rate). The tests store January's "RETIRO CAJERO SANTO DOMINGO", record an outflow and link
 # "DEPOSITO CLIENTE FICTICIO"; at the end they undo it.
 CASH_BOX_OPENING = Decimal("200.00")
+# Installment plans (only with the installments flag, see `_extra_card`): a made-up store charge
+# of US$ 150 on the VISA DEMO in each of the three months; the tests turn it into a plan of 6
+# installments and delete it. In their own server: they shift the months' totals.
+INSTALLMENT_CHARGE = "Tienda.com*AB12 TIENDA.COM/BILL"
+INSTALLMENT_AMOUNT = "150.00"
+INSTALLMENT_DAYS = ("2025-12-14", "2026-01-14", "2026-02-07")
 # The test server's "today": shortly after the newest data point, so the "new group" picker
 # (expenses from the last 120 days) has options and ages do not depend on the clock.
 DEMO_TODAY = date(2026, 2, 20)
@@ -123,8 +129,9 @@ def _payment(day: str, amount: str) -> Transaction:
     return _purchase(day, "SU PAGO GRACIAS", amount, direction="credit")
 
 
-def _extra_card() -> Statement:
-    """Made-up card with a February 10 cut-off: leaves February as a partial month."""
+def _extra_card(installments: bool = False) -> Statement:
+    """Made-up card with a February 10 cut-off: leaves February as a partial month. With
+    `installments`, also the monthly store charge of `INSTALLMENT_CHARGE`."""
     purchases = (
         _purchase("2026-01-20", "RESTAURANTE INVENTADO SANTO DOMINGO", "1850.00"),
         _purchase("2026-01-28", "GASOLINERA FICTICIA SANTIAGO", "2400.00"),
@@ -154,6 +161,12 @@ def _extra_card() -> Statement:
         _purchase(day, "GIMNASIO FICTICIO", "2500.00", mcc="9999")
         for day in ("2025-12-08", "2026-01-08", "2026-02-08")
     )
+    # A made-up purchase in installments: the same charge every month (the tests make it a plan).
+    plan = tuple(
+        _purchase(day, INSTALLMENT_CHARGE, INSTALLMENT_AMOUNT, "USD", mcc="5732")
+        for day in INSTALLMENT_DAYS
+        if installments
+    )
     return Statement(
         parser="demo",
         institution="demo",
@@ -164,7 +177,7 @@ def _extra_card() -> Statement:
         due_date=date(2026, 3, 5),
         sections=(
             _section("DOP", purchases + gym, "500.00", Decimal("80000.00")),
-            _section("USD", streaming, "25.00"),
+            _section("USD", streaming + plan, "25.00"),
         ),
     )
 
@@ -541,9 +554,9 @@ def _cash_box(conn) -> None:
         cash_box_store.add_entry(conn, "initial", date(2025, 12, 1), CASH_BOX_OPENING, "USD")
 
 
-def _store_extra(conn, household: bool = False) -> None:
+def _store_extra(conn, household: bool = False, installments: bool = False) -> None:
     statements = (
-        _extra_card(),
+        _extra_card(installments),
         *_interest_card(),
         _checking_account(),
         _checking_february(),
@@ -568,17 +581,22 @@ def _store_extra(conn, household: bool = False) -> None:
 
 
 def build_demo_db(
-    path: Path, household: bool = False, live: bool = False, receipts: bool = False
+    path: Path,
+    household: bool = False,
+    live: bool = False,
+    receipts: bool = False,
+    installments: bool = False,
 ) -> None:
     """Fill `path` with the synthetic statements, extra statements and made-up rates. With
     `household`, also the household accounts (household recurring charges), which shift the
     totals: they run in their own test server (household flag) so the other tests' figures stay
     the same. With `live`, also made-up provisional purchases (`tests.e2e_live`), likewise in
     their own server. With `receipts`, also made-up Amazon charges and the merchant receipts
-    about them (`tests.e2e_receipts`), in a server of their own too."""
+    about them (`tests.e2e_receipts`), in a server of their own too. With `installments`, also
+    the monthly store charge the installment plan tests use (`INSTALLMENT_CHARGE`), likewise."""
     with closing(db.connect(path)) as conn:
         seed(conn)
-        _store_extra(conn, household)
+        _store_extra(conn, household, installments)
         with conn:
             rates.store_bcrd(conn, DEMO_RATES)
         _link_pending(conn)
@@ -611,12 +629,23 @@ def main() -> None:
         action="store_true",
         help="add made-up Amazon charges, their merchant receipts and the reset route",
     )
+    parser.add_argument(
+        "--installments",
+        action="store_true",
+        help="add a made-up monthly store charge for the installment plan tests",
+    )
     args = parser.parse_args()
     if args.household:
         use_demo_providers()
     with tempfile.TemporaryDirectory(prefix="michelito-e2e-") as directory:
         path = Path(directory) / "michelito.db"
-        build_demo_db(path, household=args.household, live=args.live, receipts=args.receipts)
+        build_demo_db(
+            path,
+            household=args.household,
+            live=args.live,
+            receipts=args.receipts,
+            installments=args.installments,
+        )
         app = create_app(path, cli.STATIC_DIR, today=lambda: DEMO_TODAY)
         if args.live:
             e2e_live.register(app, path, lambda target: build_demo_db(target, live=True))

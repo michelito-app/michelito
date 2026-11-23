@@ -8,6 +8,7 @@ import type { InvestmentRole, ReviewItem } from '@/lib/api'
 import { useLinkToReserve } from '@/lib/budgetQueries'
 import { useChangeInvestment, useDecideProvisional, useDecideReceipt, useEditTransaction } from '@/lib/queries'
 import { itemPayments } from '@/lib/coverPlan'
+import { useChangeInstallmentLink } from '@/lib/installmentQueries'
 import { confirmPossiblePayment, ledger, useLedgerWrite } from '@/lib/sharedQueries'
 import {
   amountText,
@@ -87,6 +88,8 @@ export function ReviewRow({ item, selection, busy, onReviewed, onOneOff }: Revie
           <CoverActions item={item} busy={busy} />
         ) : item.kind === 'unconfirmed' || (item.kind === 'reversal' && item.provisional) ? (
           <UnconfirmedActions item={item} busy={busy} onReviewed={onReviewed} />
+        ) : item.kind === 'installment_off_script' && item.plan_id != null ? (
+          <InstallmentActions item={item} busy={busy} />
         ) : item.kind === 'possible_receipt' && item.receipt_id != null ? (
           <ReceiptActions item={item} busy={busy} onReviewed={onReviewed} />
         ) : item.kind === 'possible_reserve' && item.reserve_id != null ? (
@@ -298,6 +301,47 @@ function ReceiptActions({ item, busy, onReviewed }: InvestmentActionsProps) {
       {decide.isError && (
         <p role="alert" className="basis-full text-[13px] text-up-ink">
           {t('review.row.saveError', { message: decide.error.message })}
+        </p>
+      )}
+    </>
+  )
+}
+
+/** A charge off its installment plan's script: "It is installment n" (when the server names
+ * one) links it; "It is not part of the plan" refuses it for good (what marking it reviewed
+ * means for this kind, so there is no separate "Already reviewed"). */
+function InstallmentActions({ item, busy }: Pick<InvestmentActionsProps, 'item' | 'busy'>) {
+  const change = useChangeInstallmentLink()
+  const pending = busy || change.isPending
+  const number = item.installment_number ?? null
+  const link = (target: number | null) => {
+    if (item.plan_id == null) return
+    change.mutate({ planId: item.plan_id, fingerprint: item.fingerprint, number: target })
+  }
+  return (
+    <>
+      {number !== null && (
+        <Button
+          className={ACTION}
+          aria-label={t('installments.review.numberLabel', { merchant: item.merchant, number })}
+          disabled={pending}
+          onClick={() => link(number)}
+        >
+          {t('installments.review.number', { number })}
+        </Button>
+      )}
+      <Button
+        variant="outline"
+        className={SECONDARY}
+        aria-label={t('installments.review.notPlanLabel', { merchant: item.merchant })}
+        disabled={pending}
+        onClick={() => link(null)}
+      >
+        {t('installments.review.notPlan')}
+      </Button>
+      {change.isError && (
+        <p role="alert" className="basis-full text-[13px] text-up-ink">
+          {t('review.row.saveError', { message: change.error.message })}
         </p>
       )}
     </>

@@ -29,6 +29,10 @@ class ReviewView:
     account_label: str
 
 
+# What a linked installment never is.
+_INSTALLMENT_HIDES = frozenset({"one_off", "duplicate", "price_up"})
+
+
 @dataclass(frozen=True)
 class Context:
     """What does not change from one month to the next."""
@@ -75,6 +79,10 @@ class Context:
     # Merchant receipts with more than one possible transaction (`receipt_match.proposals`):
     # fingerprint -> the receipt proposed for it and what the item says.
     receipts: Mapping[str, tuple[int, str]] = field(default_factory=dict)
+    # Installment plans: the charges linked as installments (never one-offs, duplicates or
+    # price rises) and the off-script ones (fingerprint -> the plan and what the item says).
+    installments: Collection[str] = frozenset()
+    off_script: Mapping[str, tuple[int, int | None, str]] = field(default_factory=dict)
 
     @cached_property
     def hints(self) -> dict[str, review.Hint]:
@@ -110,13 +118,19 @@ def month_items(ctx: Context, month: str) -> list[ReviewView]:
     )
     proposed = _payment_items(ctx, mine, month)
     shown = {i.fingerprint for i in proposed}
-    found = [i for i in found if i.fingerprint not in shown]
+    found = [
+        i
+        for i in found
+        if i.fingerprint not in shown
+        and not (i.kind in _INSTALLMENT_HIDES and i.fingerprint in ctx.installments)
+    ]
     found = [
         *proposed,
         *_cover_items(ctx, month),
         *_unconfirmed_items(ctx, mine, month),
         *_reversal_items(ctx, mine, month),
         *_receipt_items(ctx, mine, month),
+        *_installment_items(ctx, mine, month),
         *_rule_items(ctx, mine, month),
         *_reserve_items(ctx, mine, month),
         *found,
@@ -245,6 +259,35 @@ def _receipt_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[r
                 reason=reason,
                 provisional=move.provisional,
                 receipt_id=receipt_id,
+            )
+        )
+    return items
+
+
+def _installment_items(ctx: Context, mine: Sequence[Movement], month: str) -> list[review.Item]:
+    """A charge that looks like an installment plan's but is off its script (another amount,
+    two in a month, after the last one, a refund), for the person to decide."""
+    items = []
+    for move in mine:
+        found = ctx.off_script.get(move.fingerprint)
+        if found is None or move.month != month:
+            continue
+        plan_id, number, reason = found
+        amount = abs(move.gross if move.gross is not None else move.amount)
+        items.append(
+            review.Item(
+                kind="installment_off_script",
+                installment_number=number,
+                fingerprint=move.fingerprint,
+                day=move.day,
+                merchant=move.merchant,
+                description=move.description,
+                account=move.account,
+                amount=amount,
+                currency=move.currency,
+                amount_dop=to_dop(amount, move.currency, rate_for(ctx.rates, month)),
+                reason=reason,
+                plan_id=plan_id,
             )
         )
     return items

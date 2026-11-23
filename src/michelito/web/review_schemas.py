@@ -31,6 +31,8 @@ class ReviewItemOut(BaseModel):
     payment_ids: list[int] = Field(default_factory=list)  # possible cover: all its payments
     provisional: bool = False  # still provisional (from a bank alert): it can be discarded
     receipt_id: int | None = None  # possible receipt: the merchant receipt proposed for it
+    plan_id: int | None = None  # installment off script: the plan it looks like
+    installment_number: int | None = None  # ... and the installment it would be (if any)
 
     @classmethod
     def of(cls, view: ReviewView) -> ReviewItemOut:
@@ -57,6 +59,8 @@ class ReviewItemOut(BaseModel):
             payment_ids=list(item.payment_ids),
             provisional=item.provisional,
             receipt_id=item.receipt_id,
+            plan_id=item.plan_id,
+            installment_number=item.installment_number,
         )
 
 

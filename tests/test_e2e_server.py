@@ -18,6 +18,8 @@ from tests.e2e_server import (
     DEMO_PROVIDERS,
     DEMO_TODAY,
     HOME_LOAN,
+    INSTALLMENT_CHARGE,
+    INSTALLMENT_DAYS,
     RENT,
     WATER,
     build_demo_db,
@@ -199,3 +201,20 @@ def test_household_demo_suggests_a_reserve_for_the_yearly_tax(tmp_path: Path) ->
         340000,
         "2027-01",
     )
+
+
+def test_installments_demo_has_the_monthly_store_charge_only_with_its_flag(tmp_path: Path) -> None:
+    plain, planned = tmp_path / "plain.db", tmp_path / "planned.db"
+    build_demo_db(plain)
+    build_demo_db(planned, installments=True)
+
+    def charges(path: Path) -> list[tuple[str, Decimal, str]]:
+        with closing(db.connect(path)) as conn:
+            return sorted(
+                (m.day.isoformat(), m.amount, m.currency)
+                for m in spending.load_all(conn, ())
+                if m.description == INSTALLMENT_CHARGE
+            )
+
+    assert charges(plain) == []
+    assert charges(planned) == [(day, Decimal("150.00"), "USD") for day in INSTALLMENT_DAYS]

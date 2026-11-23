@@ -25,6 +25,7 @@ import { auth } from './auth'
 import { onboarding } from './onboarding'
 import { forwarding } from './forwarding'
 import { receipts } from './receipts'
+import { installments } from './installments'
 import { mailbox } from './mailbox'
 
 /** Each area's messages, by key prefix. */
@@ -54,6 +55,7 @@ export const AREAS = {
   onboarding,
   forwarding,
   receipts,
+  installments,
   mailbox,
 } as const
 
@@ -83,5 +85,6 @@ export const es = {
   ...onboarding,
   ...forwarding,
   ...receipts,
+  ...installments,
   ...mailbox,
 } as const

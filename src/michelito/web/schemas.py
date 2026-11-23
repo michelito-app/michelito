@@ -25,6 +25,7 @@ from michelito.web import one_offs as one_offs_view
 from michelito.web import pending as pending_view
 from michelito.web import recurring as recurring_view
 from michelito.web import summary as summary_view
+from michelito.web.installments import Tag
 from michelito.web.receipts import ReceiptView
 from michelito.web.recurring_schemas import GroupKey
 from michelito.web.transactions import TxView
@@ -436,6 +437,17 @@ class LedgerTxOut(BaseModel):
         )
 
 
+class InstallmentTagOut(BaseModel):
+    plan_id: int
+    name: str
+    number: int
+    count: int
+
+    @classmethod
+    def of(cls, v: Tag) -> InstallmentTagOut:
+        return cls(plan_id=v.plan_id, name=v.name, number=v.number, count=v.count)
+
+
 class ReceiptOut(BaseModel):
     """A merchant receipt linked to a transaction (only fields read from the email)."""
 
@@ -532,6 +544,8 @@ class TxOut(BaseModel):
     cash_state: str = ""
     # The merchant receipts linked to it (order confirmations, shipments).
     receipts: list[ReceiptOut] = Field(default_factory=list)
+    # The installment plan it is part of ("installment 3/6 · Phone").
+    installment: InstallmentTagOut | None = None
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
@@ -539,6 +553,7 @@ class TxOut(BaseModel):
         return cls(
             fingerprint=v.fingerprint,
             receipts=[ReceiptOut.of(r) for r in v.receipts],
+            installment=None if v.installment is None else InstallmentTagOut.of(v.installment),
             provisional=v.provisional,
             approved=v.approved,
             cash_state=v.cash_state,

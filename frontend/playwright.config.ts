@@ -33,11 +33,25 @@ const LIVE_SPECS = /live\.spec\.ts$/
 // their own server too, on a desktop, a phone and WebKit at an iPhone's size.
 const RECEIPTS_PORT = Number(process.env.E2E_RECEIPTS_PORT ?? 8644)
 const RECEIPTS_SPECS = /receipts\.spec\.ts$/
+// Installment plans (a made-up monthly store charge, the installments flag of
+// tests/e2e_server.py): their own server too, since the charge shifts the months' totals; on a
+// desktop and on WebKit at an iPhone's size. Port 8646 (8648-8652 are off limits).
+const INSTALLMENTS_PORT = Number(process.env.E2E_INSTALLMENTS_PORT ?? 8646)
+const INSTALLMENT_SPECS = /installments\.spec\.ts$/
 // 8501 is the real board's port (`michelito board`): the tests never use it, not even for the
 // second server.
 const RESERVED_PORT = 8501
 if (
-  [PORT, HOUSEHOLD_PORT, DEMO_PORT, HOSTED_PORT, HOSTED_DEMO_PORT, LIVE_PORT, RECEIPTS_PORT].includes(
+  [
+    PORT,
+    HOUSEHOLD_PORT,
+    DEMO_PORT,
+    HOSTED_PORT,
+    HOSTED_DEMO_PORT,
+    LIVE_PORT,
+    RECEIPTS_PORT,
+    INSTALLMENTS_PORT,
+  ].includes(
     RESERVED_PORT,
   )
 ) {
@@ -71,6 +85,7 @@ export default defineConfig({
         HOSTED_SPECS,
         LIVE_SPECS,
         RECEIPTS_SPECS,
+        INSTALLMENT_SPECS,
       ],
     },
     {
@@ -143,6 +158,16 @@ export default defineConfig({
       use: { ...devices['iPhone 15'], baseURL: `http://127.0.0.1:${RECEIPTS_PORT}` },
       testMatch: RECEIPTS_SPECS,
     },
+    {
+      name: 'installments',
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${INSTALLMENTS_PORT}` },
+      testMatch: INSTALLMENT_SPECS,
+    },
+    {
+      name: 'installments-iphone',
+      use: { ...devices['iPhone 15'], baseURL: `http://127.0.0.1:${INSTALLMENTS_PORT}` },
+      testMatch: INSTALLMENT_SPECS,
+    },
   ],
   webServer: [
     {
@@ -166,6 +191,12 @@ export default defineConfig({
     {
       command: `cd .. && uv run python -m tests.e2e_server --receipts --port ${RECEIPTS_PORT}`,
       url: `http://127.0.0.1:${RECEIPTS_PORT}/api/months`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      command: `cd .. && uv run python -m tests.e2e_server --installments --port ${INSTALLMENTS_PORT}`,
+      url: `http://127.0.0.1:${INSTALLMENTS_PORT}/api/months`,
       reuseExistingServer: false,
       timeout: 60_000,
     },

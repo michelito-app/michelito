@@ -22,6 +22,7 @@ import {
 } from '@/lib/transactions'
 import { categoryLocked } from '@/lib/links'
 import { ReceiptBox } from '@/components/receipts/ReceiptBox'
+import { InstallmentSection } from '@/components/installments/InstallmentSection'
 import { bankName, receiptTitle } from '@/lib/receipts'
 import { cn } from '@/lib/utils'
 import { HistorySection } from '@/components/log/HistorySection'
@@ -165,6 +166,7 @@ export function TransactionDetail({
       </div>
 
       <LinkSummaries tx={tx} />
+      <InstallmentSection tx={tx} />
       <RecurringSection tx={tx} />
       <ReserveSection tx={tx} />
       <CashBoxSection tx={tx} onSaved={onSaved} onClose={onClose} />

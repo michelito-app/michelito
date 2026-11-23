@@ -357,6 +357,68 @@ export interface Tx {
   provisional: boolean // from a bank alert: its statement has not arrived yet (badge)
   approved?: boolean // hosted: it entered because the person approved an unverified email
   receipts?: Receipt[] // the merchant receipts linked to it (order confirmations, shipments)
+  installment?: TxInstallment | null // the installment plan it is part of ("cuota 3/6")
+}
+
+/** A row's place in an installment plan: installment `number` of `count`. */
+export interface TxInstallment {
+  plan_id: number
+  name: string
+  number: number
+  count: number
+}
+
+export type InstallmentState = 'paid' | 'missing' | 'pending'
+
+export interface PlanInstallment {
+  number: number
+  month: string // YYYY-MM
+  state: InstallmentState
+  fingerprint: string | null
+}
+
+/** An installment plan's card (GET /api/installments). A member's plan has `group_id` and
+ * `contact_id`: each installment is recorded as their shared expense in that group. */
+export interface InstallmentPlan {
+  id: number
+  name: string
+  account_label: string
+  amount_cents: number // per installment, in `currency`
+  currency: string
+  count: number
+  paid: number
+  remaining_cents: number
+  first_month: string
+  last_month: string
+  group_id: number | null
+  contact_id: number | null
+  group_name: string | null
+  contact_name: string | null
+  receipt_id: number | null
+  missing: number[]
+  installments: PlanInstallment[]
+}
+
+/** "It is an installment…" prefilled from a charge (GET …/installment-draft). */
+export interface InstallmentDraft {
+  fingerprint: string
+  name: string
+  account_label: string
+  amount_cents: number
+  currency: string
+  month: string
+  number: number // which installment the charge seems to be
+  paid_before: number // the earlier installments found in a row
+}
+
+/** POST /api/installments. Both `group_id` and `contact_id`: a member's plan; neither: mine. */
+export interface InstallmentBody {
+  fingerprint: string
+  name: string
+  count: number
+  number?: number
+  group_id?: number
+  contact_id?: number
 }
 
 export type CashBoxRole = 'stored' | 'deposit'
@@ -574,6 +636,7 @@ export type ReviewKind =
   | 'unconfirmed'
   | 'reversal'
   | 'possible_receipt'
+  | 'installment_off_script'
 
 /** A transaction to review (GET /api/review and /api/review/history). */
 export interface ReviewItem {
@@ -598,6 +661,8 @@ export interface ReviewItem {
   payment_ids?: number[] // possible cover: every payment of the suggestion
   provisional?: boolean // still provisional (from a bank alert): it can be discarded
   receipt_id?: number | null // possible receipt: the merchant receipt proposed for it
+  plan_id?: number | null // installment off script: the plan the charge looks like
+  installment_number?: number | null // ... and the installment it would be (null: none)
 }
 
 export interface ReviewMark {

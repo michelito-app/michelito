@@ -17,11 +17,12 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Query
 
 from michelito.analysis import accounts as account_data
-from michelito.analysis import categories, changelog, rates
+from michelito.analysis import categories, changelog, installment_store, rates
 from michelito.analysis import recurring as rec
 from michelito.analysis import recurring_marks as marks
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
+from michelito.web import installments as installments_view
 from michelito.web import recurring as recurring_view
 from michelito.web import transactions
 from michelito.web.recurring_schemas import JoinBody, SeparateBody, TxRecurringBody, TxRecurringOut
@@ -67,14 +68,24 @@ def register(
             movements = load_spending(conn)
         # Status (active or inactive) is measured against the latest data of all accounts.
         as_of = max((m.day for m in movements), default=None)
-        chosen = [m for m in movements if selected is None or m.account in selected]
-        return recurring_view.build_overview(
+        # A plan's installments are forecast by the plan, never as a recurring series too.
+        planned = installment_store.taken(conn)
+        chosen = [
+            m
+            for m in movements
+            if (selected is None or m.account in selected) and m.fingerprint not in planned
+        ]
+        by_month = rates.load(conn)
+        found = recurring_view.build_overview(
             chosen,
             marks.load_for(conn, movements),
-            rates.load(conn),
+            by_month,
             month,
             as_of=as_of,
             unions=marks.load_unions(conn),
+        )
+        return recurring_view.with_plans(
+            found, installments_view.forecast(conn, movements, by_month, selected, as_of)
         )
 
     def recurring_out(

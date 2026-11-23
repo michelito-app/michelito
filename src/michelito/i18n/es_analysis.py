@@ -2,6 +2,13 @@
 error details, seed category names and labels the UI shows."""
 
 MESSAGES: dict[str, str] = {
+    # Installment plans (`installment_store`).
+    "analysis.installments.member_needs_group": "un plan de otra persona necesita su grupo",
+    "analysis.installments.count_range": "el plan debe tener entre 2 y {max} cuotas",
+    "analysis.installments.not_a_member": "esa persona no está en ese grupo",
+    "analysis.installments.number_taken": "esa cuota ya tiene su cargo",
+    "analysis.installments.charge_taken": "ese cargo ya es una cuota",
+    "analysis.installments.not_this_plan": "ese cargo no puede ser una cuota de este plan",
     # --- group A: links, transfers, exchanges, reversals, corrections, accounts, coverage,
     # interest, rates, bcrd ---
     "analysis.accounts.cash_box_name": "Efectivo",

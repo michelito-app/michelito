@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   ChevronDown,
   ChevronRight,
+  CalendarRange,
   History,
   PiggyBank,
   Repeat,
@@ -42,6 +43,10 @@ import { ExchangeSection } from './ExchangeSection'
 import { InvestmentSection } from './InvestmentSection'
 import { ProvisionalNote } from './ProvisionalNote'
 import { ReceiptBox } from '@/components/receipts/ReceiptBox'
+import { InstallmentSection } from '@/components/installments/InstallmentSection'
+import { InstallmentSheet } from '@/components/installments/InstallmentSheet'
+import { useCardAccounts } from '@/components/installments/useCardAccounts'
+import { canBeInstallment } from '@/lib/installments'
 import { bankName, receiptTitle } from '@/lib/receipts'
 import { RecurringSection } from './RecurringSection'
 import { ReserveSection } from './ReserveSection'
@@ -69,6 +74,7 @@ const SHEET_TITLE: Record<SheetKind, () => string> = {
   cashBox: () => t('transactions.actions.cashBox'),
   reserve: () => t('transactions.actions.reserve'),
   recurring: () => t('transactions.actions.recurring'),
+  installment: () => t('installments.detail.title'),
   history: () => t('transactions.actions.history'),
 }
 
@@ -84,6 +90,7 @@ const ICONS: Record<SheetKind, ReactNode> = {
   cashBox: <Vault size={18} aria-hidden="true" />,
   reserve: <PiggyBank size={18} aria-hidden="true" />,
   recurring: <Repeat size={18} aria-hidden="true" />,
+  installment: <CalendarRange size={18} aria-hidden="true" />,
   history: <History size={18} aria-hidden="true" />,
 }
 
@@ -115,6 +122,7 @@ export function MobileDetail({
   const recurringState = useTxRecurring(tx.fingerprint, debit)
   const reserve = debit ? reserveState.data : undefined
   const recurring = debit ? recurringState.data : undefined
+  const cards = useCardAccounts()
   const plan = detailPlan({
     tx,
     reserve: {
@@ -130,6 +138,7 @@ export function MobileDetail({
       linked: recurring?.recurring ? recurring.name : null,
       available: !!recurring && !recurring.recurring && recurring.eligible,
     },
+    installment: canBeInstallment(tx, cards),
   })
   const amount = amountLines(tx)
 
@@ -293,10 +302,14 @@ export function MobileDetail({
       )}
       {sheet === 'reimbursement' && <CreditPaymentSheet tx={tx} onClose={close} />}
       {sheet === 'debitPayment' && <DebitPaymentSheet tx={tx} onClose={close} />}
+      {sheet === 'installment' && !tx.installment && (
+        <InstallmentSheet tx={tx} onClose={close} onCreated={() => setSheet(null)} />
+      )}
       {sheet !== null &&
         !(sheet === 'shared' && tx.ledger === null) &&
         sheet !== 'reimbursement' &&
-        sheet !== 'debitPayment' && (
+        sheet !== 'debitPayment' &&
+        !(sheet === 'installment' && !tx.installment) && (
         <BottomSheet title={SHEET_TITLE[sheet]()} onClose={close}>
           <SheetBody
             kind={sheet}
@@ -409,6 +422,8 @@ function SheetBody({ kind, tx, correction, onSaved, onDone, onCloseDetail }: She
       return <ReserveSection tx={tx} />
     case 'recurring':
       return <RecurringSection tx={tx} />
+    case 'installment':
+      return <InstallmentSection tx={tx} bare onUnlinked={onDone} />
     case 'history':
       return <HistorySection fingerprint={tx.fingerprint} />
   }

@@ -71,6 +71,7 @@ MESSAGES: dict[str, str] = {
     "dossier.review_kind.unconfirmed": "sin_estado",
     "dossier.review_kind.reversal": "reverso",
     "dossier.review_kind.possible_receipt": "recibo_posible",
+    "dossier.review_kind.installment_off_script": "cuota_fuera_de_plan",
     # Totals, as the Markdown lists them (one per key of the data's `totals`).
     "dossier.total.income": "ingresos",
     "dossier.total.income_through": "ingresos hasta",

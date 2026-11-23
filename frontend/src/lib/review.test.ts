@@ -52,6 +52,7 @@ describe('to review', () => {
       'unconfirmed',
       'reversal',
       'possible_receipt',
+      'installment_off_script',
     ])
     expect(KIND_LABELS.duplicate).toBe(t('review.kind.duplicate'))
   })

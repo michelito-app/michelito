@@ -2,6 +2,17 @@
 change-log text the routes return to the UI."""
 
 MESSAGES: dict[str, str] = {
+    # Installment plans (`web.installment_routes`).
+    "web.installments.unknown": "ese plan de cuotas no existe",
+    "web.installments.not_a_charge": "solo un cargo de tarjeta puede ser una cuota",
+    "web.installments.number_over_count": "la cuota no puede pasar del total de cuotas",
+    "web.installments.none": "sin plan de cuotas",
+    "web.installments.log_plan": "plan de cuotas {name}",
+    "web.installments.log_number": "cuota {number} de {name}",
+    "web.review.installment_amount": "{name}: la cuota {number} llegó por otro monto",
+    "web.review.installment_repeated": "{name}: hay más de un cargo para la cuota {number}",
+    "web.review.installment_after_end": "{name}: llegó un cargo después de la última cuota",
+    "web.review.installment_refund": "{name}: el comercio devolvió dinero en esta tarjeta",
     # Shared by several routes.
     "web.unknown_transaction": "transacción desconocida",
     "web.already_linked": "la transacción ya está en otro vínculo",

@@ -48,6 +48,7 @@ from michelito.web import (
     dossier_routes,
     edit_log,
     insight_routes,
+    installment_routes,
     investment_routes,
     ledger_routes,
     live_routes,
@@ -62,6 +63,7 @@ from michelito.web import (
     transactions,
 )
 from michelito.web import categories as categories_view
+from michelito.web import installments as installments_view
 from michelito.web import interest as interest_view
 from michelito.web import links as links_view
 from michelito.web import one_offs as one_offs_view
@@ -436,13 +438,15 @@ def create_app(
         # approved it (hosted email forwarding) and the merchant receipts linked to each one.
         approved = inbox_store.approved_fingerprints(conn)
         linked = receipts_view.by_fingerprint(conn)
-        if not approved and not linked:
+        plans = installments_view.tags(conn)
+        if not approved and not linked and not plans:
             return views
         return [
             dc_replace(
                 v,
                 approved=v.fingerprint in approved,
                 receipts=linked.get(v.fingerprint, ()),
+                installment=plans.get(v.fingerprint),
             )
             for v in views
         ]
@@ -914,6 +918,7 @@ def create_app(
     pace_routes.register(app, connection, load_flow, parse_accounts, today)
     live_routes.register(app, connection, load_flow)
     receipt_routes.register(app, connection, load_flow)
+    installment_routes.register(app, connection, load_flow)
     log_routes.register(app, connection, load_flow)
     batch_routes.register(app, connection, load_flow)
     investment_routes.register(app, connection, load_flow, parse_accounts, today)

@@ -6,7 +6,7 @@ Pure function: takes movements, marks and rates already loaded; never touches th
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Literal
@@ -372,3 +372,29 @@ def _alerts(
             )
         )
     return alerts
+
+
+MONTHS_A_YEAR = 12
+
+
+def with_plans(found: Overview, plans: Sequence[tuple[Decimal, int]]) -> Overview:
+    """The overview with the installment plans' remaining installments in the Installments
+    group: each plan with installments left adds its installment (RD$) to the monthly total
+    and the installments of the next twelve months to the yearly one. `plans`: (installment in
+    RD$, installments left)."""
+    active = [(amount, left) for amount, left in plans if left > 0]
+    if not active:
+        return found
+    monthly = sum((amount for amount, _ in active), Decimal(0))
+    yearly = sum((amount * min(left, MONTHS_A_YEAR) for amount, left in active), Decimal(0))
+    groups = list(found.groups)
+    index = next((i for i, g in enumerate(groups) if g.group == INSTALLMENTS_GROUP), None)
+    if index is None:
+        groups.append(GroupTotal(INSTALLMENTS_GROUP, monthly, yearly, len(active)))
+        groups.sort(key=lambda g: GROUP_ORDER.index(g.group))
+    else:
+        old = groups[index]
+        groups[index] = GroupTotal(
+            old.group, old.monthly_dop + monthly, old.yearly_dop + yearly, old.count + len(active)
+        )
+    return replace(found, groups=groups, monthly_dop=found.monthly_dop + monthly)

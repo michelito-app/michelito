@@ -17,6 +17,7 @@ from michelito.analysis.categories import Kind
 from michelito.analysis.rates import Rate
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
+from michelito.web.installments import Tag
 from michelito.web.links import RowLinks
 from michelito.web.receipts import ReceiptView
 
@@ -53,6 +54,7 @@ class TxView:
     approved: bool = False  # hosted: it entered because the person approved an email
     cash_state: str = ""  # an unanswered scheduled cash occurrence: "pending" or "unconfirmed"
     receipts: tuple[ReceiptView, ...] = ()  # the merchant receipts linked to it (`web.receipts`)
+    installment: Tag | None = None  # the installment plan it is part of (`web.installments`)
 
     @property
     def suggested_one_off(self) -> bool:

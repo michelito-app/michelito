@@ -3,6 +3,7 @@
 import { t } from '@/i18n'
 import type { Tx } from './api'
 import { showCashBox } from './cashBox'
+import { linkedLine } from './installments'
 import { linkSummaries, showDebitPayment, showExchange, showInvestment, showReimbursement } from './links'
 
 /** What a sheet of the phone's detail holds. */
@@ -18,6 +19,7 @@ export type SheetKind =
   | 'cashBox'
   | 'reserve'
   | 'recurring'
+  | 'installment'
   | 'history'
 
 export interface LinkLine {
@@ -47,10 +49,12 @@ export interface PlanInput {
   tx: Tx
   reserve: ReserveState
   recurring: { linked: string | null; available: boolean }
+  /** "It is an installment…" applies (a card charge not in a plan). */
+  installment?: boolean
 }
 
 /** Pure: the links and the actions of the phone's detail. */
-export function detailPlan({ tx, reserve, recurring }: PlanInput): DetailPlan {
+export function detailPlan({ tx, reserve, recurring, installment = false }: PlanInput): DetailPlan {
   const links: LinkLine[] = linkSummaries(tx)
     .filter((summary) => (summary.kind === 'shared' ? tx.ledger !== null : tx.link === summary.kind))
     .map((summary) => ({ kind: summary.kind, title: summary.title, text: summary.text }))
@@ -76,6 +80,13 @@ export function detailPlan({ tx, reserve, recurring }: PlanInput): DetailPlan {
       text: t('transactions.recurring.state', { name: recurring.linked }),
     })
   }
+  if (tx.installment) {
+    links.push({
+      kind: 'installment',
+      title: t('installments.detail.title'),
+      text: linkedLine(tx.installment),
+    })
+  }
   const linked = new Set(links.map((line) => line.kind))
   const actions: SheetKind[] = []
   const offer = (kind: SheetKind, applies: boolean) => {
@@ -89,6 +100,7 @@ export function detailPlan({ tx, reserve, recurring }: PlanInput): DetailPlan {
   // Only when it can really be linked; otherwise the reason, at most, as a note.
   offer('reserve', reserve.linked === null && reserve.canLink)
   offer('recurring', recurring.available)
+  offer('installment', installment)
   offer('exchange', showExchange(tx))
   actions.push('history')
   const reserveNote =

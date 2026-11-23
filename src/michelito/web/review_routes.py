@@ -14,6 +14,8 @@ from michelito.analysis import accounts as account_data
 from michelito.analysis import (
     catalog,
     changelog,
+    installment_match,
+    installment_store,
     ledger_store,
     links,
     live_store,
@@ -28,7 +30,7 @@ from michelito.analysis.review import Kind
 from michelito.analysis.spending import Movement
 from michelito.i18n import t
 from michelito.web import budget as budget_view
-from michelito.web import edit_log, log_routes, receipt_routes, summary
+from michelito.web import edit_log, installment_routes, log_routes, receipt_routes, summary
 from michelito.web import review as review_view
 from michelito.web.budget_routes import load_inputs
 from michelito.web.review_schemas import ReviewBody, ReviewItemOut, ReviewMarkOut
@@ -74,6 +76,7 @@ def register(
             decisions=live_store.decisions(conn),
             reversals=live_store.reversals(conn),
             receipts=_receipt_proposals(conn, flow),
+            **_installments(conn, flow),
         )
 
     @app.get("/api/review")
@@ -115,6 +118,11 @@ def register(
             if kind == "possible_rule":
                 discard_rule(conn, target, body.reviewed, flow)
                 return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)
+            if kind == "installment_off_script":
+                # "Reviewed" is "it is not part of the plan" (undone from its history).
+                if body.reviewed:
+                    refuse_installment(conn, target, flow)
+                return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)
             if kind == "possible_receipt":
                 # "Reviewed" is "it is not this one"; there is nothing to un-review (the
                 # refusal is undone from the transaction's history).
@@ -143,6 +151,31 @@ def register(
                 else:
                     review_marks.set_reviewed(conn, fingerprint, kind, body.reviewed)
         return ReviewMarkOut(kind=kind, fingerprint=fingerprint, reviewed=body.reviewed)
+
+    def refuse_installment(
+        conn: sqlite3.Connection, target: Movement, flow: Sequence[Movement]
+    ) -> None:
+        """The off-script charge is not part of the plan it looks like (logged, undoable)."""
+        found = _installments(conn, flow).get("off_script", {}).get(target.fingerprint)
+        if found is None:
+            raise HTTPException(404, t("web.installments.unknown"))
+        with (
+            conn,
+            changelog.track(
+                conn,
+                installment_routes.LOG_KIND,
+                "transaction",
+                target.fingerprint,
+                edit_log.subject(target),
+                before=t("web.to_review"),
+                after=t("web.installments.none"),
+                merchant=target.merchant,
+                fingerprints=[target.fingerprint],
+            ),
+        ):
+            installment_store.unlink(
+                conn, found[0], target.fingerprint, changelog.now().isoformat()
+            )
 
     def refuse_receipt(
         conn: sqlite3.Connection, target: Movement, flow: Sequence[Movement]
@@ -213,3 +246,32 @@ def _receipt_proposals(
         for fingerprint in proposed[receipt_id]:
             found.setdefault(fingerprint, (receipt_id, reason))
     return found
+
+
+def _installments(conn: sqlite3.Connection, flow: Sequence[Movement]) -> dict:
+    """The installments linked and the off-script charges, with what each item says."""
+    plans = installment_store.load(conn)
+    if not plans:
+        return {}
+    found = installment_match.match(
+        [p.terms for p in plans],
+        installment_store.charges(flow),
+        installment_store.taken(conn),
+        installment_store.dismissed(conn),
+    )
+    names = {p.id: p.name for p in plans}
+    return {
+        "installments": frozenset(fp for p in plans for fp in p.links.values()),
+        "off_script": {
+            fp: (
+                off.plan_id,
+                off.number,
+                t(
+                    f"web.review.installment_{off.reason}",
+                    name=names[off.plan_id],
+                    number=off.number,
+                ),
+            )
+            for fp, off in found.off_script.items()
+        },
+    }

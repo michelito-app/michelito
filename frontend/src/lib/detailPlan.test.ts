@@ -124,4 +124,13 @@ describe('detailPlan', () => {
     const covered = plan({}, { reserve: { linked: 'Travel', canLink: false, reason: 'Linked' } })
     expect(covered.reserveNote).toBeNull()
   })
+
+  it('a card charge offers "it is an installment"; one in a plan shows it on top instead', () => {
+    expect(plan({}, { installment: true }).actions).toContain('installment')
+    const installment = { plan_id: 1, name: 'Phone (Store)', number: 3, count: 6 }
+    const result = plan({ installment }, { installment: true })
+    expect(result.links.map((line) => line.kind)).toEqual(['installment'])
+    expect(result.links[0].text).toContain('Phone (Store)')
+    expect(result.actions).not.toContain('installment')
+  })
 })

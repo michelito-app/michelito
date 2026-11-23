@@ -94,6 +94,10 @@ TRACKED = (
     # Merchant receipts (schema 24): what the person links, removes or refuses.
     "receipt_links",
     "receipt_dismissals",
+    # Installment plans (schema 25).
+    "installment_plans",
+    "installment_links",
+    "installment_dismissals",
 )
 _CAPTURE = "changelog_capture"
 

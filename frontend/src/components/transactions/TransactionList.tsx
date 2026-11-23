@@ -6,6 +6,7 @@ import { shortAccountLabel, splitLabel } from '@/lib/accounts'
 import { colorFor, customColors } from '@/lib/categories'
 import { type LinkBadge, linkBadges } from '@/lib/links'
 import { bankName, receiptTitle } from '@/lib/receipts'
+import { installmentTag } from '@/lib/installments'
 import { useCategories } from '@/lib/queries'
 import {
   AMOUNT_TONE_CLASS,
@@ -364,6 +365,11 @@ function RowBody({ tx, color }: { tx: Tx; color: string }) {
         {bankName(tx) && (
           <span data-testid="bank-name" className="truncate text-xs text-muted-foreground">
             {tx.merchant}
+          </span>
+        )}
+        {tx.installment && (
+          <span data-testid="installment-tag" className="truncate text-xs font-medium text-primary">
+            {installmentTag(tx)}
           </span>
         )}
       </span>
