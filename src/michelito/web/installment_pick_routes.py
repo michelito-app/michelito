@@ -23,7 +23,7 @@ from michelito.i18n import t
 
 Connection = Callable[[], AbstractContextManager[sqlite3.Connection]]
 LoadFlow = Callable[[sqlite3.Connection], Sequence[Movement]]
-CHARGES_MAX = 60
+CHARGES_MAX = 250  # about three months of card charges
 CREDIT_CARD = "credit_card"  # the account kind installments are charged on
 
 
