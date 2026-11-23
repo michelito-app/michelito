@@ -20,7 +20,7 @@ import {
 
 const LOAN: Loan = {
   id: 7,
-  name: 'Préstamo del carro',
+  name: 'Car loan',
   number: '1234567890',
   currency: 'DOP',
   principal_cents: 10_000_000,

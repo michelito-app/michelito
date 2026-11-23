@@ -1,4 +1,4 @@
-// Loans ("Préstamos") in the interface (pure logic). The server links the payments and computes
+// Loans in the interface (pure logic). The server links the payments and computes
 // the schedule (src/michelito/web/loans.py); this only builds texts, the form's bodies and the
 // loan's place in the Accounts list.
 import { t } from '@/i18n'
@@ -83,7 +83,7 @@ export function differenceText(loan: Pick<Loan, 'currency'>, d: LoanDifference):
   })
 }
 
-/** A row's line: "préstamo · Carro"; null when it pays no loan. */
+/** A row's line: "loan · Car" (from the catalog); null when it pays no loan. */
 export function loanTag(tx: Pick<Tx, 'loan'>): string | null {
   return tx.loan ? t('loans.row.tag', { name: tx.loan.name }) : null
 }

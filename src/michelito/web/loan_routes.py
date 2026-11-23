@@ -1,4 +1,4 @@
-"""Routes of loans ("Préstamos").
+"""Routes of loans.
 
 - `GET /api/loans`: every loan's card.
 - `POST /api/loans`: a loan from its contract and number; every charge with the number is
