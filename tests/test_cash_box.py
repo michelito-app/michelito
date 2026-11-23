@@ -364,6 +364,17 @@ class TestCurrencies:
         assert state.unconverted == (("USD", D(50)),)
         assert [line.fingerprint for line in state.lines] == ["dop", "usd", "cash-1", "old"]
 
+    def test_same_day_entries_newest_first(self) -> None:
+        # Ids 9 and 10: "cash-9" sorts after "cash-10" as text, so the order must not come
+        # from the fingerprint.
+        entries = [
+            ManualEntry(9, "expense", date(2026, 1, 20), D(30), "USD"),
+            ManualEntry(10, "expense", date(2026, 1, 20), D(50), "USD"),
+            ManualEntry(1, "initial", date(2026, 1, 1), D(200), "USD"),
+        ]
+        state = cash_box.state_of(self._box(), entries, [], RATES)
+        assert [line.fingerprint for line in state.lines] == ["cash-10", "cash-9", "cash-1"]
+
     def test_a_dop_deposit_from_dollars_in_the_box(self) -> None:
         moves = [
             _move("2026-01-10", "1000", "usd", "USD", link="cash_box"),

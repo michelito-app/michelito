@@ -121,27 +121,27 @@ test('on a phone the «+» covers neither the bottom bar nor the last card’s l
   await page.goto('/')
   const button = page.getByRole('button', { name: t('cashBox.quick.label') })
   await expect(page.locator('[data-card]').last()).toBeVisible()
-  // Every card loaded (their skeletons gone), then to the very end of the page.
+  // Every card loaded (their skeletons gone), then to the very end of the page. Cards can still
+  // be loading (the page growing) after the skeletons go, so the end is measured again until
+  // the page stops growing and nothing under the «+» is a card's link.
   await expect(page.locator('[data-card] [aria-busy="true"], .animate-pulse')).toHaveCount(0)
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })
-        const root = document.documentElement
-        return Math.round(root.scrollHeight - window.scrollY - root.clientHeight)
-      }),
-    )
-    .toBe(0)
   const fab = (await button.boundingBox())!
   const bar = (await page.locator('[data-bottom-bar]').boundingBox())!
   expect(fab.y + fab.height).toBeLessThanOrEqual(bar.y)
-  const overlaps = await page.evaluate(
-    ({ x, y, width, height }) =>
-      [...document.querySelectorAll('[data-card] a, [data-card] button')].filter((element) => {
-        const r = element.getBoundingClientRect()
-        return r.width > 0 && r.x < x + width && r.x + r.width > x && r.y < y + height && r.y + r.height > y
-      }).map((e) => `${e.tagName}:${e.textContent?.slice(0, 30)}:${JSON.stringify(e.getBoundingClientRect())}`),
-    fab,
-  )
-  expect(overlaps).toEqual([])
+  await expect
+    .poll(() =>
+      page.evaluate(({ x, y, width, height }) => {
+        const root = document.documentElement
+        window.scrollTo({ top: root.scrollHeight, behavior: 'instant' })
+        const gap = Math.round(root.scrollHeight - window.scrollY - root.clientHeight)
+        const covered = [...document.querySelectorAll('[data-card] a, [data-card] button')]
+          .filter((element) => {
+            const r = element.getBoundingClientRect()
+            return r.width > 0 && r.x < x + width && r.x + r.width > x && r.y < y + height && r.y + r.height > y
+          })
+          .map((element) => element.textContent?.slice(0, 30))
+        return { gap, covered }
+      }, fab),
+    )
+    .toEqual({ gap: 0, covered: [] })
 })

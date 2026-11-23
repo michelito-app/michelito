@@ -272,7 +272,7 @@ def state_of(
         line = _member_line(member, move, rates)
         if line is not None:
             lines.append(line)
-    lines.sort(key=lambda line: (line.day, line.fingerprint), reverse=True)
+    lines.sort(key=_recency, reverse=True)
     return BoxState(
         account_key=account_key,
         lines=tuple(lines),
@@ -283,6 +283,13 @@ def state_of(
         ),
         uncounted=tuple(line.fingerprint for line in lines if not line.counted),
     )
+
+
+def _recency(line: Line) -> tuple[date, int, str]:
+    """Sort key, most recent last: by day; on the same day the hand-made entries in the order
+    they were written (their id; a fingerprint like "cash-9" would put it after "cash-10"),
+    then the bank movements by fingerprint."""
+    return (line.day, 0 if line.entry is None else line.entry.id, line.fingerprint)
 
 
 def _by_currency(
