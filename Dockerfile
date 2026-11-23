@@ -24,11 +24,14 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ src/
 COPY --from=frontend /src/src/michelito/web/static/ src/michelito/web/static/
-# googleapiclient's discovery documents (≈ 100 MB) are only used by the Gmail sync, which does
-# not exist in the demo.
+# googleapiclient's discovery documents (≈ 100 MB) are dropped except Gmail's, which the hosted
+# Gmail sync builds its client from (`gmail.build_client`); without it the read fails with
+# UnknownApiNameOrVersion.
+ARG DISCOVERY=/app/.venv/lib/python3.13/site-packages/googleapiclient/discovery_cache/documents
 RUN uv sync --frozen --no-dev --no-editable \
     && test -f /app/.venv/lib/python3.13/site-packages/michelito/web/static/index.html \
-    && rm -rf /app/.venv/lib/python3.13/site-packages/googleapiclient/discovery_cache/documents
+    && find "$DISCOVERY" -type f ! -name gmail.v1.json -delete \
+    && test -f "$DISCOVERY/gmail.v1.json"
 
 # 3. The final image: the same Python, the environment and nothing else (no uv, Node or sources).
 FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90

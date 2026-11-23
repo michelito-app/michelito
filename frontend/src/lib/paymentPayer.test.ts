@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { payerChoices } from './paymentPayer'
 
 const members = [
-  { id: 1, name: 'Tú', is_me: true },
+  { id: 1, name: 'Tú', is_me: true }, // spanish-data
   { id: 2, name: 'Javier', is_me: false },
   { id: 3, name: 'Alex', is_me: false },
 ]
