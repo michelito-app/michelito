@@ -1,6 +1,6 @@
 // The pure parts of the extension's 12-month walk (made-up order numbers and titles).
 import { beforeAll, describe, expect, test } from 'vitest'
-import '../../../src/michelito/hosted/extension/walk.js'
+import '../../src/michelito/hosted/extension/walk.js'
 
 interface Order {
   order: string

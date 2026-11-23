@@ -10,5 +10,5 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   build: { outDir: '../src/michelito/web/static', emptyOutDir: true },
   server: { proxy: { '/api': 'http://127.0.0.1:8502' } },
-  test: { environment: 'node', include: ['src/**/*.test.ts', 'pwa/**/*.test.ts'] },
+  test: { environment: 'node', include: ['src/**/*.test.ts', 'pwa/**/*.test.ts', 'extension-tests/**/*.test.ts'] },
 })

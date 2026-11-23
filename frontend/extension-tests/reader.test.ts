@@ -2,7 +2,7 @@
 // The extension's reader of Amazon's order-history pages, against small synthetic pages shaped
 // like the real ones (classes only; every number and title is made up).
 import { beforeAll, describe, expect, test } from 'vitest'
-import '../../../src/michelito/hosted/extension/reader.js'
+import '../../src/michelito/hosted/extension/reader.js'
 
 interface ReadItem {
   title: string
