@@ -54,6 +54,7 @@ class PointOut(BaseModel):
     net_cents: int
     assets_cents: int
     debts_cents: int
+    estimated: bool  # some account counts with its first statement's balance
 
 
 class NetWorthOut(BaseModel):
@@ -100,6 +101,7 @@ def build(holdings: Sequence[Holding], today: date, by_month: dict[str, rates.Ra
                 net_cents=_cents(p.net),
                 assets_cents=_cents(p.assets),
                 debts_cents=_cents(p.debts),
+                estimated=p.estimated,
             )
             for p in net_worth.history(holdings, by_month, today)
         ],

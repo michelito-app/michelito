@@ -118,7 +118,7 @@ def test_totals_flag_a_value_without_rate() -> None:
     assert found.net == Decimal("0")
 
 
-def test_history_starts_at_the_latest_first_known_day() -> None:
+def test_history_starts_at_the_first_known_day() -> None:
     # Arrange: holdings that say from when they are known skip the months before
     bank = Holding("bank", "banks", "DOP", "asset", _steps(("2026-02-05", "10")))
     known = Holding("bank", "banks", "DOP", "asset", bank.value_on, known_from=date(2026, 2, 5))
@@ -126,3 +126,50 @@ def test_history_starts_at_the_latest_first_known_day() -> None:
     points = net_worth.history([known], RATES, date(2026, 3, 15))
     # Assert
     assert [p.month for p in points] == ["2026-02", "2026-03"]
+
+
+def _known(key: str, group: str, side: str, *points: tuple[str, str]) -> Holding:
+    value_on = _steps(*points)
+    first = date.fromisoformat(points[0][0])
+    return Holding(key, group, "DOP", side, value_on, known_from=first)  # type: ignore[arg-type]
+
+
+def test_history_carries_a_late_account_back_to_its_first_balance() -> None:
+    # Arrange: the bank is known from January, the card only from March
+    holdings = [
+        _known("bank", "banks", "asset", ("2026-01-05", "1000"), ("2026-02-05", "1500")),
+        _known("card", "cards", "debt", ("2026-03-10", "400")),
+    ]
+    # Act
+    points = net_worth.history(holdings, RATES, date(2026, 3, 15))
+    # Assert: January and February use the card's first balance and are estimated
+    assert [p.month for p in points] == ["2026-01", "2026-02", "2026-03"]
+    assert [p.net for p in points] == [Decimal("600"), Decimal("1100"), Decimal("1100")]
+    assert [p.estimated for p in points] == [True, True, False]
+
+
+def test_history_is_not_estimated_when_every_account_is_known() -> None:
+    holdings = [_known("bank", "banks", "asset", ("2026-01-05", "1000"))]
+    points = net_worth.history(holdings, RATES, date(2026, 2, 10))
+    assert [p.estimated for p in points] == [False, False]
+
+
+def test_carried_back_usd_uses_the_first_balance_rate_when_the_month_has_none() -> None:
+    # Arrange: the US$ card is known from March (rate 62); December 2025 has no rate at all
+    holdings = [
+        _known("bank", "banks", "asset", ("2025-12-05", "1000")),
+        Holding(
+            "visa",
+            "cards",
+            "USD",
+            "debt",
+            _steps(("2026-03-10", "10")),
+            known_from=date(2026, 3, 10),
+        ),
+    ]
+    # Act
+    points = net_worth.history(holdings, RATES, date(2026, 3, 15))
+    # Assert: December counts the card at March's rate
+    assert points[0].month == "2025-12"
+    assert points[0].debts == Decimal("620")
+    assert points[0].estimated is True

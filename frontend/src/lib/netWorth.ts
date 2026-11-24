@@ -27,6 +27,12 @@ export function pointsFor(history: readonly NetWorthPoint[], period: Period): Ne
   return history.slice(-POINTS[period])
 }
 
+/** How many of the first points are estimated (an account counts with its first balance). */
+export function estimatedCount(points: readonly NetWorthPoint[]): number {
+  const real = points.findIndex((p) => !p.estimated)
+  return real === -1 ? points.length : real
+}
+
 /** Net worth's change over the points shown (null with fewer than two). */
 export function changeOf(points: readonly NetWorthPoint[]): number | null {
   if (points.length < 2) return null

@@ -5,6 +5,7 @@ import type { NetWorth } from '@/lib/api'
 import { formatDop, formatSignedDop } from '@/lib/money'
 import {
   changeOf,
+  estimatedCount,
   isGood,
   PERIODS,
   type Period,
@@ -20,6 +21,7 @@ export function NetWorthHeader({ worth }: { worth: NetWorth }) {
   const [period, setPeriod] = useState<Period>('3M')
   const points = pointsFor(worth.history, period)
   const change = changeOf(points)
+  const estimated = estimatedCount(points)
   const hasOwed = worth.holdings.some((h) => h.group === 'owed' || h.group === 'owing')
   return (
     <section
@@ -55,15 +57,20 @@ export function NetWorthHeader({ worth }: { worth: NetWorth }) {
         <PeriodPicker period={period} onChange={setPeriod} />
       </div>
       {points.length >= 2 ? (
-        <BalanceChart points={points.map((p) => ({ day: p.day, value: p.net_cents }))} format={formatDop} />
+        <BalanceChart
+          points={points.map((p) => ({ day: p.day, value: p.net_cents }))}
+          format={formatDop}
+          estimatedUntil={estimated}
+        />
       ) : (
         <p className="text-[13px] text-muted-foreground">{t('accounts.netWorth.noHistory')}</p>
       )}
-      {(worth.unconverted || hasOwed) && (
+      {(worth.unconverted || hasOwed || estimated > 0) && (
         <p className="text-xs text-muted-foreground">
           {[
             worth.unconverted ? t('accounts.netWorth.unconverted') : null,
             hasOwed ? t('accounts.netWorth.owedToday') : null,
+            estimated > 0 ? t('accounts.netWorth.estimated') : null,
           ]
             .filter(Boolean)
             .join(' ')}

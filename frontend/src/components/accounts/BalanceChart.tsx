@@ -13,6 +13,9 @@ interface BalanceChartProps {
   format: (cents: number) => string
   /** Index of the first projected point: from there on the line is dashed (a loan's future). */
   projectedFrom?: number
+  /** How many first points are estimated: up to there the line is dashed (net worth before an
+   * account's first statement). */
+  estimatedUntil?: number
   /** Line colour (a CSS colour); the app's primary by default. */
   tone?: string
   className?: string
@@ -43,6 +46,7 @@ export function BalanceChart({
   points,
   format,
   projectedFrom,
+  estimatedUntil = 0,
   tone = 'var(--primary)',
   className,
   today,
@@ -53,9 +57,12 @@ export function BalanceChart({
   const place = scale(points)
   const xy = points.map(place)
   const split = projectedFrom === undefined ? xy.length : Math.max(1, projectedFrom)
-  const solid = xy.slice(0, split)
+  const start = Math.min(Math.max(0, estimatedUntil), split - 1) // first solid point
+  const early = start > 0 ? xy.slice(0, start + 1) : []
+  const solid = xy.slice(start, split)
   const dashed = split < xy.length ? xy.slice(split - 1) : []
-  const area = `${path(solid)} L${solid[solid.length - 1][0]},${HEIGHT} L${solid[0][0]},${HEIGHT} Z`
+  const known = xy.slice(0, split)
+  const area = `${path(known)} L${known[known.length - 1][0]},${HEIGHT} L${known[0][0]},${HEIGHT} Z`
   const shown = active ?? (projectedFrom === undefined ? points.length - 1 : split - 1)
   const first = points[0]
   const last = points[points.length - 1]
@@ -72,6 +79,7 @@ export function BalanceChart({
         <span>
           {points[shown].day === today ? t('accounts.chart.today') : shortDay(points[shown].day)}
           {projectedFrom !== undefined && shown >= split && ` · ${t('accounts.chart.projection')}`}
+          {shown < estimatedUntil && ` · ${t('accounts.chart.estimated')}`}
         </span>
         <span className="font-semibold text-foreground">{format(points[shown].value)}</span>
       </figcaption>
@@ -96,17 +104,8 @@ export function BalanceChart({
         </defs>
         <path d={area} fill={`url(#${gradient})`} />
         <path d={path(solid)} fill="none" stroke={tone} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-        {dashed.length > 1 && (
-          <path
-            d={path(dashed)}
-            fill="none"
-            stroke={tone}
-            strokeOpacity="0.55"
-            strokeWidth="2"
-            strokeDasharray="6 6"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
+        {early.length > 1 && <Dashed xy={early} tone={tone} />}
+        {dashed.length > 1 && <Dashed xy={dashed} tone={tone} />}
         <line
           x1={xy[shown][0]}
           x2={xy[shown][0]}
@@ -118,5 +117,19 @@ export function BalanceChart({
         />
       </svg>
     </figure>
+  )
+}
+
+function Dashed({ xy, tone }: { xy: readonly [number, number][]; tone: string }) {
+  return (
+    <path
+      d={path(xy)}
+      fill="none"
+      stroke={tone}
+      strokeOpacity="0.55"
+      strokeWidth="2"
+      strokeDasharray="6 6"
+      vectorEffect="non-scaling-stroke"
+    />
   )
 }

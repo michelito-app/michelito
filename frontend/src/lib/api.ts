@@ -1193,6 +1193,7 @@ export interface NetWorthPoint {
   net_cents: number
   assets_cents: number
   debts_cents: number
+  estimated: boolean // some account counts with its first statement's balance
 }
 
 /** Net worth in RD$ cents: today, per group and holding, and its monthly history. */
@@ -1203,5 +1204,5 @@ export interface NetWorth {
   unconverted: boolean // some US$ value has no rate and does not add up
   groups: { group: NetWorthGroup; side: 'asset' | 'debt'; total_cents: number }[]
   holdings: NetWorthHolding[]
-  history: NetWorthPoint[] // oldest first; months before every account is known are left out
+  history: NetWorthPoint[] // oldest first, from the first statement of any account
 }

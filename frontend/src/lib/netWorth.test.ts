@@ -4,6 +4,7 @@ import type { NetWorth, NetWorthHolding, NetWorthPoint } from './api'
 import {
   changeLine,
   changeOf,
+  estimatedCount,
   holdingChange,
   isGood,
   loanNotice,
@@ -12,8 +13,8 @@ import {
   sideOf,
 } from './netWorth'
 
-function point(month: string, net: number): NetWorthPoint {
-  return { month, day: `${month}-28`, net_cents: net, assets_cents: net, debts_cents: 0 }
+function point(month: string, net: number, estimated = false): NetWorthPoint {
+  return { month, day: `${month}-28`, net_cents: net, assets_cents: net, debts_cents: 0, estimated }
 }
 
 function holding(extra: Partial<NetWorthHolding>): NetWorthHolding {
@@ -142,5 +143,16 @@ describe('loanNotice', () => {
   it('says nothing when it is far or unknown', () => {
     expect(loanNotice(loan, '2026-11-23')).toBeNull()
     expect(loanNotice({ ...loan, next_due: null }, '2026-12-04')).toBeNull()
+  })
+})
+
+describe('estimatedCount', () => {
+  it('counts the estimated points at the start', () => {
+    const points = [point('2026-01', 1, true), point('2026-02', 2, true), point('2026-03', 3)]
+    expect(estimatedCount(points)).toBe(2)
+  })
+
+  it('is zero when every point is real', () => {
+    expect(estimatedCount(HISTORY)).toBe(0)
   })
 })

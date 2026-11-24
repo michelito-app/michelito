@@ -67,6 +67,8 @@ export const accounts = {
   'accounts.netWorth.noHistory': 'El gráfico aparece cuando haya estados de al menos dos meses.',
   'accounts.netWorth.unconverted': 'Hay saldos en US$ sin tasa: no se suman.',
   'accounts.netWorth.owedToday': 'Lo que te deben y lo que debes cuenta solo desde hoy.',
+  'accounts.netWorth.estimated':
+    'La línea punteada es estimada: las cuentas que empezaron después cuentan con su primer saldo.',
   'accounts.summary.title': 'Resumen',
   'accounts.summary.assets': 'Activos',
   'accounts.summary.debts': 'Deudas',
@@ -78,6 +80,7 @@ export const accounts = {
   'accounts.row.investmentHint': 'Capital por recuperar',
   'accounts.chart.label': 'Evolución del saldo: de {first} a {last}',
   'accounts.chart.projection': 'Proyección',
+  'accounts.chart.estimated': 'Estimado',
   'accounts.chart.today': 'Hoy',
   'accounts.detail.balance': 'Saldo',
   'accounts.detail.recent': 'Transacciones de {month}',
