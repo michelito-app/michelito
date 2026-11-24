@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -215,6 +215,34 @@ def test_rotation_deletes_backups_older_than_thirty_days(tmp_path: Path) -> None
         assert deleted == ("2026-09-01", "2026-10-01", "2026-10-19")
         assert backup.labels(client) == ["2026-10-20", "2026-11-19"]
         assert "unrelated/2020-01-01/file" in fake.objects
+
+
+def test_a_second_backup_on_the_same_day_gets_its_own_label(tmp_path: Path) -> None:
+    env, master = _two_accounts(tmp_path)
+    noon = datetime(2026, 11, 24, 11, 53, 35, tzinfo=UTC).timestamp()
+    with fake_s3() as fake:
+        fake.object_lock = True  # the bucket refuses to overwrite: the label must be new
+        client = s3.Client(fake.bucket)
+        assert backup.free_label(client, "2026-11-24", lambda: noon) == "2026-11-24"
+        backup.run_backup(env.data, master, client, "2026-11-24")
+        second = backup.free_label(client, "2026-11-24", lambda: noon)
+        assert second == "2026-11-24T115335Z"
+        backup.run_backup(env.data, master, client, second)
+        assert backup.labels(client) == ["2026-11-24", "2026-11-24T115335Z"]
+        # Even an incomplete backup (no manifest) holds its label: its objects are locked too.
+        fake.objects["backups/2026-11-25/accounts.db.sealed"] = b"partial"
+        assert backup.free_label(client, "2026-11-25", lambda: noon) == "2026-11-25T115335Z"
+
+
+def test_rotation_also_deletes_the_extra_backups_of_an_old_day(tmp_path: Path) -> None:
+    env, master = _two_accounts(tmp_path)
+    with fake_s3() as fake:
+        client = s3.Client(fake.bucket)
+        for label in ("2026-10-01", "2026-10-01T115335Z", "2026-11-19", "2026-11-19T080000Z"):
+            backup.run_backup(env.data, master, client, label)
+        deleted = backup.rotate_by_age(client, date(2026, 11, 19))
+        assert deleted == ("2026-10-01", "2026-10-01T115335Z")
+        assert backup.labels(client) == ["2026-11-19", "2026-11-19T080000Z"]
 
 
 def test_a_local_folder_keeps_the_newest_backups(tmp_path: Path) -> None:

@@ -125,6 +125,24 @@ def test_backup_to_r2_records_the_status_and_restores(
     assert "backup" in output.out and "MICHELITO_OPS_EMAIL" in output.err
 
 
+def test_a_second_r2_backup_on_the_same_day_does_not_hit_the_bucket_lock(
+    env, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    _import(env, capsys)
+    data = ["--data", str(env["hosted"])]
+    with fake_s3() as fake:
+        fake.object_lock = True
+        monkeypatch.setenv(s3.ENDPOINT_ENV, fake.endpoint)
+        monkeypatch.setenv(s3.BUCKET_ENV, BUCKET)
+        monkeypatch.setenv(s3.ACCESS_KEY_ENV, ACCESS)
+        monkeypatch.setenv(s3.SECRET_KEY_ENV, SECRET)
+        assert cli.main(["backup", *data]) == 0
+        assert cli.main(["backup", *data]) == 0, capsys.readouterr().err
+        assert len({k.split("/")[1] for k in fake.objects}) == 2
+        assert cli.main(["ops-check", *data]) == 0
+        assert "Nothing failed" in capsys.readouterr().out
+
+
 def test_ops_check_emails_the_owner_only_on_failure(env, capsys) -> None:  # noqa: ANN001
     data = ["--data", str(env["hosted"]), "--mailer", "outbox"]
     assert cli.main(["ops-check", *data, "--to", "owner@example.com"]) == 1  # never backed up

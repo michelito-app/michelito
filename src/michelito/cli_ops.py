@@ -319,9 +319,10 @@ def cmd_backup(args: argparse.Namespace, paths: config.Paths) -> int:
             deleted = backup.rotate_by_count(target, args.keep)
         else:
             client = s3.Client(s3.bucket_from_environment())
-            label = backup.today_label()
+            day = backup.today_label()
+            label = backup.free_label(client, day)
             done = backup.run_backup(directory, master, client, label)
-            deleted = backup.rotate_by_age(client, date.fromisoformat(label))
+            deleted = backup.rotate_by_age(client, date.fromisoformat(day))
     except (MasterKeyError, backup.BackupError, s3.S3Error) as error:
         if args.to is None:
             status.backup_failed(str(error))

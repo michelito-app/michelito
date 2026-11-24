@@ -2,7 +2,8 @@
 accounts database, to Cloudflare R2 every night (and to a local folder before every deploy).
 
 One backup is a set of objects under `<prefix>/<label>/` (the label is the UTC date for the
-nightly ones):
+nightly ones; a second backup on the same day gets `<date>T<HHMMSS>Z`, because the bucket's object
+lock refuses to overwrite the first one's objects):
 
 - `users/<folder>/michelito.db`: a consistent snapshot of the account's SQLCipher file, taken
   with SQLite's backup API into a temporary file inside the data folder; still encrypted with
@@ -65,7 +66,7 @@ _MAC_INFO = b"michelito backup manifest v1"
 _SEAL_VERSION = b"\x01"
 _NONCE = 12
 LABEL = re.compile(r"[0-9A-Za-z][0-9A-Za-z._-]{0,63}")
-DATE_LABEL = re.compile(r"\d{4}-\d{2}-\d{2}")
+DATE_LABEL = re.compile(r"(\d{4}-\d{2}-\d{2})(T\d{6}Z)?")  # a day, or a later run that day
 # The only object names a backup has (a tampered manifest cannot name anything else).
 NAMES = re.compile(rf"{re.escape(ACCOUNTS)}|users/{FOLDER.pattern}/{re.escape(auth.DATABASE)}")
 
@@ -323,11 +324,7 @@ def rotate_by_age(
     oldest = today - timedelta(days=days)
     start = f"{prefix}/" if prefix else ""
     every = {k[len(start) :].partition("/")[0] for k in target.list(start)}
-    old = sorted(
-        label
-        for label in every
-        if DATE_LABEL.fullmatch(label) and date.fromisoformat(label) < oldest
-    )
+    old = sorted(label for label in every if (day := label_day(label)) and day < oldest)
     for label in old:
         _remove(target, prefix, label)
     return tuple(old)
@@ -339,6 +336,22 @@ def rotate_by_count(target: Target, keep: int, prefix: str = "") -> tuple[str, .
     for label in old:
         _remove(target, prefix, label)
     return tuple(old)
+
+
+def label_day(label: str) -> date | None:
+    """The day of a dated label (`<date>` or `<date>T<HHMMSS>Z`); None for any other."""
+    found = DATE_LABEL.fullmatch(label)
+    return date.fromisoformat(found.group(1)) if found else None
+
+
+def free_label(
+    target: Target, day: str, clock: Callable[[], float] = time.time, prefix: str = R2_PREFIX
+) -> str:
+    """`day` if no object is stored under it yet, else `<day>T<HHMMSS>Z`: an object-locked
+    bucket refuses to overwrite even an incomplete backup's objects."""
+    if not target.list(_key(prefix, day, "") + "/"):
+        return day
+    return f"{day}T{datetime.fromtimestamp(clock(), UTC).strftime('%H%M%SZ')}"
 
 
 def today_label(clock: Callable[[], float] = time.time) -> str:

@@ -30,6 +30,7 @@ class FakeS3:
     headers_seen: list[dict[str, str]] = field(default_factory=list)
     corrupt_reads: bool = False  # GET answers altered bytes (checksum tests)
     fail_puts: bool = False
+    object_lock: bool = False  # like an R2 bucket lock: an existing key cannot be overwritten
     redirect_to: str = ""  # answer every request with a 307 there
     page_size: int = 1000
     endpoint: str = ""
@@ -104,6 +105,9 @@ def _handler(state: FakeS3) -> type[BaseHTTPRequestHandler]:
                 return
             if state.fail_puts:
                 self._error(500, "InternalError")
+                return
+            if state.object_lock and found[0] in state.objects:
+                self._error(409, "ObjectLockedByBucketPolicy")
                 return
             state.objects[found[0]] = body
             self._reply(200)
