@@ -173,3 +173,17 @@ def test_carried_back_usd_uses_the_first_balance_rate_when_the_month_has_none() 
     assert points[0].month == "2025-12"
     assert points[0].debts == Decimal("620")
     assert points[0].estimated is True
+
+
+def test_estimated_history_goes_back_at_most_a_year_before_the_last_first_balance() -> None:
+    # Arrange: the bank is known since 2020, the card only from March 2026
+    holdings = [
+        _known("bank", "banks", "asset", ("2020-10-05", "1000")),
+        _known("card", "cards", "debt", ("2026-03-10", "400")),
+    ]
+    # Act
+    points = net_worth.history(holdings, RATES, date(2026, 3, 15))
+    # Assert: twelve estimated months before March, then the real ones
+    assert points[0].month == "2025-03"
+    assert len(points) == 13
+    assert [p.estimated for p in points] == [True] * 12 + [False]

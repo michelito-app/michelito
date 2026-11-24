@@ -1204,5 +1204,5 @@ export interface NetWorth {
   unconverted: boolean // some US$ value has no rate and does not add up
   groups: { group: NetWorthGroup; side: 'asset' | 'debt'; total_cents: number }[]
   holdings: NetWorthHolding[]
-  history: NetWorthPoint[] // oldest first, from the first statement of any account
+  history: NetWorthPoint[] // oldest first, from the first statement (at most a year estimated)
 }

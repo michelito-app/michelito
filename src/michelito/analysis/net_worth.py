@@ -8,7 +8,9 @@ one, `rates.rate_for`); without a rate a value does not add up and `unconverted`
 - **History**: one point per month, at its last day (the current month at today), from the first
   month in which any holding with history is known. A holding not known yet on a point's day
   (an account whose statements start later) counts with its first known value, and the point is
-  `estimated`; a holding with no known day that is still unknown leaves the month out, never zero.
+  `estimated`; estimated points go back at most `ESTIMATED_MONTHS` before the last holding's
+  first known month; a holding with no known day that is still unknown leaves the month out,
+  never zero.
   Holdings without history (`historic=False`, e.g. what others owe today) count in today's
   totals but in no point of the history, so the points compare with each other.
 - **Month change**: the value today minus the value at the end of last month, both at today's
@@ -131,6 +133,20 @@ def _point(holdings: Sequence[Holding], day: date, rates: Mapping[str, Rate]) ->
     return Point(_month(day), day, sides["asset"], sides["debt"], estimated)
 
 
+ESTIMATED_MONTHS = 12  # how far the history goes back before every holding is known
+
+
+def _months_before(day: date, months: int) -> date:
+    """The first day of the month `months` before `day`'s."""
+    total = day.year * 12 + day.month - 1 - months
+    return date(total // 12, total % 12 + 1, 1)
+
+
+def _start(known: Sequence[date]) -> date:
+    """The first known day, but no more than `ESTIMATED_MONTHS` before the last one."""
+    return max(min(known), _months_before(max(known), ESTIMATED_MONTHS))
+
+
 def _month_ends(first: date, today: date) -> list[date]:
     days, year, month = [], first.year, first.month
     while (year, month) < (today.year, today.month):
@@ -147,7 +163,7 @@ def history(
         return []
     with_history = [h for h in holdings if h.historic]
     known = [h.known_from for h in with_history if h.known_from is not None]
-    first = since or (min(known) if known else date(today.year - 10, 1, 1))
+    first = since or (_start(known) if known else date(today.year - 10, 1, 1))
     ends = _month_ends(first, today)
     # Today's point too leaves out the holdings without history, so every point is comparable.
     return [p for day in ends if (p := _point(with_history, day, rates))]
