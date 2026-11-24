@@ -30,6 +30,7 @@ MESSAGES: dict[str, str] = {
     "web.proposals.answered": "esa propuesta ya se respondió",
     "web.proposals.unknown_item": "un cambio no es de esta propuesta",
     "web.proposals.failed": "no se pudo aplicar",
+    "web.proposals.duplicate_statement": "ese estado ya estaba guardado",
     "web.already_linked": "la transacción ya está en otro vínculo",
     "web.no_data": "mes sin datos",
     "web.unknown_transaction_fingerprint": "transacción desconocida: {fingerprint}",

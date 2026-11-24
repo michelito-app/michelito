@@ -293,3 +293,100 @@ def test_a_revoked_connection_stops_at_once(h: Hosted, alice: TestClient) -> Non
     )
     assert answer.status_code == 401
     assert 'error="invalid_token"' in answer.headers["www-authenticate"]
+
+
+# Imports (phase 2).
+
+
+def test_the_import_tools_are_listed(h: Hosted, alice: TestClient) -> None:
+    _, token = _connect(h, alice)
+
+    names = {t["name"] for t in _rpc(h, token, "tools/list")["result"]["tools"]}
+
+    assert {"import_statement", "import_provisional_charges", "import_cash_entries"} <= names
+
+
+def test_cash_entries_from_the_ai_wait_in_review(h: Hosted, alice: TestClient) -> None:
+    _, token = _connect(h, alice)
+
+    sent = _tool(
+        h,
+        token,
+        "import_cash_entries",
+        title="Receipts",
+        entries=[
+            {
+                "day": "2026-01-20",
+                "description": "MADE UP KIOSK",
+                "amount_cents": 15000,
+                "currency": "DOP",
+                "direction": "out",
+            }
+        ],
+    )
+
+    assert sent["rows"] == 1 and sent["link"].startswith(URL + "/review?proposal=")
+    (proposal,) = alice.get("/api/proposals").json()
+    assert proposal["kind"] == "cash" and proposal["rows"][0]["description"] == "MADE UP KIOSK"
+
+
+def test_a_statement_that_does_not_square_tells_the_ai_why(h: Hosted, alice: TestClient) -> None:
+    _, token = _connect(h, alice)
+    account = next(
+        a["key"] for a in _tool(h, token, "list_accounts")["data"] if ":savings:" in a["key"]
+    )
+
+    result = _rpc(
+        h,
+        token,
+        "tools/call",
+        {
+            "name": "import_statement",
+            "arguments": {
+                "title": "Statement",
+                "account": account,
+                "period_end": "2026-03-31",
+                "sections": [
+                    {
+                        "currency": "DOP",
+                        "printed_debits_cents": 20000,
+                        "transactions": [
+                            {
+                                "day": "2026-03-10",
+                                "description": "MADE UP",
+                                "amount_cents": 10000,
+                                "direction": "debit",
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    )["result"]
+
+    assert result["isError"] is True
+    assert "not_squared" in result["content"][0]["text"]
+    assert "200.00" in result["content"][0]["text"]
+    assert alice.get("/api/proposals").json() == []
+
+
+def test_an_unknown_account_is_refused(h: Hosted, alice: TestClient) -> None:
+    _, token = _connect(h, alice)
+
+    result = _rpc(
+        h,
+        token,
+        "tools/call",
+        {
+            "name": "import_provisional_charges",
+            "arguments": {
+                "title": "x",
+                "account": "nope",
+                "charges": [
+                    {"day": "2026-01-02", "description": "X", "amount_cents": 1, "currency": "DOP"}
+                ],
+            },
+        },
+    )["result"]
+
+    assert result["isError"] is True and "unknown account" in result["content"][0]["text"]

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { t } from '@/i18n'
-import { type Proposal, type ProposalItem, openProposals, outcomeLine, withChosenFirst } from './proposals'
+import {
+  type ImportRow,
+  type Proposal,
+  type ProposalItem,
+  initialTicks,
+  kindLine,
+  openProposals,
+  outcomeLine,
+  selectableIds,
+  withChosenFirst,
+} from './proposals'
 
 function item(id: number, status: ProposalItem['status']): ProposalItem {
   return {
@@ -22,7 +32,20 @@ function item(id: number, status: ProposalItem['status']): ProposalItem {
 }
 
 function proposal(id: number, status: Proposal['status'], items: ProposalItem[] = []): Proposal {
-  return { id, created_at: '', source: 'Claude', title: `P${id}`, explanation: '', status, decided_at: null, items }
+  return {
+    id,
+    created_at: '',
+    source: 'Claude',
+    title: `P${id}`,
+    explanation: '',
+    status,
+    decided_at: null,
+    kind: 'category',
+    account_label: '',
+    items,
+    rows: [],
+    statement: null,
+  }
 }
 
 describe('proposals', () => {
@@ -43,5 +66,36 @@ describe('proposals', () => {
       `${t('connector.proposals.outcome.applied', { count: 2 })} · ${t('connector.proposals.outcome.skipped', { count: 1 })}`,
     )
     expect(outcomeLine(proposal(2, 'dismissed'))).toBe(t('connector.proposals.dismissed'))
+  })
+
+  it('leaves possible duplicates unticked in an import', () => {
+    const row = (id: number, duplicate: string): ImportRow => ({
+      id,
+      day: '2026-01-15',
+      description: 'MADE UP',
+      amount_cents: 100,
+      currency: 'DOP',
+      direction: 'out',
+      category: '',
+      duplicate_of: duplicate,
+      status: 'open',
+      message: '',
+    })
+    const found: Proposal = { ...proposal(1, 'open'), kind: 'cash', rows: [row(1, ''), row(2, 'f9')] }
+    expect(initialTicks(found)).toEqual([1])
+    expect(selectableIds(found)).toEqual([1, 2])
+    expect(kindLine(found)).toBe(t('connector.proposals.kind.cash'))
+  })
+
+  it('names the account of a statement import', () => {
+    const found: Proposal = { ...proposal(1, 'open'), kind: 'statement', account_label: 'Ahorros ••1111' }
+    const done: Proposal = {
+      ...found,
+      status: 'applied',
+      statement: { period_start: null, period_end: '2026-03-31', currencies: ['DOP'], transactions: 1, document_status: 'duplicate', sections: [] },
+    }
+    expect(outcomeLine(done)).toBe(t('connector.proposals.statementAlready'))
+    expect(kindLine(found)).toBe(t('connector.proposals.kind.statement', { account: 'Ahorros ••1111' }))
+    expect(initialTicks(found)).toEqual([])
   })
 })

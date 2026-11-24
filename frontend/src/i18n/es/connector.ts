@@ -5,7 +5,7 @@ import type { Catalog } from '../index'
 export const connector = {
   'connector.title': 'Claude y otras IA',
   'connector.lead':
-    'Conecta Michelito a Claude para preguntarle por tus finanzas y pedirle que revise tus categorías. Claude solo puede leer y proponer: los cambios llegan a Revisión y tú decides.',
+    'Conecta Michelito a Claude para preguntarle por tus finanzas y pedirle que revise tus categorías. Claude solo puede leer y proponer: los cambios y las importaciones llegan a Revisión y tú decides.',
   'connector.what': 'las conexiones',
   'connector.urlLabel': 'Dirección del conector',
   'connector.copy': 'Copiar',
@@ -29,7 +29,8 @@ export const connector = {
   'connector.consent.can': 'Podrá:',
   'connector.consent.read':
     'Leer tus cuentas, movimientos, presupuesto, préstamos, cuotas, inversiones, efectivo y grupos compartidos (también los movimientos de los demás miembros).',
-  'connector.consent.propose': 'Proponerte cambios de categoría, que tú apruebas o descartas en Revisión.',
+  'connector.consent.propose':
+    'Proponerte cambios de categoría e importaciones (estados, cargos sueltos, efectivo), que tú apruebas o descartas en Revisión.',
   'connector.consent.cannot': 'No podrá cambiar nada por su cuenta ni ver números completos de cuenta, de tarjeta ni correos.',
   'connector.consent.lasts': 'La conexión dura hasta que la quites en Ajustes, o 90 días sin uso.',
   'connector.consent.account': 'Se conectará la cuenta {email}.',
@@ -57,6 +58,23 @@ export const connector = {
   'connector.proposals.outcome.skipped': { one: '{count} omitido', other: '{count} omitidos' },
   'connector.proposals.outcome.failed': { one: '{count} falló', other: '{count} fallaron' },
   'connector.proposals.undoHint': 'Puedes deshacer cada cambio en la Bitácora.',
+  'connector.proposals.kind.statement': 'Estado de {account}',
+  'connector.proposals.kind.provisional': 'Cargos pendientes de estado · {account}',
+  'connector.proposals.kind.cash': 'Efectivo',
+  'connector.proposals.statementPeriod': 'Del {start} al {end}',
+  'connector.proposals.statementCut': 'Corte del {end}',
+  'connector.proposals.statementRows': { one: '{count} movimiento', other: '{count} movimientos' },
+  'connector.proposals.statementSquares': 'Cuadra con los totales impresos, como un PDF.',
+  'connector.proposals.saveStatement': 'Guardar estado',
+  'connector.proposals.importRows': { one: 'Importar {count} movimiento', other: 'Importar {count} movimientos' },
+  'connector.proposals.statementSaved': 'Estado guardado',
+  'connector.proposals.statementAlready': 'Ese estado ya estaba guardado',
+  'connector.proposals.sectionTotals': '{currency}: cargos {debits} · pagos {credits} · saldo {closing}',
+  'connector.proposals.notGiven': '—',
+  'connector.proposals.breaks':
+    'El saldo anterior en {currency} no coincide con el último estado guardado. Revisa el estado antes de guardarlo.',
+  'connector.proposals.duplicate': 'Posible duplicado',
+  'connector.proposals.income': 'Entrada',
   'connector.proposals.selectAll': 'Todos',
   'connector.proposals.selectNone': 'Ninguno',
 } as const satisfies Catalog

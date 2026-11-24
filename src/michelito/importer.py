@@ -21,6 +21,8 @@ SOURCE = "imported"
 GENERATED = "generated"
 # Statements uploaded in hosted mode (`michelito.hosted.uploads`): read in memory, no raw file.
 UPLOADED = "uploaded"
+# Statements an AI connector read and the person approved (`web.imports`): no file either.
+AI = "ai"
 FOLDER = "imported"
 _SENDER = "manual import"
 _PDF_MAGIC = b"%PDF"
@@ -85,16 +87,28 @@ def register_generated(
     """Register a generated statement (the demo: there is no PDF nor raw file) as a pending
     document, with the same records as an imported PDF; `content` gives its sha256 (the same
     content is not registered twice). The caller parses it with `ingest.ingest_statement`."""
+    return _register_without_file(conn, GENERATED, name, content, now)
+
+
+def register_ai(conn: sqlite3.Connection, name: str, content: bytes, now: datetime) -> Registered:
+    """Register a statement an AI read and the person approved (`web.imports`), like a generated
+    one: no file, `content` (the approved reading) gives its sha256."""
+    return _register_without_file(conn, AI, name, content, now)
+
+
+def _register_without_file(
+    conn: sqlite3.Connection, source: str, name: str, content: bytes, now: datetime
+) -> Registered:
     digest = hashlib.sha256(content).hexdigest()
     known = conn.execute("SELECT id FROM documents WHERE sha256 = ?", (digest,)).fetchone()
     if known is not None:
         return Registered(known[0], new=False)
     stamp = now.isoformat(timespec="seconds")
-    message_id = f"{GENERATED}-{digest[:32]}"
-    path = f"{GENERATED}:{name}"
+    message_id = f"{source}-{digest[:32]}"
+    path = f"{source}:{name}"
     with conn:
         document_id = _record(
-            conn, GENERATED, message_id, name, name, path, digest, len(content), stamp
+            conn, source, message_id, name, name, path, digest, len(content), stamp
         )
     return Registered(document_id, new=True)
 

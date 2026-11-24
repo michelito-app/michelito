@@ -1,4 +1,5 @@
-"""AI proposals (schema 28): what an AI connector asks to change, kept until the person answers.
+"""AI proposals (schemas 28 and 29): what an AI connector asks to change, kept until the person
+answers.
 
 - `propose`: checks a batch of category changes against the database (each transaction must
   exist, appear once and be one whose category can change; each category must exist and be
@@ -69,6 +70,34 @@ class Item:
 
 
 @dataclass(frozen=True)
+class ImportRow:
+    """A loose row of a `provisional` or `cash` proposal (schema 29)."""
+
+    id: int
+    day: str
+    description: str
+    amount_cents: int
+    currency: str
+    direction: str  # "out" or "in"
+    category_id: int | None
+    duplicate_of: str  # the stored transaction it seems to repeat ('' if none)
+    status: ItemStatus
+    message: str
+    fingerprint: str  # what it became once applied ('' before)
+
+
+@dataclass(frozen=True)
+class StatementSummary:
+    """The statement of a `statement` proposal, without its rows."""
+
+    period_start: str | None
+    period_end: str
+    currencies: tuple[str, ...]
+    transactions: int
+    document_status: str  # how it was stored once applied ('' before)
+
+
+@dataclass(frozen=True)
 class Proposal:
     id: int
     created_at: str
@@ -78,6 +107,10 @@ class Proposal:
     status: Status
     decided_at: str | None
     items: tuple[Item, ...]
+    kind: str = "category"
+    account_key: str = ""
+    rows: tuple[ImportRow, ...] = ()
+    statement: StatementSummary | None = None
 
 
 def plain(text: str, limit: int) -> str:
@@ -172,7 +205,11 @@ def propose(
     return proposal_id
 
 
-_PROPOSAL = "id, created_at, source, title, explanation, status, decided_at"
+_PROPOSAL = "id, created_at, source, title, explanation, status, decided_at, kind, account_key"
+_ROW = (
+    "id, proposal_id, day, description, amount_cents, currency, direction, category_id, "
+    "duplicate_of, status, message, fingerprint"
+)
 _ITEM = (
     "id, proposal_id, fingerprint, category_id, scope, reason, day, merchant, description, "
     "amount_cents, currency, from_category, status, message"
@@ -197,17 +234,67 @@ def _item(row: sqlite3.Row) -> Item:
     )
 
 
-def _proposal(row: sqlite3.Row, items: Sequence[Item]) -> Proposal:
-    return Proposal(
+def _row(row: sqlite3.Row) -> ImportRow:
+    return ImportRow(
         row["id"],
-        row["created_at"],
-        row["source"],
-        row["title"],
-        row["explanation"],
+        row["day"],
+        row["description"],
+        row["amount_cents"],
+        row["currency"],
+        row["direction"],
+        row["category_id"],
+        row["duplicate_of"],
         row["status"],
-        row["decided_at"],
-        tuple(items),
+        row["message"],
+        row["fingerprint"],
     )
+
+
+def _build(conn: sqlite3.Connection, found: Sequence[sqlite3.Row]) -> list[Proposal]:
+    """The proposals of those rows with their items, loose rows and statement summaries."""
+    ids = [r["id"] for r in found]
+    items: dict[int, list[Item]] = {i: [] for i in ids}
+    rows: dict[int, list[ImportRow]] = {i: [] for i in ids}
+    statements: dict[int, StatementSummary] = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for row in conn.execute(
+            f"SELECT {_ITEM} FROM ai_proposal_items WHERE proposal_id IN ({marks}) ORDER BY id", ids
+        ):
+            items[row["proposal_id"]].append(_item(row))
+        for row in conn.execute(
+            f"SELECT {_ROW} FROM ai_import_rows WHERE proposal_id IN ({marks}) ORDER BY id", ids
+        ):
+            rows[row["proposal_id"]].append(_row(row))
+        for row in conn.execute(
+            "SELECT proposal_id, period_start, period_end, currencies, transactions, "
+            f"document_status FROM ai_import_statements WHERE proposal_id IN ({marks})",
+            ids,
+        ):
+            statements[row["proposal_id"]] = StatementSummary(
+                row["period_start"],
+                row["period_end"],
+                tuple(row["currencies"].split(",")),
+                row["transactions"],
+                row["document_status"],
+            )
+    return [
+        Proposal(
+            r["id"],
+            r["created_at"],
+            r["source"],
+            r["title"],
+            r["explanation"],
+            r["status"],
+            r["decided_at"],
+            tuple(items[r["id"]]),
+            r["kind"],
+            r["account_key"],
+            tuple(rows[r["id"]]),
+            statements.get(r["id"]),
+        )
+        for r in found
+    ]
 
 
 def load_all(conn: sqlite3.Connection, decided: int = 10) -> list[Proposal]:
@@ -223,16 +310,7 @@ def load_all(conn: sqlite3.Connection, decided: int = 10) -> list[Proposal]:
             "ORDER BY decided_at DESC, id DESC LIMIT ?",
             (decided,),
         ).fetchall()
-        ids = [r["id"] for r in rows]
-        items: dict[int, list[Item]] = {i: [] for i in ids}
-        if ids:
-            marks = ",".join("?" * len(ids))
-            for row in conn.execute(
-                f"SELECT {_ITEM} FROM ai_proposal_items WHERE proposal_id IN ({marks}) ORDER BY id",
-                ids,
-            ):
-                items[row["proposal_id"]].append(_item(row))
-        return [_proposal(r, items[r["id"]]) for r in rows]
+        return _build(conn, rows)
     finally:
         conn.row_factory = previous
 
@@ -244,13 +322,7 @@ def load(conn: sqlite3.Connection, proposal_id: int) -> Proposal | None:
         row = conn.execute(
             f"SELECT {_PROPOSAL} FROM ai_proposals WHERE id = ?", (proposal_id,)
         ).fetchone()
-        if row is None:
-            return None
-        found = conn.execute(
-            f"SELECT {_ITEM} FROM ai_proposal_items WHERE proposal_id = ? ORDER BY id",
-            (proposal_id,),
-        ).fetchall()
-        return _proposal(row, [_item(r) for r in found])
+        return None if row is None else _build(conn, [row])[0]
     finally:
         conn.row_factory = previous
 
@@ -282,8 +354,10 @@ def finish(
     proposal_id: int,
     status: Status,
     outcomes: Mapping[int, tuple[ItemStatus, str]],
+    made: Mapping[int, str] | None = None,
 ) -> None:
-    """Record the answer: the batch's status and each item's outcome (the rest are skipped)."""
+    """Record the answer: the batch's status and each item's (or loose row's) outcome, the
+    rest skipped; `made`: the fingerprint each applied loose row became."""
     with conn:
         conn.execute(
             "UPDATE ai_proposals SET status = ?, decided_at = ? WHERE id = ? "
@@ -298,4 +372,17 @@ def finish(
         conn.executemany(
             "UPDATE ai_proposal_items SET status = ?, message = ? WHERE id = ? AND proposal_id = ?",
             [(state, message, item, proposal_id) for item, (state, message) in outcomes.items()],
+        )
+        conn.execute(
+            "UPDATE ai_import_rows SET status = 'skipped' WHERE proposal_id = ? "
+            "AND status = 'open'",
+            (proposal_id,),
+        )
+        conn.executemany(
+            "UPDATE ai_import_rows SET status = ?, message = ?, fingerprint = ? WHERE id = ? "
+            "AND proposal_id = ?",
+            [
+                (state, message, (made or {}).get(row, ""), row, proposal_id)
+                for row, (state, message) in outcomes.items()
+            ],
         )

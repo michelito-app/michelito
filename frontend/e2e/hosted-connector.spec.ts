@@ -1,4 +1,4 @@
-import { expect, request as api, test, type Page, type TestInfo } from '@playwright/test'
+import { type APIRequestContext, expect, request as api, test, type Page, type TestInfo } from '@playwright/test'
 import { createHash, randomBytes } from 'node:crypto'
 import { codeIn, emailsTo, invite, syntheticPdfs } from './hostedServer'
 import { t } from './text'
@@ -30,8 +30,10 @@ function pkce(): { verifier: string; challenge: string } {
   return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') }
 }
 
-test('connect Claude, read, propose and approve the change in Review', async ({ page, baseURL }, info) => {
-  await signInPastTheGate(page, info)
+type Tool = (name: string, args?: object) => Promise<Record<string, unknown>>
+
+/** Play Claude: register, consent in the person's browser, exchange the code; a tool caller. */
+async function connectClaude(page: Page, baseURL: string): Promise<{ claude: APIRequestContext; token: string; tool: Tool }> {
   const claude = await api.newContext({ baseURL }) // no cookies: what Claude's servers send
   const registered = await claude.post('/oauth/register', {
     data: { client_name: 'Claude', redirect_uris: [CALLBACK] },
@@ -75,9 +77,27 @@ test('connect Claude, read, propose and approve the change in Review', async ({ 
     })
     expect(answer.status()).toBe(200)
     const { result } = (await answer.json()) as { result: { content: { text: string }[]; isError?: boolean } }
-    expect(result.isError ?? false).toBe(false)
+    expect(result.isError ?? false, result.content[0].text).toBe(false)
     return JSON.parse(result.content[0].text) as Record<string, unknown>
   }
+  return { claude, token, tool }
+}
+
+/** The ISO day `n` days before today (the server's own today). */
+function daysAgo(n: number): string {
+  const day = new Date(Date.now() - n * 86_400_000)
+  return day.toISOString().slice(0, 10)
+}
+
+/** Open the link Claude gives (only its path: the test server's own). */
+async function openLink(page: Page, link: unknown) {
+  const url = new URL(String(link))
+  await page.goto(url.pathname + url.search)
+}
+
+test('connect Claude, read, propose and approve the change in Review', async ({ page, baseURL }, info) => {
+  await signInPastTheGate(page, info)
+  const { claude, token, tool } = await connectClaude(page, baseURL!)
 
   const listed = (await tool('list_transactions', { kind: 'expense' })).data as {
     items: { fingerprint: string; category_id: number; link: string; merchant: string }[]
@@ -92,7 +112,7 @@ test('connect Claude, read, propose and approve the change in Review', async ({ 
   })
 
   // The person approves it in Review, from the link Claude gives.
-  await page.goto(new URL(String(sent.link)).pathname + new URL(String(sent.link)).search)
+  await openLink(page, sent.link)
   const proposal = page.getByTestId('proposal')
   await expect(proposal.getByRole('heading', { name: 'Move one expense' })).toBeVisible()
   await expect(proposal.getByTestId('proposal-item')).toHaveCount(1)
@@ -116,5 +136,76 @@ test('connect Claude, read, propose and approve the change in Review', async ({ 
     data: { jsonrpc: '2.0', id: 1, method: 'ping' },
   })
   expect(after.status()).toBe(401)
+  await claude.dispose()
+})
+
+test('import cash, pending charges and a statement through Claude, approved in Review', async ({ page, baseURL }, info) => {
+  await signInPastTheGate(page, info)
+  const { claude, tool } = await connectClaude(page, baseURL!)
+  const accounts = (await tool('list_accounts')).data as { key: string; kind: string }[]
+  const card = accounts.find((a) => a.kind === 'credit_card')!.key
+
+  // Cash: approved as it comes.
+  const cash = await tool('import_cash_entries', {
+    title: 'Paper receipts',
+    entries: [{ day: '2026-06-03', description: 'MADE UP KIOSK', amount_cents: 15000, currency: 'DOP', direction: 'out' }],
+  })
+  await openLink(page, cash.link)
+  let proposal = page.getByTestId('proposal').filter({ hasText: 'Paper receipts' })
+  await expect(proposal.getByTestId('proposal-row')).toHaveCount(1)
+  await proposal.getByRole('button', { name: t('connector.proposals.importRows', { count: 1 }) }).click()
+  await expect(page.getByTestId('proposals').getByRole('status').first()).toContainText(
+    t('connector.proposals.outcome.applied', { count: 1 }),
+  )
+
+  // Pending charges of the card, ticked (none repeats a stored transaction).
+  const charges = await tool('import_provisional_charges', {
+    title: 'From a CSV',
+    account: card,
+    charges: [
+      { day: daysAgo(10), description: 'MADE UP BOOKS', amount_cents: 99000, currency: 'DOP' },
+      { day: daysAgo(10), description: 'MADE UP CAFE', amount_cents: 45000, currency: 'DOP' },
+    ],
+  })
+  expect(charges.rows).toBe(2)
+  await openLink(page, charges.link)
+  proposal = page.getByTestId('proposal').filter({ hasText: 'From a CSV' })
+  await expect(proposal.getByTestId('proposal-row')).toHaveCount(2)
+  await proposal.getByRole('button', { name: t('connector.proposals.importRows', { count: 2 }) }).click()
+  await expect(page.getByTestId('proposals').getByRole('status').first()).toContainText(
+    t('connector.proposals.outcome.applied', { count: 2 }),
+  )
+  const pending = await page.request.get('/api/transactions', {
+    params: { month: daysAgo(10).slice(0, 7), provisional: 'true' },
+  })
+  expect(((await pending.json()) as { items: unknown[] }).items).toHaveLength(2)
+
+  // A whole statement that squares (a card: closing = previous + charges - payments).
+  const statement = await tool('import_statement', {
+    title: 'July statement',
+    account: card,
+    period_start: '2026-07-01',
+    period_end: '2026-07-31',
+    sections: [
+      {
+        currency: 'DOP',
+        previous_balance_cents: 0,
+        closing_balance_cents: 30000,
+        printed_debits_cents: 30000,
+        printed_credits_cents: 0,
+        transactions: [{ day: '2026-07-10', description: 'MADE UP GROCER', amount_cents: 30000, direction: 'debit' }],
+      },
+    ],
+  })
+  await openLink(page, statement.link)
+  proposal = page.getByTestId('proposal').filter({ hasText: 'July statement' })
+  await expect(proposal.getByTestId('proposal-statement')).toBeVisible()
+  await expect(proposal.getByTestId('proposal-section')).toContainText('DOP')
+  await proposal.getByRole('button', { name: t('connector.proposals.saveStatement') }).click()
+  await expect(page.getByTestId('proposals').getByRole('status').first()).toContainText(
+    t('connector.proposals.statementSaved'),
+  )
+  const july = await page.request.get('/api/transactions', { params: { month: '2026-07', q: 'MADE UP GROCER' } })
+  expect(((await july.json()) as { items: unknown[] }).items).toHaveLength(1)
   await claude.dispose()
 })

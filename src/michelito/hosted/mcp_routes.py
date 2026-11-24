@@ -7,7 +7,8 @@ Requests from a browser page of another origin are refused (DNS rebinding); toke
 limited per source network (an expired but well-formed token does not count: Claude refreshes
 from shared addresses) and each `tools/call` per connection.
 
-JSON-RPC methods: `initialize`, `ping`, `tools/list` and `tools/call` (`hosted.mcp_tools`);
+JSON-RPC methods: `initialize`, `ping`, `tools/list` and `tools/call` (`hosted.mcp_tools`, and
+the import tools in `hosted.mcp_import_tools`);
 notifications are accepted and answered with 202. A tool's failure is a result with
 `isError` (the AI reads why); a malformed message is a JSON-RPC error. Each call is logged with
 the tool's name and outcome only: never its arguments or answer.
@@ -29,13 +30,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
+from michelito import config
 from michelito.analysis.spending import Movement
 from michelito.demo import network
-from michelito.hosted import mcp_tools, redact
+from michelito.hosted import mcp_import_tools, mcp_tools, redact
 from michelito.hosted.auth import SignIn
 from michelito.hosted.connector import ACCESS_PREFIX, Caller, Connector
 from michelito.hosted.limits import Window
-from michelito.web import internal, proposals
+from michelito.web import imports, internal, proposals
 from michelito.web.workspace import CURRENT, Resolution
 
 log = logging.getLogger(__name__)
@@ -49,8 +51,11 @@ PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 INSTRUCTIONS = (
     "Michelito holds the person's personal finances (Dominican Republic: DOP and USD). Read "
     "with the tools; amounts are in cents. You cannot change anything directly: to change "
-    "categories use propose_category_changes and give the person the link it returns, so they "
-    "approve it in Michelito. " + mcp_tools.DATA_NOTE + " Answer the person in their language."
+    "categories use propose_category_changes, and to bring in transactions (a statement "
+    "Michelito could not read, loose charges, cash) the import_ tools; give the person the "
+    "link they return, so they approve it in Michelito. "
+    + mcp_tools.DATA_NOTE
+    + " Answer the person in their language."
 )
 _BEARER = re.compile(r"Bearer ([A-Za-z0-9_-]{1,200})")
 
@@ -251,6 +256,77 @@ async def run_propose(ctx: Context, arguments: Any) -> dict[str, Any]:
     )
 
 
+def _saved(ctx: Context, proposal_id: int, extra: dict[str, Any]) -> dict[str, Any]:
+    return _text(
+        json.dumps(
+            {
+                "proposal_id": proposal_id,
+                **extra,
+                "link": f"{ctx.url}/review?proposal={proposal_id}",
+                "next": "Nothing changed yet. Give the person this link to review and approve "
+                "it in Michelito.",
+            }
+        )
+    )
+
+
+async def run_import(ctx: Context, name: str, arguments: Any) -> dict[str, Any]:
+    """`import_statement`, `import_provisional_charges` or `import_cash_entries`: checked, then
+    saved as a proposal (`web.imports`). Refusals carry only codes and the AI's own numbers."""
+    rows: list[imports.RowIn] = []
+    payload: dict[str, Any] = {}
+    try:
+        if name == mcp_import_tools.STATEMENT:
+            found, payload = mcp_import_tools.statement_of(arguments)
+        else:
+            found, rows = mcp_import_tools.rows_of(arguments, name)
+    except mcp_tools.ToolInputError as error:
+        return _text(str(error), is_error=True)
+    account = ""
+    if "account" in found:
+        real = redact.unmask_key(str(found["account"]), await _account_keys(ctx))
+        if real is None:
+            return _text("unknown account: use a key list_accounts shows", is_error=True)
+        account = real
+    title, explanation = found["title"], found.get("explanation", "")
+    source = ctx.caller.client_name
+
+    def save() -> tuple[int, int]:
+        today = config.local_today()
+        with ctx.connection() as conn:
+            if name == mcp_import_tools.STATEMENT:
+                made = imports.propose_statement(
+                    conn, today, source, title, explanation, account, payload
+                )
+            else:
+                kind: imports.RowKind = "cash" if name == mcp_import_tools.CASH else "provisional"
+                made = imports.propose_rows(
+                    conn,
+                    ctx.load_flow(conn),
+                    today,
+                    source,
+                    title,
+                    explanation,
+                    kind,
+                    account,
+                    rows,
+                )
+            repeated = conn.execute(
+                "SELECT COUNT(*) FROM ai_import_rows WHERE proposal_id = ? AND duplicate_of != ''",
+                (made,),
+            ).fetchone()[0]
+        return made, int(repeated)
+
+    try:
+        proposal_id, repeated = await anyio.to_thread.run_sync(save)
+    except proposals.ProposalError as error:
+        return _text(f"not saved: {error}", is_error=True)
+    extra: dict[str, Any] = {"rows": len(rows)} if rows else {"statement": "squares"}
+    if repeated:
+        extra["possible_duplicates"] = repeated
+    return _saved(ctx, proposal_id, extra)
+
+
 async def call_tool(ctx: Context, params: Any) -> dict[str, Any]:
     if not isinstance(params, dict) or not isinstance(params.get("name"), str):
         return _text("tools/call needs a tool name", is_error=True)
@@ -258,6 +334,8 @@ async def call_tool(ctx: Context, params: Any) -> dict[str, Any]:
     arguments = params.get("arguments")
     if name == mcp_tools.PROPOSE:
         result = await run_propose(ctx, arguments)
+    elif name in mcp_import_tools.NAMES:
+        result = await run_import(ctx, name, arguments)
     elif name in mcp_tools.BY_NAME:
         result = await run_read(ctx, mcp_tools.BY_NAME[name], arguments)
     else:
@@ -293,7 +371,8 @@ async def handle(ctx: Context, message: Any) -> dict[str, Any] | None:
     if method == "ping":
         return _result(message_id, {})
     if method == "tools/list":
-        return _result(message_id, {"tools": mcp_tools.descriptors()})
+        tools = [*mcp_tools.descriptors(), *mcp_import_tools.descriptors()]
+        return _result(message_id, {"tools": tools})
     if method == "tools/call":
         if not ctx.take_call(ctx.caller):
             return _result(message_id, _text("too many calls: wait a few minutes", is_error=True))

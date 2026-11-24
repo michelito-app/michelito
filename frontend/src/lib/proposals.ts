@@ -26,15 +26,56 @@ export interface ProposalItem {
   message: string
 }
 
+/** A loose row of an import (provisional charges or cash). */
+export interface ImportRow {
+  id: number
+  day: string
+  description: string
+  amount_cents: number
+  currency: string
+  direction: 'out' | 'in'
+  category: string // the suggested category's name ('' if none)
+  duplicate_of: string // the stored transaction it seems to repeat ('' if none)
+  status: ItemStatus
+  message: string
+}
+
+/** One currency of a statement import: its printed totals, and whether its previous balance
+ * continues the last stored statement (null: nothing to compare). */
+export interface StatementSection {
+  currency: string
+  transactions: number
+  debits_cents: number | null
+  credits_cents: number | null
+  closing_cents: number | null
+  continues: boolean | null
+}
+
+/** The statement of a statement import, without its rows. */
+export interface StatementInfo {
+  period_start: string | null
+  period_end: string
+  currencies: string[]
+  transactions: number
+  document_status: string // 'parsed' once stored, 'duplicate' if it already was
+  sections: StatementSection[]
+}
+
+export type ProposalKind = 'category' | 'statement' | 'provisional' | 'cash'
+
 export interface Proposal {
   id: number
   created_at: string
   source: string
   title: string
   explanation: string
-  status: 'open' | 'applied' | 'dismissed'
+  status: 'open' | 'applying' | 'applied' | 'dismissed'
   decided_at: string | null
+  kind: ProposalKind
+  account_label: string
   items: ProposalItem[]
+  rows: ImportRow[]
+  statement: StatementInfo | null
 }
 
 export function useProposals() {
@@ -56,10 +97,43 @@ export function openProposals(all: readonly Proposal[]): Proposal[] {
   return all.filter((p) => p.status === 'open')
 }
 
+/** What can be ticked: the changes or the loose rows (a statement goes whole: none). */
+export function selectableIds(proposal: Proposal): number[] {
+  if (proposal.kind === 'category') return proposal.items.map((i) => i.id)
+  return proposal.rows.map((r) => r.id)
+}
+
+/** Ticked at first: every change, and every loose row except possible duplicates. */
+export function initialTicks(proposal: Proposal): number[] {
+  if (proposal.kind === 'category') return proposal.items.map((i) => i.id)
+  return proposal.rows.filter((r) => !r.duplicate_of).map((r) => r.id)
+}
+
+/** The kind and account of an import (a statement, pending charges, cash) or the count of
+ * category changes, under the title. */
+export function kindLine(proposal: Proposal): string {
+  switch (proposal.kind) {
+    case 'statement':
+      return t('connector.proposals.kind.statement', { account: proposal.account_label })
+    case 'provisional':
+      return t('connector.proposals.kind.provisional', { account: proposal.account_label })
+    case 'cash':
+      return t('connector.proposals.kind.cash')
+    default:
+      return t('connector.proposals.changes', { count: proposal.items.length })
+  }
+}
+
 /** "3 aplicados · 1 omitido" for an answered proposal. */
 export function outcomeLine(proposal: Proposal): string {
   if (proposal.status === 'dismissed') return t('connector.proposals.dismissed')
-  const count = (status: ItemStatus) => proposal.items.filter((i) => i.status === status).length
+  if (proposal.kind === 'statement') {
+    return proposal.statement?.document_status === 'duplicate'
+      ? t('connector.proposals.statementAlready')
+      : t('connector.proposals.statementSaved')
+  }
+  const all = [...proposal.items, ...proposal.rows]
+  const count = (status: ItemStatus) => all.filter((i) => i.status === status).length
   return [
     t('connector.proposals.outcome.applied', { count: count('applied') }),
     count('skipped') ? t('connector.proposals.outcome.skipped', { count: count('skipped') }) : null,
