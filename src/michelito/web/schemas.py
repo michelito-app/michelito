@@ -449,6 +449,15 @@ class InstallmentTagOut(BaseModel):
         return cls(plan_id=v.plan_id, name=v.name, number=v.number, count=v.count)
 
 
+class TagChipModel(BaseModel):
+    """A tag a transaction is in (`derived`: from its group, loan or plan)."""
+
+    id: int
+    name: str
+    color: str | None
+    derived: bool
+
+
 class LoanTagOut(BaseModel):
     loan_id: int
     name: str
@@ -571,6 +580,7 @@ class TxOut(BaseModel):
     # The installment plan it is part of ("installment 3/6 · Phone").
     installment: InstallmentTagOut | None = None
     loan: LoanTagOut | None = None  # the loan it pays ("loan · Car")
+    tags: list[TagChipModel] = Field(default_factory=list)  # the tags it is in
 
     @classmethod
     def of(cls, v: TxView) -> TxOut:
@@ -580,6 +590,9 @@ class TxOut(BaseModel):
             receipts=[ReceiptOut.of(r) for r in v.receipts],
             installment=None if v.installment is None else InstallmentTagOut.of(v.installment),
             loan=None if v.loan is None else LoanTagOut.of(v.loan),
+            tags=[
+                TagChipModel(id=c.id, name=c.name, color=c.color, derived=c.derived) for c in v.tags
+            ],
             provisional=v.provisional,
             approved=v.approved,
             cash_state=v.cash_state,

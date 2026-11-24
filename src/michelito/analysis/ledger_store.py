@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 
-from michelito.analysis import links
+from michelito.analysis import links, tag_store
 from michelito.analysis.ledger import (
     CURRENCIES,
     SPLIT_MODES,
@@ -451,6 +451,7 @@ def create_group(
     found = int(cursor.lastrowid or 0)
     for contact in dict.fromkeys((me, *people)):
         add_member(conn, found, contact)
+    tag_store.sync_group(conn, found, text, now)
     return found
 
 
@@ -464,7 +465,9 @@ def update_group(
 ) -> None:
     _require_group(conn, group_id)
     if name is not None:
-        conn.execute("UPDATE ledger_groups SET name = ? WHERE id = ?", (clean_name(name), group_id))
+        text = clean_name(name)
+        conn.execute("UPDATE ledger_groups SET name = ? WHERE id = ?", (text, group_id))
+        tag_store.sync_group(conn, group_id, text, _now())
     if archived is not None:
         conn.execute(
             "UPDATE ledger_groups SET archived = ? WHERE id = ?", (int(archived), group_id)

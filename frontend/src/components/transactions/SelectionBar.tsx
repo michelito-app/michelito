@@ -9,6 +9,7 @@ import { useBatchCategory } from '@/lib/queries'
 import { BATCH_MAX, batchOptions, counterText, linkedText, resultText } from '@/lib/selection'
 import { BAR_ATTR, type BatchNote } from '@/lib/useTxSelection'
 import { cn } from '@/lib/utils'
+import { TagBatch } from '@/components/tags/TagBatch'
 import { ReserveBatch } from './ReserveBatch'
 
 const NONE = ''
@@ -176,6 +177,7 @@ export function SelectionBar({
             </p>
           )}
           <ReserveBatch chosen={chosen} onDone={onDone} />
+          <TagBatch chosen={chosen} onDone={onDone} />
         </div>
       </div>
     </>

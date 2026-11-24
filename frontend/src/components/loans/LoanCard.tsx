@@ -23,6 +23,7 @@ import { LoanInstallments } from './LoanInstallments'
 import { LoanFormSheet } from './LoanFormSheet'
 import { LoanPayments } from './LoanPayments'
 import { LoanRates } from './LoanRates'
+import { LoanTagging } from '@/components/tags/LoanTagging'
 import { LoanSchedule } from './LoanSchedule'
 
 /** A loan's card in Accounts: the balance (negative, like a card's), what was paid and the
@@ -110,6 +111,7 @@ export function LoanCard({ loan, today }: { loan: Loan; today: string }) {
           <p className="text-[13px] text-muted-foreground">
             {t('loans.card.statements', { count: loan.statement_months })}
           </p>
+          <LoanTagging loan={loan} />
           <LoanRates loan={loan} />
           <LoanInstallments loan={loan} />
           <LoanBalances loan={loan} />

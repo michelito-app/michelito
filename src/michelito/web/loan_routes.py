@@ -139,6 +139,7 @@ class LoanOut(BaseModel):
     payments: list[PaymentOut]
     differences: list[DifferenceOut]
     schedule: list[RowOut]
+    has_payout: bool = False  # its money reached the user's account (a tag counts no payments)
 
     @classmethod
     def of(cls, v: view.LoanView) -> LoanOut:
@@ -146,6 +147,7 @@ class LoanOut(BaseModel):
         upcoming = found.next_payment
         return cls(
             id=loan.id,
+            has_payout=loan.has_payout,
             name=loan.name,
             number=loan.number,
             currency=loan.currency,
@@ -250,6 +252,7 @@ class EditBody(BaseModel):
     term: Term | None = None
     start_date: date | None = None
     installment_cents: InstallmentCents | None = None  # the bank's from the start; null: none
+    has_payout: bool | None = None  # its money reached the user's account (debt, not spending)
 
 
 class RateBody(BaseModel):
@@ -373,6 +376,7 @@ def register(app: FastAPI, connection: Connection, load_flow: LoadFlow, today: T
                     principal_cents=body.principal_cents,
                     term=body.term,
                     start=body.start_date,
+                    has_payout=body.has_payout,
                 )
                 if "installment_cents" in body.model_fields_set:
                     _starting_installment(conn, loan_id, body.installment_cents)

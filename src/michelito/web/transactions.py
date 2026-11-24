@@ -21,6 +21,7 @@ from michelito.web.installments import Tag
 from michelito.web.links import RowLinks
 from michelito.web.loans import Tag as LoanTag
 from michelito.web.receipts import ReceiptView
+from michelito.web.tag_view import TagChip
 
 Scope = Literal["transaction", "merchant"]
 SCOPES: tuple[str, ...] = get_args(Scope)
@@ -57,6 +58,7 @@ class TxView:
     receipts: tuple[ReceiptView, ...] = ()  # the merchant receipts linked to it (`web.receipts`)
     installment: Tag | None = None  # the installment plan it is part of (`web.installments`)
     loan: LoanTag | None = None  # the loan it pays (`web.loans`)
+    tags: tuple[TagChip, ...] = ()  # the tags it is in (`web.tag_view`)
 
     @property
     def suggested_one_off(self) -> bool:

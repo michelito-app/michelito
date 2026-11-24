@@ -85,6 +85,11 @@ const NAV: NavItem[] = [
     icon: <Users size={18} strokeWidth={2} aria-hidden="true" />,
   },
   {
+    to: '/tags',
+    label: t('tags.nav'),
+    icon: <Tags size={18} strokeWidth={2} aria-hidden="true" />,
+  },
+  {
     to: '/investments',
     label: t('shell.nav.investments'),
     icon: <Sprout size={18} strokeWidth={2} aria-hidden="true" />,

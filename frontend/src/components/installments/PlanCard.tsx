@@ -16,6 +16,7 @@ import { groupPath } from '@/lib/links'
 import { monthName } from '@/lib/months'
 import { cn } from '@/lib/utils'
 import { EditPlanSheet } from './EditPlanSheet'
+import { PlanTagging } from '@/components/tags/PlanTagging'
 
 const STATE_CLASS: Record<InstallmentState, string> = {
   paid: 'border-primary/30 bg-[#F6FAF8] text-primary',
@@ -102,6 +103,7 @@ export function PlanCard({ plan }: { plan: InstallmentPlan }) {
         )}
         <EditPlan plan={plan} />
       </footer>
+      <PlanTagging planId={plan.id} />
     </article>
   )
 }

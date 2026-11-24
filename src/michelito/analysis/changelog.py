@@ -106,6 +106,10 @@ TRACKED = (
     "loan_dismissals",
     "loan_statement_lines",
     "loan_installments",  # schema 27
+    # Tags (schema 30).
+    "tags",
+    "transaction_tags",
+    "tag_targets",
 )
 _CAPTURE = "changelog_capture"
 
@@ -599,12 +603,27 @@ def _foreign(entry: Entry, changes: Iterable[Change]) -> list[Change]:
     payments = {
         int(c.key["id"]) for c in entry.changes if c.table == "ledger_payments" and "id" in c.key
     }
+    groups = _groups_of(entry)
     return [
         c
         for c in changes
         if c.row_key not in own
         and not (c.table == "ledger_allocations" and int(c.key.get("payment_id", -1)) in payments)
+        and not (c.table == "tags" and _tag_group(c) in groups)
     ]
+
+
+def _groups_of(entry: Entry) -> set[int]:
+    """The groups an entry created, renamed or deleted (their tag goes with them: schema 30)."""
+    return {int(c.key["id"]) for c in entry.changes if c.table == "ledger_groups" and "id" in c.key}
+
+
+def _tag_group(change: Change) -> int | None:
+    """The group of a group tag, from either side of the change."""
+    for side in (change.before, change.after):
+        if side is not None and side.get("group_id") is not None:
+            return int(side["group_id"])
+    return None
 
 
 def _ledger_members(conn: sqlite3.Connection) -> set[tuple[int, int]]:
@@ -672,6 +691,7 @@ def _rehearse(
         members = _ledger_members(conn)
         try:
             _restore(conn, entry.changes)
+            _sync_group_tags(conn, entry)
         except sqlite3.IntegrityError:
             later = _latest_later(conn, entry, done, fingerprints=entry.fingerprints)
             return _blocked(t("analysis.changelog.conflict"), later)
@@ -816,6 +836,17 @@ def _restore(conn: sqlite3.Connection, changes: Sequence[Change]) -> None:
             )
 
 
+def _sync_group_tags(conn: sqlite3.Connection, entry: Entry) -> None:
+    """An entry from before schema 30 did not record its group's tag: after putting the group
+    back, its tag follows (created, renamed) like it does on any group change."""
+    from michelito.analysis import tag_store  # noqa: PLC0415 (it imports ledger_store)
+
+    for group_id in _groups_of(entry):
+        row = conn.execute("SELECT name FROM ledger_groups WHERE id = ?", (group_id,)).fetchone()
+        if row is not None:
+            tag_store.sync_group(conn, group_id, str(row[0]), now().isoformat())
+
+
 def undo(conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None = None) -> int:
     """Undo the entry (in the caller's transaction) and return the new entry that records it.
     `UndoBlocked` if it cannot be undone; `LookupError` if it does not exist."""
@@ -837,6 +868,7 @@ def undo(conn: sqlite3.Connection, entry_id: int, days: dict[str, date] | None =
     ) as draft:
         try:
             _restore(conn, entry.changes)
+            _sync_group_tags(conn, entry)
         except sqlite3.IntegrityError:
             raise UndoBlocked(t("analysis.changelog.later_uses_before")) from None
         if _foreign(entry, _collect(conn)):

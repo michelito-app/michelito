@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams, useSearchParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { LoadError } from '@/components/LoadError'
 import { AddExpenseButton } from '@/components/shared/AddExpenseButton'
 import { AddExpenseSheet } from '@/components/shared/AddExpenseSheet'
@@ -19,6 +19,7 @@ import { approxText, balanceTone, groupSentence, groupSides, memberBalanceText }
 import { moneyList } from '@/lib/links'
 import type { CoverSuggestion, Group, Payment, TimelineItem } from '@/lib/sharedApi'
 import { ledger, useGroup, useLedgerWrite } from '@/lib/sharedQueries'
+import { useTags } from '@/lib/tagQueries'
 import { cn } from '@/lib/utils'
 
 type Open =
@@ -98,6 +99,7 @@ export function SharedGroupPage() {
         {group.archived && (
           <p className="text-[13px] text-muted-foreground">{t('shared.group.archivedNote')}</p>
         )}
+        <GroupTagLink groupId={group.id} />
       </div>
 
       <Balance group={group} onPay={(person) => setOpen({ kind: 'pay', person })} />
@@ -278,5 +280,17 @@ function CoverNotice({ group, cover, onYes }: CoverNoticeProps) {
         </button>
       </div>
     </section>
+  )
+}
+
+/** The group's tag (its purpose): what the trip or event cost the user, beside its debts. */
+function GroupTagLink({ groupId }: { groupId: number }) {
+  const tags = useTags()
+  const tag = tags.data?.find((found) => found.group_id === groupId)
+  if (!tag) return null
+  return (
+    <Link to={`/tags/${tag.id}`} className="text-[13px] font-medium text-primary underline-offset-4 hover:underline">
+      {t('tags.page.title')} · {tag.name}
+    </Link>
   )
 }

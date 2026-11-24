@@ -3,6 +3,9 @@ change-log text the routes return to the UI."""
 
 MESSAGES: dict[str, str] = {
     # Installment plans (`web.installment_routes`).
+    "web.tags.unknown": "esa etiqueta no existe",
+    "web.tags.unknown_target": "ese préstamo o plan de cuotas no existe",
+    "web.tags.derived": "esa transacción viene de su grupo, préstamo o plan: quítala desde ahí",
     "web.loans.unknown": "ese préstamo no existe",
     "web.loans.none": "sin préstamo",
     "web.loans.log_payment": "pago del préstamo {name}",

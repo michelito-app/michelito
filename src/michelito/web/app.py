@@ -65,6 +65,8 @@ from michelito.web import (
     reserve_routes,
     review_routes,
     summary,
+    tag_routes,
+    tag_view,
     transactions,
 )
 from michelito.web import categories as categories_view
@@ -452,7 +454,9 @@ def create_app(
         linked = receipts_view.by_fingerprint(conn)
         plans = installments_view.tags(conn)
         loans = loans_view.tags(conn)
-        if not approved and not linked and not plans and not loans:
+        whole = load_flow(conn, known)
+        chips = tag_view.row_chips(tag_view.context(conn, whole, today()), whole)
+        if not approved and not linked and not plans and not loans and not chips:
             return views
         return [
             dc_replace(
@@ -461,6 +465,7 @@ def create_app(
                 receipts=linked.get(v.fingerprint, ()),
                 installment=plans.get(v.fingerprint),
                 loan=loans.get(v.fingerprint),
+                tags=chips.get(v.fingerprint, ()),
             )
             for v in views
         ]
@@ -935,6 +940,7 @@ def create_app(
     installment_pick_routes.register(app, connection, load_flow)
     installment_routes.register(app, connection, load_flow)
     loan_routes.register(app, connection, load_flow, today)
+    tag_routes.register(app, connection, load_flow, today)
     net_worth_routes.register(app, connection, load_flow, today)
     log_routes.register(app, connection, load_flow)
     batch_routes.register(app, connection, load_flow)

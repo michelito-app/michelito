@@ -314,6 +314,14 @@ export interface ReceiptLink {
   linked: boolean
 }
 
+/** A tag a transaction is in (`derived`: from its group, loan or plan; untag it there). */
+export interface TagChip {
+  id: number
+  name: string
+  color: string | null
+  derived: boolean
+}
+
 export interface Tx {
   fingerprint: string
   day: string
@@ -368,6 +376,7 @@ export interface Tx {
   receipts?: Receipt[] // the merchant receipts linked to it (order confirmations, shipments)
   installment?: TxInstallment | null // the installment plan it is part of ("cuota 3/6")
   loan?: TxLoan | null // the loan it pays
+  tags?: TagChip[] // the tags it is in
 }
 
 export type LoanCurrency = 'DOP' | 'USD'
@@ -382,6 +391,7 @@ export interface TxLoan {
 export interface Loan {
   id: number
   name: string
+  has_payout?: boolean // its money reached the account: a tag counts the purchase, not the payments
   number: string
   currency: LoanCurrency
   principal_cents: number
@@ -474,6 +484,7 @@ export interface LoanBody {
 export type LoanEdit = Partial<
   Omit<LoanBody, 'currency' | 'rate_bp' | 'installment_cents'> & {
     installment_cents: number | null // the bank's from the start; null: none
+    has_payout: boolean // its money reached the account (debt, not spending)
   }
 >
 

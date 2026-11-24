@@ -48,6 +48,7 @@ import { InstallmentSheet } from '@/components/installments/InstallmentSheet'
 import { useCardAccounts } from '@/components/installments/useCardAccounts'
 import { canBeInstallment, sharedGroupOf } from '@/lib/installments'
 import { bankName, receiptTitle } from '@/lib/receipts'
+import { TagSection } from '@/components/tags/TagSection'
 import { RecurringSection } from './RecurringSection'
 import { ReserveSection } from './ReserveSection'
 import {
@@ -270,6 +271,7 @@ export function MobileDetail({
         )}
       </div>
       {tx.note && <p className="text-[13px] break-words text-ink-2">{tx.note}</p>}
+      <TagSection tx={tx} />
 
       <section aria-labelledby="tx-more-actions" className="flex flex-col">
         <h3

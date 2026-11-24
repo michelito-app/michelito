@@ -46,6 +46,7 @@ class Loan:
     anchors: tuple[Anchor, ...] = ()
     statement_lines: tuple[StatementLine, ...] = ()
     links: dict[str, str] = field(default_factory=dict)  # fingerprint -> origin
+    has_payout: bool = False  # its money reached the user's account (schema 30)
 
 
 def _has_tables(conn: sqlite3.Connection) -> bool:
@@ -96,7 +97,8 @@ def load(conn: sqlite3.Connection) -> list[Loan]:
     )
     links = _grouped(conn, "SELECT loan_id, fingerprint, origin FROM loan_links")
     rows = conn.execute(
-        "SELECT id, name, number, currency, principal_cents, term, start_date FROM loans "
+        "SELECT id, name, number, currency, principal_cents, term, start_date, has_payout "
+        "FROM loans "
         "ORDER BY id"
     ).fetchall()
     return [
@@ -127,6 +129,7 @@ def load(conn: sqlite3.Connection) -> list[Loan]:
                 for day, p, i, b, o in lines.get(r[0], [])
             ),
             links={str(fp): str(origin) for fp, origin in links.get(r[0], [])},
+            has_payout=bool(r[7]),
         )
         for r in rows
     ]
@@ -225,6 +228,7 @@ def update(
     principal_cents: int | None = None,
     term: int | None = None,
     start: date | None = None,
+    has_payout: bool | None = None,
 ) -> None:
     """A new name, number (the automatic links go; `reconcile` finds the new ones) or contract.
     A new start date moves the starting rate (and the bank's installment from the start) with
@@ -245,6 +249,8 @@ def update(
             conn.execute(
                 "DELETE FROM loan_links WHERE loan_id = ? AND origin = 'automatic'", (loan_id,)
             )
+    if has_payout is not None:
+        changes["has_payout"] = int(has_payout)
     if principal_cents is not None:
         changes["principal_cents"] = principal_cents
     if term is not None:

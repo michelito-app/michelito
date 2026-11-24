@@ -27,6 +27,7 @@ import { forwarding } from './forwarding'
 import { receipts } from './receipts'
 import { installments } from './installments'
 import { loans } from './loans'
+import { tags } from './tags'
 import { mailbox } from './mailbox'
 import { extension } from './extension'
 import { connector } from './connector'
@@ -60,6 +61,7 @@ export const AREAS = {
   receipts,
   installments,
   loans,
+  tags,
   mailbox,
   extension,
   connector,
@@ -93,6 +95,7 @@ export const es = {
   ...receipts,
   ...installments,
   ...loans,
+  ...tags,
   ...mailbox,
   ...extension,
   ...connector,

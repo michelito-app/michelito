@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 import { HistorySection } from '@/components/log/HistorySection'
 import { CashBoxSection } from './CashBoxSection'
 import { LinkSummaries } from './LinkSummaries'
+import { TagSection } from '@/components/tags/TagSection'
 import { RecurringSection } from './RecurringSection'
 import { ReserveSection } from './ReserveSection'
 import { type Correction, useCorrection } from './useCorrection'
@@ -168,6 +169,7 @@ export function TransactionDetail({
       <LinkSummaries tx={tx} />
       <InstallmentSection tx={tx} />
       <RecurringSection tx={tx} />
+      <TagSection tx={tx} />
       <ReserveSection tx={tx} />
       <CashBoxSection tx={tx} onSaved={onSaved} onClose={onClose} />
       <HistorySection fingerprint={tx.fingerprint} />

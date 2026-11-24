@@ -23,6 +23,8 @@ import { ReportsPage } from '@/pages/ReportsPage'
 import { ReviewPage } from '@/pages/ReviewPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { SharedGroupPage } from '@/pages/SharedGroupPage'
+import { TagPage } from './pages/TagPage'
+import { TagsPage } from './pages/TagsPage'
 import { SharedPage } from '@/pages/SharedPage'
 import { SharedPersonPage } from '@/pages/SharedPersonPage'
 import { SummaryPage } from '@/pages/SummaryPage'
@@ -71,6 +73,8 @@ function AppRoutes({ hosted }: { hosted: boolean }) {
         <Route path="shared" element={<SharedPage />} />
         <Route path="shared/people/:id" element={<SharedPersonPage />} />
         <Route path="shared/:id" element={<SharedGroupPage />} />
+        <Route path="tags" element={<TagsPage />} />
+        <Route path="tags/:id" element={<TagPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
         <Route path="recurring" element={<RecurringPage />} />
         <Route path="installments" element={<InstallmentsPage />} />
