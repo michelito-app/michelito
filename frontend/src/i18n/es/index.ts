@@ -29,6 +29,7 @@ import { installments } from './installments'
 import { loans } from './loans'
 import { mailbox } from './mailbox'
 import { extension } from './extension'
+import { connector } from './connector'
 
 /** Each area's messages, by key prefix. */
 export const AREAS = {
@@ -61,6 +62,7 @@ export const AREAS = {
   loans,
   mailbox,
   extension,
+  connector,
 } as const
 
 export const es = {
@@ -93,4 +95,5 @@ export const es = {
   ...loans,
   ...mailbox,
   ...extension,
+  ...connector,
 } as const

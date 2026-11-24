@@ -1,4 +1,5 @@
 import { useSearchParams } from 'react-router'
+import { ProposalsPanel } from '@/components/connector/ProposalsPanel'
 import { AccountPicker } from '@/components/filters/AccountPicker'
 import { LoadError } from '@/components/LoadError'
 import { MonthHeader } from '@/components/MonthHeader'
@@ -12,7 +13,8 @@ import { useMonths } from '@/lib/queries'
 import { useAccountSelection } from '@/lib/useAccountSelection'
 
 /** The review list (`/review?month=…`), where the Summary's «To review» card leads: every item of
- * the month with its actions. Same month and accounts as the Summary. */
+ * the month with its actions. Same month and accounts as the Summary. Above it, the AI's open
+ * proposals (`?proposal=…` is the one its link named). */
 export function ReviewPage() {
   const [params, setParams] = useSearchParams()
   const { selection, accounts, ready, select } = useAccountSelection()
@@ -32,6 +34,7 @@ export function ReviewPage() {
   if (!ready || months.isPending) return <Skeleton className="h-[320px] rounded-2xl" />
   if (month === null) return <NoMonths />
   const option = months.data.find((o) => o.month === month) ?? months.data[0]
+  const proposal = Number(params.get('proposal')) || null
   return (
     <>
       <MonthHeader
@@ -50,6 +53,7 @@ export function ReviewPage() {
           )
         }
       />
+      <ProposalsPanel chosen={proposal} />
       <ReviewCard key={`${month}-${selection?.join(',') ?? 'all'}`} month={month} selection={selection} expanded />
     </>
   )

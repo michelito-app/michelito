@@ -50,6 +50,7 @@ from michelito.web import (
     insight_routes,
     installment_pick_routes,
     installment_routes,
+    internal,
     investment_routes,
     ledger_routes,
     live_routes,
@@ -57,6 +58,7 @@ from michelito.web import (
     log_routes,
     net_worth_routes,
     pace_routes,
+    proposal_routes,
     receipt_routes,
     recurring_routes,
     report_routes,
@@ -99,7 +101,7 @@ from michelito.web.schemas import (
     TransactionsOut,
     TxOut,
 )
-from michelito.web.workspace import CURRENT, FixedProvider, Mode, Workspace
+from michelito.web.workspace import CURRENT, FixedProvider, Mode, Resolution, Workspace
 
 ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -216,7 +218,13 @@ def create_app(
         refusal = _refusal(request, mode)
         if refusal is not None:
             return refusal
-        resolved = await mode.provider.resolve(request)
+        # A call from the server to itself (`web.internal`) brings its workspace in the scope.
+        inside = request.scope.get(internal.SCOPE_KEY)
+        resolved = (
+            Resolution(inside)
+            if isinstance(inside, Workspace)
+            else await mode.provider.resolve(request)
+        )
         try:
             if resolved.refusal is not None:
                 return resolved.refusal
@@ -938,6 +946,7 @@ def create_app(
     reserve_routes.register(app, connection, load_flow, parse_accounts, today)
     insight_routes.register(app, connection, load_flow, lambda: holders.of(workspace()))
     dossier_routes.register(app, connection, load_flow)
+    proposal_routes.register(app, connection, load_flow)
     if mode.register is not None:
         mode.register(app, connection, load_flow)
 

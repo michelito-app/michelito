@@ -68,7 +68,7 @@ def create(conn: sqlite3.Connection, number: str = NUMBER) -> int:
 
 
 def test_the_schema_has_the_loan_tables(conn: sqlite3.Connection) -> None:
-    assert db.SCHEMA_VERSION == migrations_v27.VERSION > migrations_v26.VERSION
+    assert db.SCHEMA_VERSION >= migrations_v27.VERSION > migrations_v26.VERSION
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
         "loans",

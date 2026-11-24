@@ -26,6 +26,10 @@ MESSAGES: dict[str, str] = {
     "web.review.installment_refund": "{name}: el comercio devolvió dinero en esta tarjeta",
     # Shared by several routes.
     "web.unknown_transaction": "transacción desconocida",
+    "web.proposals.unknown": "esa propuesta no existe",
+    "web.proposals.answered": "esa propuesta ya se respondió",
+    "web.proposals.unknown_item": "un cambio no es de esta propuesta",
+    "web.proposals.failed": "no se pudo aplicar",
     "web.already_linked": "la transacción ya está en otro vínculo",
     "web.no_data": "mes sin datos",
     "web.unknown_transaction_fingerprint": "transacción desconocida: {fingerprint}",

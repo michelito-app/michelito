@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Laptop, Smartphone } from 'lucide-react'
 import { useState } from 'react'
+import { ConnectorSettings } from '@/components/connector/ConnectorSettings'
 import { ExtensionSettings } from '@/components/extension/ExtensionSettings'
 import { ForwardingSettings } from '@/components/forwarding/ForwardingSettings'
 import { DeleteAccount } from '@/components/hosted/DeleteAccount'
@@ -34,8 +35,8 @@ function signedOut() {
   window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
 }
 
-/** Hosted mode only: the account, email forwarding, the connected Gmail, the Amazon extension and
- * its devices (sign out this one, or everywhere after a fresh verification), and deleting the
+/** Hosted mode only: the account, email forwarding, the connected Gmail, the Amazon extension, the
+ * connected AIs and its devices (sign out this one, or everywhere after a fresh verification), and deleting the
  * account. */
 export function SettingsPage() {
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: fetchMe })
@@ -81,6 +82,7 @@ export function SettingsPage() {
       {me.data && <ForwardingSettings email={me.data.email} />}
       <MailboxSettings />
       <ExtensionSettings />
+      <ConnectorSettings />
       <section aria-labelledby="settings-devices" className="flex flex-col gap-3">
         <h2 id="settings-devices" className="text-lg font-semibold">
           {t('auth.devices.title')}

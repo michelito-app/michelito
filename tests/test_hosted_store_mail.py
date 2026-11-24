@@ -63,6 +63,10 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
         "inbound_nonces",
         "extension_codes",
         "extension_tokens",
+        "connector_clients",
+        "connector_requests",
+        "connector_codes",
+        "connector_grants",
     }
     # "Notify me when it is supported": demand per bank name, tied to no account, email or date.
     assert columns.pop("bank_requests") == {"bank", "requests"}
@@ -78,6 +82,11 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
     # The browser extension: only hashes of its code and token.
     assert columns["extension_codes"] == {"account_id", "code_hash", "created_at", "expires_at"}
     assert columns["extension_tokens"] == {"account_id", "token_hash", "created_at", "last_used_at"}
+    # The AI connector: only hashes of its requests, codes and tokens.
+    assert {"request_hash"} <= columns["connector_requests"]
+    assert {"code_hash"} <= columns["connector_codes"]
+    assert {"access_hash", "refresh_hash"} <= columns["connector_grants"]
+    assert not any("token" in name for name in columns["connector_grants"])
 
 
 def test_migrations_are_forward_and_idempotent(tmp_path: Path) -> None:

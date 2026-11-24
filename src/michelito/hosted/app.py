@@ -36,8 +36,10 @@ data keys wrapped by another master key and removes the folders of deleted accou
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
@@ -54,6 +56,7 @@ from starlette.requests import Request
 from michelito import config
 from michelito.demo import network
 from michelito.hosted import (
+    connector_routes,
     extension_routes,
     forwarding,
     forwarding_routes,
@@ -61,12 +64,15 @@ from michelito.hosted import (
     inbox,
     mailbox,
     mailbox_routes,
+    mcp_routes,
     onboarding_routes,
     pdf_worker,
     privacy,
     routes,
 )
 from michelito.hosted.auth import USERS, Policy, SignIn
+from michelito.hosted.connector import CLAUDE_CALLBACKS, Connector
+from michelito.hosted.connector import Policy as ConnectorPolicy
 from michelito.hosted.extension import Linker
 from michelito.hosted.keys import MASTER_FILE_ENV, MasterKeyError, load_master
 from michelito.hosted.limits import Caps
@@ -78,6 +84,7 @@ from michelito.web.app import create_app
 from michelito.web.flow_cache import FlowCache
 from michelito.web.workspace import Mode, Resolution, Workspace
 
+LOG = logging.getLogger(__name__)
 PRODUCT = "Michelito"
 DEFAULT_HOST = "michelito.app"
 DEFAULT_DEMO_URL = "https://demo.michelito.app"
@@ -140,6 +147,11 @@ class Settings:
     extension: extension_routes.ExtensionCaps = field(
         default_factory=extension_routes.ExtensionCaps
     )
+    connector: connector_routes.ConnectorCaps = field(
+        default_factory=connector_routes.ConnectorCaps
+    )
+    mcp: mcp_routes.McpCaps = field(default_factory=mcp_routes.McpCaps)
+    connector_redirects: tuple[str, ...] = CLAUDE_CALLBACKS  # where an OAuth code may go
 
     @property
     def url(self) -> str:
@@ -179,12 +191,16 @@ class HostedProvider:
     service: SignIn
     cookie: str
     proxies: tuple[network.Network, ...] = ()
+    mcp: mcp_routes.Gate | None = None  # the AI connector: its bearer token, never the cookie
 
     async def resolve(self, request: Request) -> Resolution:
         path = request.url.path
         network.warn_unconfigured_proxy(request, self.proxies)
         if not path.startswith("/api/") and path != "/api":
             return Resolution(None)
+        if path == mcp_routes.MCP_PATH and self.mcp is not None:
+            request.state.hosted_session = None
+            return await self.mcp.resolve(request)
         token = request.cookies.get(self.cookie)
         found = await anyio.to_thread.run_sync(self._open, token) if token else None
         session, workspace = found or (None, None)
@@ -295,7 +311,14 @@ def create_hosted_app(
     service.remove_deleted()
     store.prune_codes(int(clock()))
     proxies = network.networks(settings.proxies)
-    provider = HostedProvider(service, settings.cookie, proxies)
+    connector = Connector(
+        store,
+        ConnectorPolicy(settings.connector_redirects, settings.url + mcp_routes.MCP_PATH),
+        clock,
+    )
+    connector.prune()
+    mcp_gate = mcp_routes.Gate(service, connector, settings.url, settings.mcp, proxies)
+    provider = HostedProvider(service, settings.cookie, proxies, mcp_gate)
     hooks = routes.Hooks(
         service=service,
         cookie=settings.cookie,
@@ -353,8 +376,18 @@ def create_hosted_app(
         proxies=proxies,
     )
 
+    links = connector_routes.Hooks(
+        connector=connector,
+        url=settings.url,
+        resource=settings.url + mcp_routes.MCP_PATH,
+        caps=settings.connector,
+        proxies=proxies,
+    )
+
     def register(app: FastAPI, connection, load_flow) -> None:  # noqa: ANN001
         routes.register(app, hooks)
+        connector_routes.register(app, links)
+        mcp_routes.register(app, mcp_gate, connection, load_flow)
         onboarding_routes.register(app, gate, connection, load_flow)
         forwarding_routes.register(app, mail, connection)
         mailbox_routes.register(app, gmail, connection)
@@ -377,8 +410,13 @@ def create_hosted_app(
             (onboarding_routes.SHARE_PATH, settings.uploads.body_limit),
             (forwarding_routes.INBOUND_PATH, settings.forwarding.body_limit),
             (extension_routes.ORDERS_PATH, extension_routes.BODY_LIMIT),
+            (mcp_routes.MCP_PATH, mcp_routes.BODY_LIMIT),
         ),
-        open_writes=frozenset({onboarding_routes.SHARE_PATH}),
+        # The share target opens no database; the OAuth and MCP endpoints use no cookie (their
+        # callers send a token or a code instead), so no other page can write through them.
+        open_writes=frozenset(
+            {onboarding_routes.SHARE_PATH, mcp_routes.MCP_PATH, *connector_routes.OPEN_WRITES}
+        ),
         guard=onboarding_routes.gate_guard(gate),
     )
     # The path is never opened: with a mode, every database comes from the provider.
@@ -389,7 +427,7 @@ def create_hosted_app(
     app.state.forwarding = mail
     app.state.mailbox = gmail
     if settings.sweep:
-        app.state.sweeper = Sweeper(gate, flows)
+        app.state.sweeper = Sweeper(gate, flows, connector)
         if gmail.available:
             app.state.mailbox_sweeper = mailbox_routes.Sweeper(gmail)
 
@@ -405,15 +443,21 @@ def create_hosted_app(
 
 
 class Sweeper:
-    """Every `every` seconds, drop expired upload jobs and shares (and their bytes) and the
-    loaded flows nobody used for a while, even when no request comes. A daemon thread: it ends
+    """Every `every` seconds, drop expired upload jobs and shares (and their bytes), the
+    loaded flows nobody used for a while and the AI connector's expired requests, codes and idle
+    connections, even when no request comes. A daemon thread: it ends
     with the process."""
 
     def __init__(
-        self, gate: onboarding_routes.Hooks, flows: FlowCache, every: float = 60.0
+        self,
+        gate: onboarding_routes.Hooks,
+        flows: FlowCache,
+        connector: Connector | None = None,
+        every: float = 60.0,
     ) -> None:
         self.gate = gate
         self.flows = flows
+        self.connector = connector
         self.every = every
         self._stop = threading.Event()
         threading.Thread(target=self._run, name="michelito-sweeper", daemon=True).start()
@@ -423,6 +467,11 @@ class Sweeper:
             self.gate.jobs.prune()
             self.gate.shares.prune()
             self.flows.prune()
+            if self.connector is not None:
+                try:
+                    self.connector.prune()
+                except sqlite3.Error as exc:  # the next minute tries again
+                    LOG.warning("connector cleanup failed: %s", type(exc).__name__)
 
     def stop(self) -> None:
         self._stop.set()

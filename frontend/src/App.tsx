@@ -9,6 +9,7 @@ import { useOnboarding } from '@/lib/onboarding'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { BudgetPage } from '@/pages/BudgetPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
+import { ConnectPage } from '@/pages/ConnectPage'
 import { ForwardingGuidePage } from '@/pages/ForwardingGuidePage'
 import { ImportPage } from '@/pages/ImportPage'
 import { InvestmentsPage } from '@/pages/InvestmentsPage'
@@ -60,6 +61,7 @@ function HostedGate() {
 function AppRoutes({ hosted }: { hosted: boolean }) {
   return (
     <Routes>
+      {hosted && <Route path="connect" element={<ConnectPage />} />}
       <Route element={<AppShell />}>
         <Route index element={<SummaryPage />} />
         <Route path="budget" element={<BudgetPage />} />

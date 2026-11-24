@@ -26,6 +26,9 @@ migrations (`MIGRATIONS`, applied in order and recorded in `PRAGMA user_version`
 - `extension_codes` and `extension_tokens`: the browser extension's one-time link code (only its
   keyed hash, with expiry) and its token (only its SHA-256), one of each per account
   (`hosted.extension`).
+- `connector_clients`, `connector_requests`, `connector_codes` and `connector_grants`: the AI
+  connector's OAuth clients, pending requests and codes (only their SHA-256), and each account's
+  connections with only the SHA-256 of their tokens (`hosted.connector`).
 
 `secure_delete` is on: deleted rows (a wrapped key, an email) are overwritten with zeros, and
 after a deletion or a re-wrap the write-ahead log is checkpointed and truncated, so the old
@@ -196,6 +199,50 @@ MIGRATIONS: tuple[str, ...] = (
         created_at INTEGER NOT NULL,
         last_used_at INTEGER
     );
+    """,
+    # 10: the AI connector (`hosted.connector`): the OAuth clients that registered themselves,
+    # pending authorization requests and one-time codes (only their SHA-256), and each account's
+    # connections with the SHA-256 of their current access and refresh tokens.
+    """
+    CREATE TABLE connector_clients (
+        client_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        redirect_uris TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE connector_requests (
+        request_hash TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL REFERENCES connector_clients(client_id) ON DELETE CASCADE,
+        redirect_uri TEXT NOT NULL,
+        state TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE connector_codes (
+        code_hash TEXT PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES connector_clients(client_id) ON DELETE CASCADE,
+        redirect_uri TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE connector_grants (
+        id INTEGER PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES connector_clients(client_id) ON DELETE CASCADE,
+        client_name TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER NOT NULL,
+        access_hash TEXT NOT NULL UNIQUE,
+        access_expires_at INTEGER NOT NULL,
+        refresh_hash TEXT NOT NULL UNIQUE
+    );
+    CREATE INDEX connector_grants_account ON connector_grants(account_id);
+    CREATE INDEX connector_requests_expiry ON connector_requests(expires_at);
+    CREATE INDEX connector_codes_expiry ON connector_codes(expires_at);
     """,
 )
 
@@ -755,13 +802,16 @@ class Store:
             conn.execute("DELETE FROM known_devices WHERE account_id = ?", (account_id,))
 
     def delete_sessions_of(self, account_id: int) -> int:
-        """Every session of the account, and its known devices and browser-extension link with
-        them (signing out everywhere also cuts a token copied from a lost computer)."""
+        """Every session of the account, and its known devices, browser-extension link and AI
+        connections with them (signing out everywhere also cuts a token copied from a lost
+        computer)."""
         with self.connect() as conn, conn:
             cursor = conn.execute("DELETE FROM sessions WHERE account_id = ?", (account_id,))
             conn.execute("DELETE FROM known_devices WHERE account_id = ?", (account_id,))
             conn.execute("DELETE FROM extension_tokens WHERE account_id = ?", (account_id,))
             conn.execute("DELETE FROM extension_codes WHERE account_id = ?", (account_id,))
+            conn.execute("DELETE FROM connector_grants WHERE account_id = ?", (account_id,))
+            conn.execute("DELETE FROM connector_codes WHERE account_id = ?", (account_id,))
         return cursor.rowcount
 
 

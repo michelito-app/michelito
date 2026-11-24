@@ -37,7 +37,7 @@ from pydantic import TypeAdapter
 
 from michelito import db, encrypted
 from michelito.demo import generate
-from michelito.hosted import privacy
+from michelito.hosted import connector_routes, privacy
 from michelito.hosted.app import OPEN
 from michelito.hosted.onboarding_routes import SHARE_PATH
 from michelito.parsers.common import Statement
@@ -452,8 +452,17 @@ def test_every_route_is_an_api_route_or_the_interfaces_catch_all(world: World) -
     outside = {route.path for route in routes if not route.path.startswith("/api")}  # type: ignore[attr-defined]
     # Besides the interface, only the installed app's share target and the privacy page with
     # its stylesheet, which open no database (test_hosted_upload_limits.py,
-    # test_hosted_hardening.py, test_hosted_mailbox.py).
-    assert outside == {SPA, SHARE_PATH, privacy.PATH, privacy.CSS_PATH}
+    # test_hosted_hardening.py, test_hosted_mailbox.py), and the AI connector's OAuth discovery
+    # and endpoints, which open no database either (test_hosted_mcp.py).
+    oauth = {
+        connector_routes.PROTECTED_PATH,
+        connector_routes.PROTECTED_PATH + "/api/mcp",
+        connector_routes.SERVER_PATH,
+        connector_routes.REGISTER_PATH,
+        connector_routes.AUTHORIZE_PATH,
+        connector_routes.TOKEN_PATH,
+    }
+    assert outside == {SPA, SHARE_PATH, privacy.PATH, privacy.CSS_PATH, *oauth}
     anonymous = _client(world.h)
     page = anonymous.get("/settings")
     assert page.status_code == 200 and "Michelito" in page.text
