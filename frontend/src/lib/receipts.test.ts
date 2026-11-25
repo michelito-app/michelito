@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Receipt, Tx } from './api'
 import { formatUsd } from './money'
-import { bankName, itemLine, receiptHeading, receiptTitle, safeLink } from './receipts'
+import { bankName, itemLine, itemLines, receiptHeading, receiptTitle, safeLink, shortName } from './receipts'
 
 function receipt(over: Partial<Receipt> = {}): Receipt {
   return {
@@ -58,9 +58,33 @@ describe('receiptTitle with item names', () => {
     expect(receiptTitle(tx([receipt({ items: [item('Synthetic kettle')] })]))).toBe('Amazon: Synthetic kettle')
   })
 
-  it('names the first item and counts the rest', () => {
+  it('lists short names while they fit and counts the rest', () => {
+    const items = [
+      item('Synthetic Kettle Electric Stainless, 1.7L'),
+      item('Plain Ceramic Mug Large'),
+      item('Sample Spoon Set'),
+      item('Sample Fork'),
+    ]
+    expect(receiptTitle(tx([receipt({ items })]))).toBe(
+      'Amazon: Synthetic Kettle Electric, Plain Ceramic Mug y 2 más', // spanish-ui
+    )
+  })
+
+  it('lists every short name when they all fit', () => {
     const items = [item('Synthetic kettle'), item('Mug'), item('Spoon')]
-    expect(receiptTitle(tx([receipt({ items })]))).toBe('Amazon: Synthetic kettle y 2 más') // spanish-ui
+    expect(receiptTitle(tx([receipt({ items })]))).toBe('Amazon: Synthetic kettle, Mug, Spoon')
+  })
+
+  it('keeps the first name even when it alone is long', () => {
+    const items = [item('Extraordinarily Longwinded Supercalifragilistic Name'), item('Mug')]
+    expect(receiptTitle(tx([receipt({ items })]))).toBe(
+      'Amazon: Extraordinarily Longwinded Supercalifragilistic y 1 más', // spanish-ui
+    )
+  })
+
+  it('joins items with the same short name', () => {
+    const items = [item('Sample Jeans Relaxed'), item('Sample Jeans Relaxed (Big & Tall), Blue')]
+    expect(receiptTitle(tx([receipt({ items })]))).toBe('Amazon: Sample Jeans Relaxed (2)')
   })
 
   it('counts a quantity as more than one', () => {
@@ -70,6 +94,53 @@ describe('receiptTitle with item names', () => {
 
   it('falls back to the email summary without names', () => {
     expect(receiptTitle(tx([receipt({ items: [] })]))).toBe('Amazon: 3 artículos, Kitchen') // spanish-ui
+  })
+})
+
+describe('shortName', () => {
+  it('cuts at the first comma, parenthesis, bracket or dash', () => {
+    expect(shortName('Sample Kettle, 1.7L, Steel', 5)).toBe('Sample Kettle')
+    expect(shortName('Sample Jeans (Big & Tall)', 5)).toBe('Sample Jeans')
+    expect(shortName('Sample Lamp [2 Pack]', 5)).toBe('Sample Lamp')
+    expect(shortName('Sample Mug - Large | Blue', 5)).toBe('Sample Mug')
+  })
+
+  it('keeps at most the given number of words', () => {
+    expect(shortName('One Two Three Four Five Six Seven', 5)).toBe('One Two Three Four Five')
+    expect(shortName('One Two Three Four', 3)).toBe('One Two Three')
+  })
+
+  it('drops trailing punctuation and keeps hyphenated words', () => {
+    expect(shortName('Sample Wi-Fi Plug.', 5)).toBe('Sample Wi-Fi Plug')
+    expect(shortName('Sample Plug: Smart Outdoor', 2)).toBe('Sample Plug')
+  })
+
+  it('falls back to the first words when the cut leaves nothing', () => {
+    expect(shortName('(New) Sample Hat Wool', 3)).toBe('(New) Sample Hat')
+  })
+})
+
+describe('itemLines', () => {
+  it('shortens each name to five words and keeps quantity and price', () => {
+    const items = [{ title: 'One Two Three Four Five Six, Seven', quantity: 2, price_cents: 1250 }]
+    expect(itemLines(items)).toEqual([`2 × One Two Three Four Five · ${formatUsd(1250)}`])
+  })
+
+  it('joins items with the same short name, adding their quantities', () => {
+    const items = [
+      { title: 'Sample Jeans Relaxed, Blue', quantity: null, price_cents: 4000 },
+      { title: 'Sample Jeans Relaxed (Big & Tall)', quantity: 2, price_cents: 4000 },
+      { title: 'Mug', quantity: null, price_cents: null },
+    ]
+    expect(itemLines(items)).toEqual([`3 × Sample Jeans Relaxed · ${formatUsd(4000)}`, 'Mug'])
+  })
+
+  it('drops the price when the joined items cost differently', () => {
+    const items = [
+      { title: 'Sample Jeans, Blue', quantity: null, price_cents: 4000 },
+      { title: 'Sample Jeans, Black', quantity: null, price_cents: 4500 },
+    ]
+    expect(itemLines(items)).toEqual(['2 × Sample Jeans'])
   })
 })
 

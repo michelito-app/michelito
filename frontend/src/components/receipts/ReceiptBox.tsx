@@ -4,7 +4,7 @@ import { t } from '@/i18n'
 import type { Receipt, Tx } from '@/lib/api'
 import { formatUsd } from '@/lib/money'
 import { useDecideReceipt } from '@/lib/queries'
-import { itemLine, receiptHeading, safeLink } from '@/lib/receipts'
+import { itemLines, receiptHeading, safeLink } from '@/lib/receipts'
 import { cn } from '@/lib/utils'
 
 const LINK = cn(
@@ -69,9 +69,9 @@ function ReceiptLine({ receipt, busy, onRemove }: ReceiptLineProps) {
       </div>
       {receipt.items?.length ? (
         <ul aria-label={t('receipts.box.items')} data-testid="receipt-items" className="flex flex-col gap-0.5">
-          {receipt.items.map((item, index) => (
+          {itemLines(receipt.items).map((line, index) => (
             <li key={index} className="text-[13px] break-words text-ink-2">
-              {itemLine(item)}
+              {line}
             </li>
           ))}
         </ul>

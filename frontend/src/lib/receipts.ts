@@ -14,11 +14,51 @@ function leading(tx: WithReceipts): Receipt | null {
   return receipts.find((receipt) => receipt.kind === 'shipment') ?? receipts[0] ?? null
 }
 
-/** The first item's name (with its quantity when more than one) and how many others. */
+const TITLE_WORDS = 3 // words of each item name in a transaction's title
+const LINE_WORDS = 5 // words of each item name in the order's list
+const TITLE_NAMES_MAX = 45 // characters of item names a title lists before "and N more"
+// Where a product title stops naming the product and starts listing its specs.
+const SPEC_START = /\s[-–|]\s|[,;([]/
+const TRAILING_PUNCTUATION = /[\s.:;,!?/&+-]+$/
+
+/** The words that identify a product: its title up to the first spec separator (comma,
+ * parenthesis, bracket, spaced dash), at most `words` of them. */
+export function shortName(title: string, words: number): string {
+  const kept = (text: string) => text.trim().split(/\s+/).slice(0, words).join(' ').replace(TRAILING_PUNCTUATION, '')
+  return kept(title.split(SPEC_START)[0]) || kept(title)
+}
+
+/** The items under their short names, those sharing one joined: quantities add up (an item
+ * without one counts once) and the price stays only when all of them cost the same. */
+function grouped(items: ReceiptItem[], words: number): ReceiptItem[] {
+  return items.reduce<ReceiptItem[]>((groups, item) => {
+    const title = shortName(item.title, words)
+    const index = groups.findIndex((group) => group.title === title)
+    if (index < 0) return [...groups, { ...item, title }]
+    const group = groups[index]
+    const joined: ReceiptItem = {
+      title,
+      quantity: (group.quantity ?? 1) + (item.quantity ?? 1),
+      price_cents: group.price_cents === item.price_cents ? group.price_cents : null,
+    }
+    return groups.map((other, position) => (position === index ? joined : other))
+  }, [])
+}
+
+function withQuantity(item: ReceiptItem): string {
+  return item.quantity && item.quantity > 1 ? `${item.title} (${item.quantity})` : item.title
+}
+
+/** The short item names that fit the title ("kettle, mug and 2 more"); the first always does. */
 function namedItems(items: ReceiptItem[]): string {
-  const [first, ...rest] = items
-  const name = first.quantity && first.quantity > 1 ? `${first.title} (${first.quantity})` : first.title
-  return rest.length ? t('receipts.itemsMore', { name, count: rest.length }) : name
+  const names = grouped(items, TITLE_WORDS).map(withQuantity)
+  const overflow = names.findIndex(
+    (_, index) => index > 0 && names.slice(0, index + 1).join(', ').length > TITLE_NAMES_MAX,
+  )
+  const shown = overflow < 0 ? names : names.slice(0, overflow)
+  const name = shown.join(', ')
+  const rest = names.length - shown.length
+  return rest ? t('receipts.itemsMore', { name, count: rest }) : name
 }
 
 /** The item names the extension sent ("Amazon: kettle and 2 more"); else the merchant, item
@@ -49,6 +89,11 @@ export function safeLink(address: string): string | null {
 export function receiptHeading(receipt: Receipt): string {
   const kind = receipt.kind === 'order' ? t('receipts.kind.order') : t('receipts.kind.shipment')
   return `${kind} · ${shortDay(receipt.day)}`
+}
+
+/** The order's items as its list shows them: short names, the same one joined. */
+export function itemLines(items: ReceiptItem[]): string[] {
+  return grouped(items, LINE_WORDS).map(itemLine)
 }
 
 /** One item as the detail lists it: "2 × Mug · US$ 12.50" (quantity and price when known). */
