@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,11 @@ def add_commands(commands: Any) -> None:
 
     invite = commands.add_parser("invite", help="invite one email to hosted mode")
     invite.add_argument("email")
+    invite.add_argument(
+        "--test",
+        action="store_true",
+        help="mark it as a test account (seed-test-account may replace its data)",
+    )
     _mail_options(invite)
     invite.set_defaults(handler=cmd_invite, server=True)
 
@@ -243,7 +249,7 @@ def cmd_hosted(args: argparse.Namespace, paths: config.Paths) -> int:
 
 def cmd_invite(args: argparse.Namespace, paths: config.Paths) -> int:
     from michelito.hosted.app import HostedStateError, build_service
-    from michelito.hosted.auth import AuthError
+    from michelito.hosted.auth import AuthError, normalize
 
     directory = _prepare(args, paths)
     if directory is None:
@@ -265,11 +271,18 @@ def cmd_invite(args: argparse.Namespace, paths: config.Paths) -> int:
         "mail": "No email can be sent today (daily cap): try again tomorrow.",
         "send": "The invitation email could not be sent (see the log); try again.",
     }
+    if args.test and service.store.account_by_email(normalize(args.email)) is not None:
+        # A test account may have its data replaced: never one that already exists.
+        print("That email already has an account: --test only marks new ones.", file=sys.stderr)
+        return 1
     try:
         service.invite(args.email)
     except AuthError as error:
         print(messages.get(error.kind, "Could not invite."), file=sys.stderr)
         return 1
+    if args.test:  # only once the invitation went out
+        service.store.mark_test_email(normalize(args.email), int(time.time()))
+        print("Marked as a test account.")
     print("Invitation sent (single use, valid for 7 days).")
     return 0
 

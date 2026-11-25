@@ -67,6 +67,7 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
         "connector_requests",
         "connector_codes",
         "connector_grants",
+        "test_emails",
     }
     # "Notify me when it is supported": demand per bank name, tied to no account, email or date.
     assert columns.pop("bank_requests") == {"bank", "requests"}
@@ -76,6 +77,8 @@ def test_the_accounts_schema_has_no_financial_fields(tmp_path: Path) -> None:
     assert columns["accounts"] == {"id", "email", "created_at", "status", "folder"}
     assert columns["data_keys"] == {"account_id", "wrapped", "master_id", "created_at"}
     assert columns["deleted_folders"] == {"folder", "deleted_at"}
+    # Test accounts (`michelito invite --test`): only the email and when.
+    assert columns["test_emails"] == {"email", "marked_at"}
     # Email forwarding: only the token's hash (the address lives in the encrypted database).
     assert columns["forwarding_addresses"] == {"account_id", "token_hash", "created_at"}
     assert columns["inbound_nonces"] == {"nonce", "expires_at"}

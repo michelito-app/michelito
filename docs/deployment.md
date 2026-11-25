@@ -460,9 +460,14 @@ served by a forked process that exits after its reply. Memory limits: demo 384 M
    The R2 secrets are mounted only in the `backup` service (profile `ops`, never started by
    `up`): the web container has the master key, the code-hash secret, the Resend key, the inbound
    secret and Google's OAuth client only.
-   **Recommended** in Cloudflare: turn on the bucket's object lock (or a bucket lifecycle rule
-   that keeps objects at least 30 days) so that a stolen R2 token cannot delete or overwrite the
-   backups, and give the token object read and write only on that bucket.
+   **Recommended** in Cloudflare: add a bucket lock rule on the `backups/` prefix so that a
+   stolen R2 token cannot delete or overwrite the backups, and give the token object read and
+   write only on that bucket. The production rule keeps objects for **28 days**
+   (`npx wrangler@4 r2 bucket lock list michelito-backups` shows it). It must stay shorter than
+   the rotation (`RETENTION_DAYS`, 30 days in `hosted/backup.py`): rotation deletes a backup once
+   it is over 30 days old, and a delete of a still-locked object answers
+   `409 ObjectLockedByBucketPolicy` and fails the backup. A second backup on the same day gets its
+   own label (`<date>T<HHMMSS>Z`) because the lock also refuses overwrites.
 4. Copy the new `docker-compose.yml` and `Caddyfile` (section 8) and run
    `sudo -u deploy docker compose --project-directory /opt/michelito up -d`. From then on
    `deploy.sh` backs up the hosted folder before each deploy with the `backup` service

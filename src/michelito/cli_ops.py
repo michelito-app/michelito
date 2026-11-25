@@ -8,6 +8,7 @@
     michelito ops-check [--to EMAIL]
     michelito forwarding-check                              (late statements, daily)
     michelito pdf-worker --socket PATH                      (the `pdfworker` container)
+    michelito seed-test-account --email E --stage STAGE     (test accounts only, made-up data)
 
 `export-account` reads the local data folder; the rest work on the hosted folder and, except
 `export-account`, run inside the hosted container (`MICHELITO_MODE=hosted`). None of them prints
@@ -112,6 +113,17 @@ def add_commands(commands: Any) -> None:
         "--children", type=Path, default=Path("/tmp/michelito-pdf-children"), metavar="DIR"
     )
     worker.set_defaults(handler=cmd_pdf_worker, server=True)
+
+    seed = commands.add_parser(
+        "seed-test-account", help="replace a test account's data with made-up data at a stage"
+    )
+    seed.add_argument("--email", required=True, help="marked with `michelito invite --test`")
+    seed.add_argument("--stage", required=True, help="first-statement")
+    seed.add_argument(
+        "--today", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD", help="as of"
+    )
+    _hosted_options(seed)
+    seed.set_defaults(handler=cmd_seed, server=True)
 
     check = commands.add_parser("ops-check", help="email the owner if something failed")
     check.add_argument(
@@ -239,6 +251,33 @@ def cmd_import(args: argparse.Namespace, paths: config.Paths) -> int:
         "tables): encrypted, migrated, integrity and every table's rows checked."
     )
     print(f"The plaintext export was {done.removed.note}.")
+    return 0
+
+
+# seed-test-account
+
+
+def cmd_seed(args: argparse.Namespace, paths: config.Paths) -> int:
+    from michelito.hosted import auth, seeding
+    from michelito.hosted.store import FILENAME, Store
+
+    directory = _hosted_dir(args, paths)
+    if directory is None:
+        return 2
+    if not (directory / FILENAME).is_file():  # a Store would create an empty one
+        return _error("no accounts database in the hosted folder")
+    email = auth.normalize(args.email)
+    store = Store(directory / FILENAME)
+    if not store.is_test_email(email):  # before unwrapping any key
+        return _error("that email is not marked as a test account (michelito invite --test)")
+    workspace = _hosted_workspace(args, paths)
+    if workspace is None:
+        return 1
+    try:
+        seeding.seed(store, email, workspace, args.stage, args.today or config.local_today())
+    except seeding.SeedError as error:
+        return _error(str(error))
+    print(f"Seeded the test account at stage {args.stage} (made-up data).")
     return 0
 
 

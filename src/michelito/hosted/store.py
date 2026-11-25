@@ -29,6 +29,8 @@ migrations (`MIGRATIONS`, applied in order and recorded in `PRAGMA user_version`
 - `connector_clients`, `connector_requests`, `connector_codes` and `connector_grants`: the AI
   connector's OAuth clients, pending requests and codes (only their SHA-256), and each account's
   connections with only the SHA-256 of their tokens (`hosted.connector`).
+- `test_emails`: emails the operator marked as test accounts (`michelito invite --test`); only
+  their databases may be replaced with made-up data (`hosted.seeding`).
 
 `secure_delete` is on: deleted rows (a wrapped key, an email) are overwritten with zeros, and
 after a deletion or a re-wrap the write-ahead log is checkpointed and truncated, so the old
@@ -244,6 +246,13 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX connector_requests_expiry ON connector_requests(expires_at);
     CREATE INDEX connector_codes_expiry ON connector_codes(expires_at);
     """,
+    # 15: test accounts, by email (they may exist before their account does).
+    """
+    CREATE TABLE test_emails (
+        email TEXT PRIMARY KEY,
+        marked_at INTEGER NOT NULL
+    );
+    """,
 )
 
 # Seals a new account's data key: given the account's id, its wrapped key and master id.
@@ -398,8 +407,9 @@ class Store:
 
     def delete_account(self, account_id: int, now: int) -> Account | None:
         """Destroy the account's wrapped data key and, in the same transaction, the account
-        (its sessions, known devices and passkeys go with it) and the codes and invitations of
-        its email, leaving a tombstone for its folder. Once this commits the data is unreadable,
+        (its sessions, known devices and passkeys go with it) and the codes, invitations and
+        test-account mark of its email (a later account with that email is never a test one),
+        leaving a tombstone for its folder. Once this commits the data is unreadable,
         whatever happens to its files; the zeroed rows are then flushed out of the WAL.
         Returns the deleted account (None if there was none)."""
         with self.connect() as conn, conn:
@@ -410,6 +420,7 @@ class Store:
             conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
             conn.execute("DELETE FROM login_codes WHERE email = ?", (row["email"],))
             conn.execute("DELETE FROM invitations WHERE email = ?", (row["email"],))
+            conn.execute("DELETE FROM test_emails WHERE email = ?", (row["email"],))
             conn.execute(
                 "INSERT OR REPLACE INTO deleted_folders (folder, deleted_at) VALUES (?, ?)",
                 (row["folder"], now),
@@ -421,9 +432,9 @@ class Store:
         self, old_id: int, email: str, folder: str, now: int, seal: Seal
     ) -> Account:
         """In **one** transaction: delete the account `old_id` (its wrapped data key, sessions,
-        codes and invitations, like `delete_account`) and create `email` anew in `folder` with
-        the key `seal` gives. If anything fails nothing changes: the old account stays intact.
-        `LookupError` if the old account is gone or the email is taken meanwhile."""
+        codes, invitations and test mark, like `delete_account`) and create `email` anew in
+        `folder` with the key `seal` gives. If anything fails nothing changes: the old account
+        stays intact. `LookupError` if the old account is gone or the email is taken meanwhile."""
         if not FOLDER.fullmatch(folder):
             raise ValueError("bad folder name")
         try:
@@ -435,6 +446,7 @@ class Store:
                 conn.execute("DELETE FROM accounts WHERE id = ?", (old_id,))
                 conn.execute("DELETE FROM login_codes WHERE email = ?", (email,))
                 conn.execute("DELETE FROM invitations WHERE email = ?", (email,))
+                conn.execute("DELETE FROM test_emails WHERE email = ?", (email,))
                 conn.execute(
                     "INSERT OR REPLACE INTO deleted_folders (folder, deleted_at) VALUES (?, ?)",
                     (row["folder"], now),
@@ -528,6 +540,22 @@ class Store:
             )
         assert cursor.lastrowid is not None
         return cursor.lastrowid
+
+    def mark_test_email(self, email: str, now: int) -> None:
+        """Mark `email` as a test account (idempotent)."""
+        with self.connect() as conn, conn:
+            conn.execute(
+                "INSERT INTO test_emails (email, marked_at) VALUES (?, ?) "
+                "ON CONFLICT(email) DO NOTHING",
+                (email.strip().lower(), now),
+            )
+
+    def is_test_email(self, email: str) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM test_emails WHERE email = ?", (email.strip().lower(),)
+            ).fetchone()
+        return row is not None
 
     def open_invitation(self, email: str, now: int) -> int | None:
         """The id of an unused, unexpired invitation for that email."""

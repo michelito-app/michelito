@@ -216,6 +216,23 @@ def snapshot(source: Path, target: Path, key: bytes) -> None:
         os.close(fd)
 
 
+def copy_into(source: Path, target: Path, key: bytes) -> None:
+    """Replace every page of the encrypted database at `target` with those of `source` (both
+    with `key`), with SQLite's backup API: it takes `target`'s locks and goes through its
+    write-ahead log, so connections the server holds open see the new content, never a mix."""
+    origin = _open(source, key)
+    try:
+        destination = _open(target, key)
+        try:
+            origin._raw.backup(destination._raw)
+        except _engine().Error as error:
+            raise _translated(error) from None
+        finally:
+            destination.close()
+    finally:
+        origin.close()
+
+
 def problems(path: Path, key: bytes) -> list[str]:
     """What SQLCipher's page authentication (`cipher_integrity_check`) and SQLite's
     `integrity_check` find wrong in the encrypted database at `path` (empty: it is sound)."""

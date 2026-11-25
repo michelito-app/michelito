@@ -237,3 +237,30 @@ def test_forwarding_check_emails_late_statements_once(env, capsys) -> None:  # n
     assert "owner@example.com" in text and "RD$" not in text
     assert cli.main(["forwarding-check", *data, *late]) == 0
     assert "sent: 0" in capsys.readouterr().out  # already told
+
+
+def test_an_existing_account_is_never_marked_or_seeded(env, capsys) -> None:  # noqa: ANN001
+    _import(env, capsys)
+    data = ["--data", str(env["hosted"])]
+    seed = ["seed-test-account", "--email", "owner@example.com", "--stage", "first-statement"]
+    today = ["--today", TODAY.isoformat()]
+
+    assert cli.main([*seed, *today, *data]) == 1
+    assert "not marked as a test account" in capsys.readouterr().err
+
+    mark = ["invite", "owner@example.com", "--test", "--mailer", "outbox", *data]
+    assert cli.main(mark) == 1
+    assert "already has an account" in capsys.readouterr().err
+    assert cli.main([*seed, *today, *data]) == 1
+    assert "not marked as a test account" in capsys.readouterr().err
+
+
+def test_a_new_invitation_can_be_a_test_account(env, capsys) -> None:  # noqa: ANN001
+    from michelito.hosted.store import FILENAME, Store
+
+    data = ["--data", str(env["hosted"])]
+    mark = ["invite", "tester@example.com", "--test", "--mailer", "outbox", *data]
+
+    assert cli.main(mark) == 0
+    assert "test account" in capsys.readouterr().out
+    assert Store(env["hosted"] / FILENAME).is_test_email("tester@example.com")

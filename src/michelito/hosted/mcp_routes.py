@@ -7,8 +7,8 @@ Requests from a browser page of another origin are refused (DNS rebinding); toke
 limited per source network (an expired but well-formed token does not count: Claude refreshes
 from shared addresses) and each `tools/call` per connection.
 
-JSON-RPC methods: `initialize`, `ping`, `tools/list` and `tools/call` (`hosted.mcp_tools`, and
-the import tools in `hosted.mcp_import_tools`);
+JSON-RPC methods: `initialize`, `ping`, `tools/list` and `tools/call` (`hosted.mcp_tools`, the
+import tools in `hosted.mcp_import_tools` and the onboarding one in `hosted.onboarding_guide`);
 notifications are accepted and answered with 202. A tool's failure is a result with
 `isError` (the AI reads why); a malformed message is a JSON-RPC error. Each call is logged with
 the tool's name and outcome only: never its arguments or answer.
@@ -33,7 +33,7 @@ from starlette.types import ASGIApp
 from michelito import config
 from michelito.analysis.spending import Movement
 from michelito.demo import network
-from michelito.hosted import mcp_import_tools, mcp_tools, redact
+from michelito.hosted import mcp_import_tools, mcp_tools, onboarding_guide, redact
 from michelito.hosted.auth import SignIn
 from michelito.hosted.connector import ACCESS_PREFIX, Caller, Connector
 from michelito.hosted.limits import Window
@@ -53,7 +53,8 @@ INSTRUCTIONS = (
     "with the tools; amounts are in cents. You cannot change anything directly: to change "
     "categories use propose_category_changes, and to bring in transactions (a statement "
     "Michelito could not read, loose charges, cash) the import_ tools; give the person the "
-    "link they return, so they approve it in Michelito. "
+    "link they return, so they approve it in Michelito. When the person wants to set up "
+    "Michelito, call get_onboarding and follow its guide. "
     + mcp_tools.DATA_NOTE
     + " Answer the person in their language."
 )
@@ -183,6 +184,20 @@ async def run_read(ctx: Context, tool: mcp_tools.ReadTool, arguments: Any) -> di
     if answer.body is None:
         return _text(mcp_tools.text_of(redact.mask_text(answer.text)))
     return _text(mcp_tools.text_of({"note": mcp_tools.DATA_NOTE, "data": redact.mask(answer.body)}))
+
+
+async def run_onboarding(ctx: Context, arguments: Any) -> dict[str, Any]:
+    """`get_onboarding`: the state the onboarding cards show (`hosted.onboarding`, read straight
+    from the account's database: its routes need a session), turned into a guide."""
+    if arguments not in (None, {}):
+        return _text("get_onboarding takes no arguments", is_error=True)
+
+    def read() -> dict[str, Any]:
+        with ctx.connection() as conn:
+            return onboarding_guide.read(conn, ctx.load_flow(conn), ctx.url)
+
+    built = await anyio.to_thread.run_sync(read)
+    return _text(mcp_tools.text_of({"note": mcp_tools.DATA_NOTE, "data": redact.mask(built)}))
 
 
 def _changes(arguments: Any) -> tuple[str, str, list[proposals.Change]]:
@@ -336,6 +351,8 @@ async def call_tool(ctx: Context, params: Any) -> dict[str, Any]:
         result = await run_propose(ctx, arguments)
     elif name in mcp_import_tools.NAMES:
         result = await run_import(ctx, name, arguments)
+    elif name == onboarding_guide.NAME:
+        result = await run_onboarding(ctx, arguments)
     elif name in mcp_tools.BY_NAME:
         result = await run_read(ctx, mcp_tools.BY_NAME[name], arguments)
     else:
@@ -371,7 +388,11 @@ async def handle(ctx: Context, message: Any) -> dict[str, Any] | None:
     if method == "ping":
         return _result(message_id, {})
     if method == "tools/list":
-        tools = [*mcp_tools.descriptors(), *mcp_import_tools.descriptors()]
+        tools = [
+            *mcp_tools.descriptors(),
+            *mcp_import_tools.descriptors(),
+            *onboarding_guide.descriptors(),
+        ]
         return _result(message_id, {"tools": tools})
     if method == "tools/call":
         if not ctx.take_call(ctx.caller):

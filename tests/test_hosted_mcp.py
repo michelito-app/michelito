@@ -390,3 +390,43 @@ def test_an_unknown_account_is_refused(h: Hosted, alice: TestClient) -> None:
     )["result"]
 
     assert result["isError"] is True and "unknown account" in result["content"][0]["text"]
+
+
+# Onboarding.
+
+
+def test_onboarding_guides_through_the_top_merchants_until_they_are_handled(
+    h: Hosted, alice: TestClient
+) -> None:
+    _, token = _connect(h, alice)
+    names = {t["name"] for t in _rpc(h, token, "tools/list")["result"]["tools"]}
+    assert "get_onboarding" in names
+
+    first = _tool(h, token, "get_onboarding")["data"]
+
+    assert first["stage"] == "merchants"
+    assert first["links"]["upload"] == URL + "/import"
+    pending = first["merchants"]
+    assert pending and all(m["status"] == "pending" for m in pending)
+    assert all(isinstance(m["total_cents"], int) and m["total_cents"] > 0 for m in pending)
+    confirmations = [
+        {"fingerprint": m["fingerprint"], "category_id": m["category_id"], "scope": "merchant"}
+        for m in pending
+        if m["category_id"] is not None
+    ]
+    sent = _tool(h, token, "propose_category_changes", title="Top merchants", changes=confirmations)
+    (proposal,) = alice.get("/api/proposals").json()
+    applied = alice.post(
+        f"/api/proposals/{proposal['id']}/apply",
+        json={"item_ids": [i["id"] for i in proposal["items"]]},
+        headers=WRITE,
+    )
+    assert applied.status_code == 200, applied.text
+    assert sent["link"].startswith(URL + "/review")
+
+    after = _tool(h, token, "get_onboarding")["data"]
+
+    left = {m["merchant"] for m in after["merchants"]}
+    assert left == {m["merchant"] for m in pending if m["category_id"] is None}
+    if not left:
+        assert after["stage"] in ("checklist", "done")
