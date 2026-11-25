@@ -171,7 +171,7 @@ def test_ambiguous_brands_still_apply_without_mcc() -> None:
         (cat.OTHER, "expense"),
         (cat.SALARY, "income"),
         (cat.SERVICE_PAYMENTS, "income"),
-        (cat.CRYPTO, "income"),
+        (cat.CRYPTO, "transfer"),  # crypto <-> fiat: neither income nor spending
         (cat.OTHER_INCOME, "income"),
         (cat.CARD_PAYMENT, "transfer"),
         (cat.OWN_TRANSFER, "transfer"),

@@ -166,7 +166,7 @@ def _flow_moves():
         movement("2026-09-05", "1000"),
         movement("2026-09-06", "50", currency="USD"),
         movement("2026-09-10", "-5000", categories.SALARY),
-        movement("2026-09-11", "-10", categories.CRYPTO, currency="USD"),
+        movement("2026-09-11", "-10", categories.SERVICE_PAYMENTS, currency="USD"),
         movement("2026-09-12", "700", categories.CARD_PAYMENT),
         movement("2026-09-13", "-300", categories.OWN_TRANSFER),
         movement("2026-09-14", "-99", categories.CARD_PAYMENT),
@@ -195,7 +195,7 @@ def test_month_without_income_has_no_savings_rate():
 def test_income_in_usd_without_rate_is_excluded():
     moves = [
         movement("2026-09-05", "100"),
-        movement("2026-09-10", "-10", categories.CRYPTO, currency="USD"),
+        movement("2026-09-10", "-10", categories.SERVICE_PAYMENTS, currency="USD"),
     ]
     result = summary.build_summary(moves, [card("A", "2026-09-30")], {}, "2026-09")
     assert result.income == 0 and result.savings_rate is None

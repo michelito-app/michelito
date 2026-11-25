@@ -59,7 +59,7 @@ On start it generates the **template** (`src/michelito/demo/generate.py`): a mad
 months that end in the current month (fixed seed, dates relative to today): salary, rent in
 dollars, a loan with extra payments, a phone company with several names and double or empty
 months, prepaid top-ups, subscriptions (one goes up), a card in RD$ and US$ with exchange rates, a
-trip every March, Christmas, shared expenses, an investment, a cash box, crypto income, one-off
+trip every March, Christmas, shared expenses, an investment, a cash box, crypto sales, one-off
 expenses and something "To review". Each statement goes through the same validation and ingestion
 as a PDF; the budget and the reserves are left **not activated** so the visitor can activate them.
 Measured on a laptop: generating the template takes ≈ 0.07–0.1 s and the full start of
@@ -936,16 +936,16 @@ uv run michelito board [--port N] [--no-browser]
   `{"fingerprints": [...], "category_id": N, "reason": "…"}` (header `X-Michelito: 1`); it answers
   `applied`, `skipped` (`fingerprint`, `reason` (`linked`, `cash_box`, `direction`, `unchanged`,
   `unknown`) and `message`) and `entry_id`.
-- **Crypto income**: the fiat from selling crypto over P2P arrives as credits from different third
-  parties ("MB DESDE <account>", "TRANSFERENCIA RECIBIDA …", "LBTR <company>") and lands in "Other <!-- spanish-data -->
-  income". To mark it: in Transactions, Type "Income", Category "Other income" (and the search, if
-  it helps), "Select", tick the ones from the sale and "Change category" to **"Crypto"** with a
-  reason ("USDT sale over P2P"). It counts as income of the month it reached the bank, apart from
-  Salary and Other income; without wallets, links or a rate, and nothing detects it on its own.
-  The Summary shows income by category under "Income" (the 3 largest, with a link), Reports lists
-  it at the end ("Income by category", not compared with the usual) and the month's dossier adds a
-  crypto income line to the totals (only if there was some: the fingerprint of the other months
-  does not change).
+- **Crypto ↔ fiat**: buying or selling crypto is your money changing form, like a currency
+  exchange: the **"Crypto"** category (a transfer kind since schema 31) counts neither as income
+  nor as spending and does not move what you kept. The fiat from selling crypto over P2P arrives
+  as credits from different third parties ("MB DESDE <account>", "TRANSFERENCIA RECIBIDA …", "LBTR <!-- spanish-data -->
+  <company>") and lands in "Other income"; buying sends money to the seller (a third-party
+  transfer) or is a card charge at an exchange. To mark them: in Transactions, filter (and search,
+  if it helps), "Select", tick them and "Change category" to "Crypto" with a reason ("USDT sale
+  over P2P"), or one by one from the detail; a merchant rule works for an exchange's card charges.
+  There are no wallets, balances or gains, and nothing detects it on its own: crypto that is real
+  income (a payment, staking) goes to "Other income".
 - **Categories**: by kind, with their color, how many transactions they have in the year and their
   keywords. The system ones can be renamed, recolored and hidden (not deleted or changed to another
   kind: the logic depends on it); yours, everything. Deleting one asks where its transactions,

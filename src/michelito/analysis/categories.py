@@ -81,6 +81,9 @@ _LEGACY_NAMES = {"Efectivo y transferencias": CASH}
 # expense; they are not income.
 # CURRENCY_EXCHANGE: transactions linked in a currency exchange with third parties (`links`):
 # neither spending nor income.
+# CRYPTO: buying or selling crypto for local currency or dollars (`migrations_v31`): your money
+# changing form, like a currency exchange: neither spending nor income, and it does not move what
+# you kept.
 # INVESTMENT, INVESTMENT_RETURN, INVESTMENT_CAPITAL (`links`, `analysis.investments`): a
 # contribution is your money that stays yours (neither spending nor a reduction of what you
 # have left); what it yields is income; the capital that comes back is not.
@@ -130,13 +133,14 @@ EXPENSES = (
     LOANS,
     OTHER,
 )
-INCOME = (SALARY, SERVICE_PAYMENTS, CRYPTO, OTHER_INCOME, INVESTMENT_RETURN)
+INCOME = (SALARY, SERVICE_PAYMENTS, OTHER_INCOME, INVESTMENT_RETURN)
 TRANSFER = (
     CARD_PAYMENT,
     OWN_TRANSFER,
     THIRD_PARTY,
     REIMBURSEMENT,
     CURRENCY_EXCHANGE,
+    CRYPTO,
     INVESTMENT,
     INVESTMENT_CAPITAL,
     CASH_BOX,

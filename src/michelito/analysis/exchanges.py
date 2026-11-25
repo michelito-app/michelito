@@ -61,6 +61,7 @@ NOT_A_LEG = frozenset(
         categories.OWN_TRANSFER,
         categories.REIMBURSEMENT,
         categories.CURRENCY_EXCHANGE,
+        categories.CRYPTO,
     }
 )
 

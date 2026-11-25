@@ -52,7 +52,7 @@ def test_applies_the_valid_ones_and_skips_the_rest_with_a_reason(client: TestCli
     response = _batch(
         client,
         [deposit, back, dop_leg, withdrawal, "missing-fp"],
-        categories.CRYPTO,
+        categories.SERVICE_PAYMENTS,
         reason="P2P sale",
     )
     assert response.status_code == 200
@@ -65,8 +65,8 @@ def test_applies_the_valid_ones_and_skips_the_rest_with_a_reason(client: TestCli
     ]
     assert all(s["message"] for s in body["skipped"])
     assert [_tx(client, fp)["category"] for fp in (deposit, back)] == [
-        categories.CRYPTO,
-        categories.CRYPTO,
+        categories.SERVICE_PAYMENTS,
+        categories.SERVICE_PAYMENTS,
     ]
     assert _tx(client, dop_leg)["category"] == categories.CURRENCY_EXCHANGE
     assert _tx(client, withdrawal)["category"] == categories.CASH
@@ -78,7 +78,7 @@ def test_applies_the_valid_ones_and_skips_the_rest_with_a_reason(client: TestCli
     assert (entry["subject"], entry["before"]["text"], entry["after"]["text"]) == (
         t("web.batch.transactions", count=2),
         categories.OTHER_INCOME,
-        categories.CRYPTO,
+        categories.SERVICE_PAYMENTS,
     )
     assert (entry["reason"], entry["affected"], entry["author"]) == ("P2P sale", 2, "user")
     assert sorted(entry["fingerprints"]) == sorted([deposit, back])
@@ -87,7 +87,7 @@ def test_applies_the_valid_ones_and_skips_the_rest_with_a_reason(client: TestCli
 
 def test_never_creates_a_merchant_rule_and_records_the_author(client: TestClient) -> None:
     deposit = _fp(client, DEPOSIT)
-    assert _batch(client, [deposit], categories.CRYPTO, CLAUDE).status_code == 200
+    assert _batch(client, [deposit], categories.SERVICE_PAYMENTS, CLAUDE).status_code == 200
     rules = client.get("/api/log").json()["items"][0]
     assert (rules["author"], rules["target_type"]) == ("claude", "category")
     assert "merchant_categories" not in rules["after"]["rows"]
@@ -95,7 +95,7 @@ def test_never_creates_a_merchant_rule_and_records_the_author(client: TestClient
 
 def test_nothing_to_change_leaves_no_entry(client: TestClient) -> None:
     withdrawal = _fp(client, WITHDRAWAL)
-    body = _batch(client, [withdrawal], categories.CRYPTO).json()
+    body = _batch(client, [withdrawal], categories.SERVICE_PAYMENTS).json()
     assert (body["applied"], body["entry_id"]) == ([], None)
     assert _log(client) == []
 
@@ -114,12 +114,15 @@ def test_unknown_category_limit_and_reason_length(client: TestClient) -> None:
     unknown = {"fingerprints": [deposit], "category_id": 99999}
     assert client.patch("/api/transactions", json=unknown, headers=WRITE).status_code == 422
     too_many = [f"h{i}" for i in range(batch_edit.BATCH_MAX + 1)]
-    assert _batch(client, too_many, categories.CRYPTO).status_code == 422
-    assert _batch(client, [], categories.CRYPTO).status_code == 422
+    assert _batch(client, too_many, categories.SERVICE_PAYMENTS).status_code == 422
+    assert _batch(client, [], categories.SERVICE_PAYMENTS).status_code == 422
     at_limit = [deposit, *(f"h{i}" for i in range(batch_edit.BATCH_MAX - 1))]
-    assert _batch(client, at_limit, categories.CRYPTO).status_code == 200
+    assert _batch(client, at_limit, categories.SERVICE_PAYMENTS).status_code == 200
     assert (
-        _batch(client, [_fp(client, BACK)], categories.CRYPTO, reason="x" * 501).status_code == 422
+        _batch(
+            client, [_fp(client, BACK)], categories.SERVICE_PAYMENTS, reason="x" * 501
+        ).status_code
+        == 422
     )
 
 
@@ -135,7 +138,7 @@ def test_all_or_nothing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
         return real(conn, fingerprint, category)
 
     monkeypatch.setattr(corrections, "set_transaction_category", failing)
-    response = _batch(client, [deposit, back, refund], categories.CRYPTO, reason="x")
+    response = _batch(client, [deposit, back, refund], categories.SERVICE_PAYMENTS, reason="x")
     assert response.status_code == 422
     assert calls == [deposit, back]
     assert [_tx(client, fp)["category"] for fp in (deposit, back, refund)] == [
@@ -165,7 +168,7 @@ def test_undo_restores_each_previous_correction_exactly(client: TestClient, tmp_
     before = _note_rows(tmp_path, [bare, noted, salary])
     assert bare not in before and before[noted][0] is None
 
-    entry = _batch(client, [bare, noted, salary], categories.CRYPTO, reason="P2P").json()[
+    entry = _batch(client, [bare, noted, salary], categories.SERVICE_PAYMENTS, reason="P2P").json()[
         "entry_id"
     ]
     batch = next(e for e in _log(client) if e["id"] == entry)
@@ -178,7 +181,7 @@ def test_undo_restores_each_previous_correction_exactly(client: TestClient, tmp_
     assert undone.status_code == 200
     assert (undone.json()["id"], undone.json()["undone"]) == (entry, True)
     after = _note_rows(tmp_path, [bare, noted, salary])
-    crypto_id = _category_id(client, categories.CRYPTO)
+    crypto_id = _category_id(client, categories.SERVICE_PAYMENTS)
     assert all(row[0] != crypto_id for row in after.values())
     assert after[bare] == (None, 0, "later")
     assert after[noted] == before[noted]
@@ -194,21 +197,21 @@ def test_undo_restores_each_previous_correction_exactly(client: TestClient, tmp_
 
 def test_undo_without_later_edits_removes_the_new_rows(client: TestClient, tmp_path: Path) -> None:
     bare, back = _fp(client, DEPOSIT), _fp(client, BACK)
-    entry = _batch(client, [bare, back], categories.CRYPTO).json()["entry_id"]
+    entry = _batch(client, [bare, back], categories.SERVICE_PAYMENTS).json()["entry_id"]
     assert _undo(client, entry).status_code == 200
     assert _note_rows(tmp_path, [bare, back]) == {}
 
 
 def test_undo_is_blocked_if_one_changed_later(client: TestClient) -> None:
     bare, back = _fp(client, DEPOSIT), _fp(client, BACK)
-    entry = _batch(client, [bare, back], categories.CRYPTO).json()["entry_id"]
+    entry = _batch(client, [bare, back], categories.SERVICE_PAYMENTS).json()["entry_id"]
     _patch(client, back, category_id=_category_id(client, categories.SALARY))
     later = _log(client)[0]
     batch = next(e for e in _log(client) if e["id"] == entry)
     assert (batch["can_undo"], batch["blocked_by"]) == (False, later["id"])
     blocked = _undo(client, entry)
     assert blocked.status_code == 409 and str(later["id"]) in blocked.json()["detail"]
-    assert _tx(client, bare)["category"] == categories.CRYPTO
+    assert _tx(client, bare)["category"] == categories.SERVICE_PAYMENTS
     assert _undo(client, later["id"]).status_code == 200
     assert _undo(client, entry).status_code == 200
     assert [_tx(client, fp)["category"] for fp in (bare, back)] == [categories.OTHER_INCOME] * 2
@@ -218,38 +221,30 @@ def _batch_entries(client: TestClient) -> int:
     return sum(1 for e in _log(client) if e["kind"] == batch_edit.BATCH_KIND)
 
 
-def test_crypto_is_its_own_income_in_summary_reports_and_dossier(
+def test_crypto_is_neutral_in_summary_reports_and_dossier(
     client: TestClient, tmp_path: Path
 ) -> None:
+    """Crypto <-> fiat is like a currency exchange: moving two credits from other income to
+    crypto takes them out of income (summary, reports and dossier) and adds no line of its own."""
+    before = client.get("/api/summary", params={"month": MONTH}).json()
     deposit, back = _fp(client, DEPOSIT), _fp(client, BACK)
     assert _batch(client, [deposit, back], categories.CRYPTO).status_code == 200
 
     summary = client.get("/api/summary", params={"month": MONTH}).json()
-    lines = {i["category"]: i for i in summary["incomes"]}
-    assert (lines[categories.CRYPTO]["amount_cents"], lines[categories.CRYPTO]["count"]) == (
-        1_500_000,
-        2,
-    )
-    assert categories.OTHER_INCOME in lines
+    lines = {i["category"] for i in summary["incomes"]}
+    assert categories.CRYPTO not in lines
+    assert summary["income_cents"] == before["income_cents"] - 1_500_000
+    assert summary["net_cents"] == before["net_cents"] - 1_500_000
+    assert summary["total_cents"] == before["total_cents"]
     assert sum(i["amount_cents"] for i in summary["incomes"]) == summary["income_cents"]
 
     compare = client.get("/api/reports/compare").json()
-    rows = {r["key"]: r for r in compare["incomes"]}
-    months = [m["month"] for m in compare["months"]]
-    crypto = rows[f"income:{categories.CRYPTO}"]
-    assert crypto["label"] == categories.CRYPTO
-    assert crypto["cells"][months.index(MONTH)]["amount_cents"] == 1_500_000
-    assert f"income:{categories.OTHER_INCOME}" in rows
-    assert [r["key"] for r in compare["totals"]] == ["income", "expenses", "third_party", "net"]
+    assert f"income:{categories.CRYPTO}" not in {r["key"] for r in compare["incomes"]}
 
     with closing(db.connect(tmp_path / "michelito.db")) as conn:
         found = dossier.build(conn, MONTH)
-        other = [m for m in months if m != MONTH]
-        without = dossier.build(conn, other[0]) if other else None
-    assert found.data["totals"]["crypto_income"] == "15000.00"
-    assert f"{t('dossier.total.crypto_income')}: 15000.00" in found.markdown
-    if without is not None:  # a month without crypto does not change (nor its fingerprint)
-        assert "crypto_income" not in without.data["totals"]
+    assert "crypto_income" not in found.data["totals"]
+    assert t("dossier.total.crypto_income") not in found.markdown
 
 
 def _review(client: TestClient, kind: str) -> list[dict]:
@@ -297,7 +292,7 @@ def test_cash_box_entries_follow_the_cash_box_category_rule(client: TestClient) 
     out, came_in = "cash-1", "cash-2"
     assert _tx(client, out)["amount_cents"] > 0 > _tx(client, came_in)["amount_cents"]
 
-    to_income = _batch(client, [out, came_in], categories.CRYPTO).json()
+    to_income = _batch(client, [out, came_in], categories.SERVICE_PAYMENTS).json()
     assert to_income["applied"] == [came_in]
     assert [(s["fingerprint"], s["reason"]) for s in to_income["skipped"]] == [(out, "cash_box")]
     to_expense = _batch(client, [out, came_in], categories.DELIVERY).json()

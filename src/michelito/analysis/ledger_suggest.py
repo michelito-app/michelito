@@ -210,15 +210,20 @@ def _fits(value: Decimal, amount: Decimal) -> bool:
 
 def is_payment_debit(move: Movement, links: Links, banks: Collection[str]) -> bool:
     """A bank debit that can be a payment the user made: any category (a transfer to a person
-    may have been categorized as an expense) but card payments, own transfers and currency
-    exchanges; not linked. The same rule checks a debit picked by hand (`web.links`)."""
+    may have been categorized as an expense) but card payments, own transfers, currency
+    exchanges and crypto; not linked. The same rule checks a debit picked by hand (`web.links`)."""
     return (
         move.amount > 0
         and move.account in banks
         and not move.link
         and not links.is_linked(move.fingerprint)
         and move.ref
-        not in (categories.CARD_PAYMENT, categories.OWN_TRANSFER, categories.CURRENCY_EXCHANGE)
+        not in (
+            categories.CARD_PAYMENT,
+            categories.OWN_TRANSFER,
+            categories.CURRENCY_EXCHANGE,
+            categories.CRYPTO,
+        )
     )
 
 

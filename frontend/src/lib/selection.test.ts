@@ -31,25 +31,32 @@ function category(id: number, name: string, kind: Category['kind'], extra: Parti
 
 const CATEGORIES = [
   category(1, 'Delivery', 'expense'),
-  category(2, 'Crypto', 'income', { builtin_key: 'CRYPTO' }),
+  category(2, 'Crypto', 'transfer', { builtin_key: 'CRYPTO' }),
   category(3, 'Cash box', 'transfer', { builtin_key: 'CASH_BOX' }),
   category(4, 'Between my accounts', 'transfer'),
   category(5, 'Old', 'expense', { hidden: true }),
+  category(6, 'Salary', 'income'),
 ]
 
 describe('batchOptions', () => {
   it('credits only: all but the link ones and the hidden ones', () => {
     const found = batchOptions(CATEGORIES, [{ amount_cents: -100 }])
-    expect(found.categories.map((c) => c.name)).toEqual(['Delivery', 'Crypto', 'Between my accounts'])
+    expect(found.categories.map((c) => c.name)).toEqual([
+      'Delivery',
+      'Crypto',
+      'Between my accounts',
+      'Salary',
+    ])
     expect(found.notice).toBeNull()
   })
 
-  it('with debits it offers no income; mixed, it says so', () => {
+  it('with debits it offers no income (crypto, neutral, it does); mixed, it says so', () => {
+    const offered = ['Delivery', 'Crypto', 'Between my accounts']
     const debits = batchOptions(CATEGORIES, [{ amount_cents: 100 }])
-    expect(debits.categories.map((c) => c.name)).toEqual(['Delivery', 'Between my accounts'])
+    expect(debits.categories.map((c) => c.name)).toEqual(offered)
     expect(debits.notice).toBeNull()
     const mixed = batchOptions(CATEGORIES, [{ amount_cents: 100 }, { amount_cents: -100 }])
-    expect(mixed.categories.map((c) => c.name)).toEqual(['Delivery', 'Between my accounts'])
+    expect(mixed.categories.map((c) => c.name)).toEqual(offered)
     expect(mixed.notice).toBe(t('common.selection.mixedNotice'))
   })
 })

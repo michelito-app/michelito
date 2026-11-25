@@ -93,13 +93,10 @@ test('filtering, selecting several, moving them to crypto with a reason and undo
   // They are no longer other income: with the same filter the list is empty.
   await expect(page.getByRole('main')).toContainText(t('transactions.empty'))
 
-  // The month detail and the months table in Reports show them as their own income.
+  // Crypto <-> fiat is neutral, like a currency exchange: Reports no longer count it as income.
   await page.goto(`/reports?month=${MONTH}`)
-  await expect(page.getByTestId('income-lines')).toContainText(`${CRYPTO} RD$ 40,500`)
-  await page.goto('/reports')
-  await expect(page.getByRole('row', { name: literal(CRYPTO, { start: true }) })).toContainText(
-    '40,500',
-  )
+  await expect(page.getByTestId('income-lines')).toBeVisible()
+  await expect(page.getByTestId('income-lines')).not.toContainText(CRYPTO)
 
   await page.getByRole('link', { name: t('shell.nav.log') }).first().click()
   await page.getByRole('searchbox', { name: t('log.filter.search') }).fill(CRYPTO)

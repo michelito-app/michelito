@@ -92,9 +92,9 @@ HOME_INSURANCE_KEY = "SEGURO HOGAR"
 # Budget and reserves (only with the household flag): a made-up yearly tax in January, already
 # marked as yearly recurring (see `_mark_annual_tax`), which yields the "create reserve?" hint.
 ANNUAL_TAX = "MARBETE FICTICIO"
-# Income from crypto sold over P2P (see `_crypto_checking`, only with the household flag): three
+# Fiat from crypto sold over P2P (see `_crypto_checking`, only with the household flag): three
 # credits from different third parties that land in the "other income" category (the tests move
-# them to "Cripto" in a batch) and a deposit that is not crypto.
+# them to "Cripto", neutral like a currency exchange, in a batch) and a deposit that is not crypto.
 CRYPTO_TAG = "P2P"
 CRYPTO_CREDITS = (
     ("2026-01-08", f"MB DESDE 0000000123 COMPRADOR {CRYPTO_TAG} FICTICIO", "12000.00"),

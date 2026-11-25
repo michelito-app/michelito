@@ -39,6 +39,7 @@ NOT_REIMBURSEMENT = frozenset(
         categories.OWN_TRANSFER,
         categories.CARD_PAYMENT,
         categories.CURRENCY_EXCHANGE,
+        categories.CRYPTO,
         categories.REIMBURSEMENT,
     }
 )

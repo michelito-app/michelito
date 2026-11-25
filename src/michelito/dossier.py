@@ -204,12 +204,6 @@ def _totals(s: summary.Summary) -> dict[str, Any]:
     }
     if s.invested:
         found["to_investments"] = _money(s.invested)
-    # What came in from selling crypto, apart from the other income (also only if there was any).
-    crypto = sum(
-        (line.amount for line in s.income_lines if line.ref == categories.CRYPTO), Decimal(0)
-    )
-    if crypto:
-        found["crypto_income"] = _money(crypto)
     return found
 
 

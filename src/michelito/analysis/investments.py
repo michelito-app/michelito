@@ -76,6 +76,7 @@ NOT_INVESTMENT = frozenset(
         categories.CARD_PAYMENT,
         categories.OWN_TRANSFER,
         categories.CURRENCY_EXCHANGE,
+        categories.CRYPTO,
         categories.REIMBURSEMENT,
         categories.SALARY,
     }
