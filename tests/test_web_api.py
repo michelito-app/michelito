@@ -191,6 +191,14 @@ def test_transactions_totals_are_per_kind(client: TestClient) -> None:
         "/api/transactions", params={"month": "2026-01", "kind": "income"}
     ).json()
     assert only_income["total_cents"] == 0 and only_income["income_cents"] == 500050
+    for kind in ("neutral", "third_party"):
+        listed = client.get("/api/transactions", params={"month": "2026-01", "kind": kind})
+        assert listed.status_code == 200
+        assert all(t["kind"] == "transfer" for t in listed.json()["items"])
+    assert (
+        client.get("/api/transactions", params={"month": "2026-01", "kind": "bogus"}).status_code
+        == 422
+    )
 
 
 def test_holders_file_is_read_per_request(db_path: Path, tmp_path: Path) -> None:

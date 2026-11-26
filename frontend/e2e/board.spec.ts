@@ -399,6 +399,20 @@ test.describe('corrections', () => {
   })
 })
 
+test('transactions: the Kind = Neutral filter leaves only what is neither spending nor income', async ({
+  page,
+}) => {
+  await page.goto(`/transactions?month=${MONTH}`)
+  await page.getByRole('search').getByLabel(t('transactions.filters.kind')).selectOption(
+    t('transactions.kind.neutral'),
+  )
+
+  await expect(page).toHaveURL(/kind=neutral/)
+  const list = page.getByRole('region', { name: LIST })
+  await expect(list.getByRole('button', { name: /SU PAGO/ }).first()).toBeVisible()
+  await expect(list.getByRole('button', { name: /DEPOSITO NOMINA|CAFE FICTICIO/ })).toHaveCount(0)
+})
+
 test('transactions: the Kind = Income filter leaves only the credits that are income', async ({
   page,
 }) => {

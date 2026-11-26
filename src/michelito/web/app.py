@@ -35,7 +35,7 @@ from michelito.analysis import (
 from michelito.analysis import exchanges as exchange_math
 from michelito.analysis import one_off_dismissals as dismissals
 from michelito.analysis import recurring_marks as marks
-from michelito.analysis.categories import KIND_LABELS, Kind
+from michelito.analysis.categories import KIND_LABELS
 from michelito.analysis.spending import Movement
 from michelito.hosted import inbox_store
 from michelito.i18n import t
@@ -371,7 +371,7 @@ def create_app(
         account: str | None = None,
         category: str | None = None,
         q: str | None = None,
-        kind: Kind | None = None,
+        kind: transactions.ListKind | None = None,
         accounts: AccountKeys = None,
         category_id: int | None = None,
         shared: transactions.SharedFilter | None = None,

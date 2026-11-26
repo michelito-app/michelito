@@ -10,7 +10,8 @@ export const transactions = {
   'transactions.sort.amount': 'Monto (mayor primero)',
   'transactions.kind.expense': 'Gastos',
   'transactions.kind.income': 'Ingresos',
-  'transactions.kind.transfer': 'Transferencias',
+  'transactions.kind.neutral': 'Neutras',
+  'transactions.kind.thirdParty': 'A terceros',
   'transactions.dayLabel': '{weekday} {day} de {month}',
   // Phone list day headers.
   'transactions.day.today': 'Hoy',

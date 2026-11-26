@@ -13,8 +13,8 @@ export type GroupBy = 'day' | 'category' | 'merchant'
 export type SortBy = 'date' | 'amount'
 
 /** Filters as they live in the URL: `month`, `accounts` (comma-separated keys; the older single
- * `account` is read too), `category`, `q`, `tx` (the fingerprint), `kind` (expense, income or
- * transfer), `group` and `sort`. The last two do not narrow the list, they only present it
+ * `account` is read too), `category`, `q`, `tx` (the fingerprint), `kind` (expense, income,
+ * neutral or third-party; an old `transfer` reads as neutral), `group` and `sort`. The last two do not narrow the list, they only present it
  * differently. */
 export interface TxFilters {
   month: string | null
@@ -22,7 +22,7 @@ export interface TxFilters {
   category: string | null
   q: string
   tx: string | null
-  kind: Kind | null
+  kind: KindFilter | null
   group: GroupBy
   sort: SortBy
   shared: SharedFilter | null // `shared=pending`: shared expenses with something pending
@@ -47,12 +47,21 @@ export const SORT_OPTIONS: readonly { param: string | null; sort: SortBy; label:
   { param: 'amount', sort: 'amount', label: t('transactions.sort.amount') },
 ]
 
+/** What the "Type" filter asks the API for: a category kind, or the transfers split in two:
+ * neutral (counted neither as spending nor as income) and third-party (money sent to other
+ * people, which lowers what you kept). */
+export type KindFilter = Exclude<Kind, 'transfer'> | 'neutral' | 'third_party'
+
 /** Options of the "Type" filter: URL value, API kind and label. */
-export const KIND_OPTIONS: readonly { param: string; kind: Kind; label: string }[] = [
+export const KIND_OPTIONS: readonly { param: string; kind: KindFilter; label: string }[] = [
   { param: 'expense', kind: 'expense', label: t('transactions.kind.expense') },
   { param: 'income', kind: 'income', label: t('transactions.kind.income') },
-  { param: 'transfer', kind: 'transfer', label: t('transactions.kind.transfer') },
+  { param: 'neutral', kind: 'neutral', label: t('transactions.kind.neutral') },
+  { param: 'third-party', kind: 'third_party', label: t('transactions.kind.thirdParty') },
 ]
+
+/** Old URL values of the "Type" filter. */
+const OLD_KIND_PARAMS: Readonly<Record<string, KindFilter>> = { transfer: 'neutral' }
 
 /** Filters that narrow the list (the ones sent to the API besides the month). */
 export type ListFilters = Pick<
@@ -97,11 +106,12 @@ function sortOf(param: string | null): SortBy {
   return SORT_OPTIONS.find((o) => o.param !== null && o.param === param)?.sort ?? 'date'
 }
 
-function kindOf(param: string | null): Kind | null {
+function kindOf(param: string | null): KindFilter | null {
+  if (param !== null && param in OLD_KIND_PARAMS) return OLD_KIND_PARAMS[param]
   return KIND_OPTIONS.find((o) => o.param === param)?.kind ?? null
 }
 
-function kindParam(kind: Kind | null): string | null {
+function kindParam(kind: KindFilter | null): string | null {
   return KIND_OPTIONS.find((o) => o.kind === kind)?.param ?? null
 }
 

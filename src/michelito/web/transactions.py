@@ -27,6 +27,10 @@ Scope = Literal["transaction", "merchant"]
 SCOPES: tuple[str, ...] = get_args(Scope)
 # Shared-expense filter: all, or only those with something pending ("they owe you").
 SharedFilter = Literal["shared", "pending"]
+# "Type" filter: a category kind, or "neutral" (transfer kinds that count neither as spending nor
+# as income) and "third_party" (transfers to other people: they lower what you kept). "transfer"
+# (both) stays for old links.
+ListKind = Literal["income", "expense", "transfer", "neutral", "third_party"]
 
 
 @dataclass(frozen=True)
@@ -71,13 +75,23 @@ class Filters:
     account: str | None = None
     category: str | None = None
     q: str | None = None
-    kind: Kind | None = None
+    kind: ListKind | None = None
     accounts: Collection[str] | None = None  # several accounts; None: all
     # Stable reference of the requested category (the caller resolves it, see `catalog`);
     # wins over `category` (a name).
     category_ref: str | None = None
     shared: SharedFilter | None = None
     provisional: bool = False  # only the provisional ones (still without a statement)
+
+
+def _of_kind(move: Movement, kind: ListKind | None) -> bool:
+    if kind is None:
+        return True
+    if kind == "third_party":
+        return move.ref == categories.THIRD_PARTY
+    if kind == "neutral":
+        return move.kind == "transfer" and move.ref != categories.THIRD_PARTY
+    return move.kind == kind
 
 
 def list_transactions(
@@ -111,7 +125,7 @@ def list_transactions(
         and (filters.account is None or m.account == filters.account)
         and (filters.accounts is None or m.account in filters.accounts)
         and _in_category(m, filters.category_ref, category)
-        and (filters.kind is None or m.kind == filters.kind)
+        and _of_kind(m, filters.kind)
         and (not needle or _matches(m, needle))
         and (not filters.provisional or m.provisional)
     ]

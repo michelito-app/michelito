@@ -14,6 +14,7 @@ import {
   groupByDay,
   hasNarrowing,
   historyText,
+  KIND_OPTIONS,
   kindBadge,
   merchantScopeNote,
   oneOffBadge,
@@ -437,6 +438,14 @@ describe('kind filter', () => {
     expect(filters.kind).toBe('income')
     expect(toParams(filters).toString()).toBe('month=2026-01&kind=income')
     expect(apiPath('2026-01', filters)).toBe('/api/transactions?month=2026-01&kind=income')
+  })
+
+  it('offers neutral and third-party instead of transfer, and reads an old `transfer` as neutral', () => {
+    expect(KIND_OPTIONS.map((o) => o.kind)).toEqual(['expense', 'income', 'neutral', 'third_party'])
+    const neutral = parseFilters(new URLSearchParams('month=2026-01&kind=neutral'))
+    expect(apiPath('2026-01', neutral)).toBe('/api/transactions?month=2026-01&kind=neutral')
+    expect(parseFilters(new URLSearchParams('kind=third-party')).kind).toBe('third_party')
+    expect(parseFilters(new URLSearchParams('kind=transfer')).kind).toBe('neutral')
   })
 
   it('ignores an unknown kind', () => {

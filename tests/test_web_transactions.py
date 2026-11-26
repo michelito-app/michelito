@@ -212,6 +212,23 @@ def test_filter_by_kind_and_kind_in_view():
     assert [(v.merchant, v.kind) for v in income] == [("EMPRESA", "income")]
 
 
+def test_neutral_leaves_out_third_party_transfers_which_have_their_own_filter():
+    moves = [
+        movement("2026-10-02", "100"),
+        movement("2026-10-03", "700", cat.CARD_PAYMENT, "PAGO TC"),
+        movement("2026-10-04", "300", cat.CRYPTO, "VENDEDOR"),
+        movement("2026-10-05", "900", cat.THIRD_PARTY, "AMIGO"),
+    ]
+
+    def listed(kind: transactions.ListKind) -> list[str]:
+        found = transactions.list_transactions(moves, ACCOUNTS, {}, Filters("2026-10", kind=kind))
+        return sorted(v.merchant for v in found)
+
+    assert listed("neutral") == ["PAGO TC", "VENDEDOR"]
+    assert listed("third_party") == ["AMIGO"]
+    assert listed("transfer") == ["AMIGO", "PAGO TC", "VENDEDOR"]  # old links keep working
+
+
 class TestKindChange:
     def test_correction_moves_movement_between_kinds(self) -> None:
         conn = db.connect(":memory:")
