@@ -4,7 +4,7 @@
 # server commands) when deploy/docker-compose.yml says so. See docs/deployment.md. Base images are pinned by digest (Dependabot bumps them).
 
 # 1. The interface: builds frontend/ into src/michelito/web/static/ (like `npm run build`).
-FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS frontend
+FROM node:25-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS frontend
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
