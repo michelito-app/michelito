@@ -173,6 +173,11 @@ async def run_read(ctx: Context, tool: mcp_tools.ReadTool, arguments: Any) -> di
         if any(key is None for key in real):
             return _text("unknown account: use the keys list_accounts shows", is_error=True)
         checked = {**checked, "accounts": real}
+    if "account" in checked:
+        found = redact.unmask_key(str(checked["account"]), await _account_keys(ctx))
+        if found is None:
+            return _text("unknown account: use the keys list_accounts shows", is_error=True)
+        checked = {**checked, "account": found}
     path, query = mcp_tools.request_of(tool, checked)
     workspace = CURRENT.get()
     assert workspace is not None

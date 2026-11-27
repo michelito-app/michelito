@@ -199,6 +199,30 @@ def test_reading_masks_identifiers(h: Hosted, alice: TestClient) -> None:
     assert months  # the masked key works as a filter
 
 
+def test_card_billing_takes_the_masked_key(h: Hosted, alice: TestClient) -> None:
+    account = h.service.store.account_by_email(ALICE)
+    workspace = h.service.workspace_of(account)
+    with closing(db.connect(workspace.database, workspace.key)) as conn, conn:
+        conn.execute(
+            "UPDATE accounts SET key = 'bhd:credit_card:42424242' WHERE key = 'bhd:credit_card'"
+        )
+    _, token = _connect(h, alice)
+    cards = [
+        a["key"] for a in _tool(h, token, "list_accounts")["data"] if a["kind"] == "credit_card"
+    ]
+    card = next(k for k in cards if k.startswith("bhd:"))
+    assert card == "bhd:credit_card:••4242"
+
+    data = _tool(h, token, "get_account_billing", account=card)["data"]
+
+    assert data["statements"] and set(data["totals"]) <= {"DOP", "USD"}
+    assert data["account"] == card  # masked on the way out too
+    unknown = _rpc(
+        h, token, "tools/call", {"name": "get_account_billing", "arguments": {"account": "nope"}}
+    )["result"]
+    assert unknown["isError"] is True and "unknown account" in unknown["content"][0]["text"]
+
+
 def test_wrong_arguments_are_a_tool_error(h: Hosted, alice: TestClient) -> None:
     _, token = _connect(h, alice)
 

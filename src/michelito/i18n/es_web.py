@@ -2,6 +2,14 @@
 change-log text the routes return to the UI."""
 
 MESSAGES: dict[str, str] = {
+    # Card billing (`web.billing_routes`).
+    "web.billing.unknown_account": "esa cuenta no existe",
+    "web.billing.not_a_card": "la facturación solo se mide en tarjetas de crédito",
+    "web.billing.no_statements": "esa tarjeta no tiene estados",
+    "web.billing.range": "el mes inicial va después del final",
+    "web.transactions.month_or_range": "usa un mes o un rango, no los dos",
+    "web.transactions.range": "el mes inicial va después del final",
+    "web.range_too_long": "el rango no puede pasar de {months} meses",
     # Installment plans (`web.installment_routes`).
     "web.tags.unknown": "esa etiqueta no existe",
     "web.tags.unknown_target": "ese préstamo o plan de cuotas no existe",

@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from michelito import config, db, holders, migrations_v19
 from michelito.analysis import accounts as account_data
 from michelito.analysis import (
+    billing,
     cash_activation,
     cash_box,
     catalog,
@@ -42,6 +43,7 @@ from michelito.i18n import t
 from michelito.web import accounts as accounts_view
 from michelito.web import (
     batch_routes,
+    billing_routes,
     budget_routes,
     cash_box_routes,
     cash_routes,
@@ -99,6 +101,7 @@ from michelito.web.schemas import (
     PreviewOut,
     RateBody,
     SavedRateOut,
+    SearchedOut,
     SummaryOut,
     TransactionsOut,
     TxOut,
@@ -117,6 +120,7 @@ _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 Month = Annotated[str, PathParam(pattern=_MONTH_PATTERN)]
 OptionalMonth = Annotated[str | None, Query(pattern=_MONTH_PATTERN)]
+MAX_PAGE = 500  # rows of one page of /api/transactions
 RequiredMonth = Annotated[str, Query(pattern=_MONTH_PATTERN)]
 # Comma-separated account keys (`accounts.key`); missing or empty: all of them.
 AccountKeys = Annotated[str | None, Query(max_length=2000)]
@@ -376,18 +380,33 @@ def create_app(
         category_id: int | None = None,
         shared: transactions.SharedFilter | None = None,
         provisional: bool = False,
+        first: Annotated[str | None, Query(alias="from", pattern=_MONTH_PATTERN)] = None,
+        last: Annotated[str | None, Query(alias="to", pattern=_MONTH_PATTERN)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=MAX_PAGE)] = None,
+        offset: Annotated[int, Query(ge=0)] = 0,
     ) -> TransactionsOut:
         """`account` (one account) is the older filter and is still accepted; together with
         `accounts`, the rows that match both remain. The category goes by `category_id` or by
         name (`category`: the current one or an earlier one). `shared`: only shared expenses
         ("shared") or the ones with an amount pending ("pending"). `provisional`: only the ones
-        from bank alerts still waiting for their statement."""
+        from bank alerts still waiting for their statement. `from`/`to`: a range of months
+        instead of `month` (one end alone is that month). `limit`/`offset`: one page of the
+        rows; `count` and the totals are always of every row that matches."""
+        if month and (first or last):
+            raise HTTPException(422, t("web.transactions.month_or_range"))
+        first, last = first or last, last or first
+        if first and last and first > last:
+            raise HTTPException(422, t("web.transactions.range"))
+        if first and last and billing.span(first, last) > billing.MAX_RANGE_MONTHS:
+            raise HTTPException(422, t("web.range_too_long", months=billing.MAX_RANGE_MONTHS))
         with connection() as conn:
             known = catalog.load(conn)
             movements = load_flow(conn, known)
             infos = account_data.account_infos(conn)
             selected = parse_accounts(accounts, infos)
-            chosen = month or default_month(summary.month_options(movements, infos, selected))
+            chosen = (
+                month or first or default_month(summary.month_options(movements, infos, selected))
+            )
             views = tx_views(
                 conn,
                 known,
@@ -403,18 +422,22 @@ def create_app(
                     categories_view.filter_ref(known, category, category_id),
                     shared,
                     provisional,
+                    last if first else None,
                 ),
                 # The suggestions, with the same history as the Summary card.
                 only(movements, selected),
             )
         items = [TxOut.of(v) for v in views]
         spent = [i for i in items if i.kind == "expense"]
+        end = len(items) if limit is None else offset + limit
         return TransactionsOut(
-            items=items,
+            items=items[offset:end],
             count=len(items),
             total_cents=sum(i.amount_dop_cents or 0 for i in spent),
             income_cents=-sum(i.amount_dop_cents or 0 for i in items if i.kind == "income"),
             unconverted_usd_cents=sum(i.amount_cents for i in spent if i.amount_dop_cents is None),
+            searched=SearchedOut(first=chosen, last=last or chosen),
+            next_offset=end if end < len(items) else None,
         )
 
     def tx_views(
@@ -442,7 +465,10 @@ def create_app(
             by_month,
             filters,
             suggested_reasons(
-                conn, movements if history is None else history, by_month, (filters.month,)
+                conn,
+                movements if history is None else history,
+                by_month,
+                tuple(billing.months_between(filters.month, filters.last)),
             ),
             dismissals.load(conn),
             known,
@@ -948,6 +974,7 @@ def create_app(
     cash_box_routes.register(app, connection, load_flow, tx_out, today)
     cash_routes.register(app, connection, load_flow, today)
     report_routes.register(app, connection, load_flow, parse_accounts)
+    billing_routes.register(app, connection)
     budget_routes.register(app, connection, load_flow, parse_accounts, today)
     reserve_routes.register(app, connection, load_flow, parse_accounts, today)
     insight_routes.register(app, connection, load_flow, lambda: holders.of(workspace()))

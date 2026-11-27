@@ -6,7 +6,7 @@ from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from michelito.analysis import anomalies, cash_box, catalog, corrections, links
 from michelito.analysis import providers as provider_list
@@ -759,12 +759,23 @@ class PreviewOut(BaseModel):
         )
 
 
+class SearchedOut(BaseModel):
+    """The months a transactions list looked in (both included)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    first: str = Field(serialization_alias="from")
+    last: str = Field(serialization_alias="to")
+
+
 class TransactionsOut(BaseModel):
-    items: list[TxOut]
-    count: int
+    items: list[TxOut]  # one page when `limit` was given, else every row
+    count: int  # every row that matches, not only the page
     total_cents: int  # the list's spending, only rows converted to RD$
     income_cents: int  # the list's income in RD$, as a positive number
     unconverted_usd_cents: int  # US$ spending without the month's rate: not in total_cents
+    searched: SearchedOut | None = None
+    next_offset: int | None = None  # the next page's offset; None when this is the last one
 
 
 class StatementLineOut(BaseModel):

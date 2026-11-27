@@ -82,6 +82,11 @@ class Filters:
     category_ref: str | None = None
     shared: SharedFilter | None = None
     provisional: bool = False  # only the provisional ones (still without a statement)
+    last_month: str | None = None  # a range: `month` (the first) to this one; None: one month
+
+    @property
+    def last(self) -> str:
+        return self.last_month or self.month
 
 
 def _of_kind(move: Movement, kind: ListKind | None) -> bool:
@@ -104,7 +109,7 @@ def list_transactions(
     known: catalog.Catalog | None = None,
     link_rows: Callable[[Collection[str]], Mapping[str, RowLinks]] | None = None,
 ) -> list[TxView]:
-    """The month's transactions, newest first (load order within a day).
+    """The transactions of the month (or range), newest first (load order within a day).
 
     `suggested`: reasons of the rows suggested as one-off, by fingerprint; `dismissed`:
     fingerprints whose suggestion the user dismissed; `known`, the catalog (for each
@@ -121,7 +126,7 @@ def list_transactions(
     selected = [
         m
         for m in movements
-        if m.month == filters.month
+        if filters.month <= m.month <= filters.last
         and (filters.account is None or m.account == filters.account)
         and (filters.accounts is None or m.account in filters.accounts)
         and _in_category(m, filters.category_ref, category)

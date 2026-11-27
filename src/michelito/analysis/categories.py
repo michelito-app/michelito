@@ -253,6 +253,7 @@ _BANK_FEES = re.compile(
     r"^(CR )?(INTERES|INTERESES|COMISION)\b|^MORA$|^PROTECCION POR\b|^ITBIS\b"
     r"|^CARGO (COBERTURA|PARCIAL|RENOVACION|SOBREGIRO|POR)\b"
 )
+_CASH_TEXT = re.compile(r"\b(RETIRO|CAJERO|ATM)\b|^(COD )?CASH\b|\bCOD CASH\b")
 # Only unmistakable merchants whose MCC is misleading: they beat the MCC.
 _KEYWORD_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern), category)
@@ -300,7 +301,7 @@ _BANK_DEBIT_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"^(COMISION|CARGO)\b|\bCOMISION(ES)?\b", BANK_FEES),
         (_BANK_FEES.pattern, BANK_FEES),
         (r"\bBANCASEGURO\b|\bSEGUROS?\b", INSURANCE),
-        (r"\b(RETIRO|CAJERO|ATM)\b|^(COD )?CASH\b|\bCOD CASH\b", CASH),
+        (_CASH_TEXT.pattern, CASH),
         (r"^AUT PAGO\b|\bPRESTAMOS?\b", LOANS),
     )
 )
@@ -481,6 +482,21 @@ def is_reversal(description: str) -> bool:
     """Reversal of a bank transaction: the text starts with the word "DEV"."""
     words = clean(description).split()
     return bool(words) and words[0] == _REVERSAL_WORD
+
+
+def is_refund_text(description: str) -> bool:
+    """A card credit that gives back a purchase: the text starts with DEV or DEVOLUCION."""
+    return bool(_REFUND_PREFIX.match(clean(description)))
+
+
+def is_bank_fee_text(description: str) -> bool:
+    """Text of a bank charge (interest, commission...), after any refund prefix."""
+    return bool(_BANK_FEES.search(_REFUND_PREFIX.sub("", clean(description))))
+
+
+def is_cash_text(description: str) -> bool:
+    """Text of a cash withdrawal (ATM, cash advance)."""
+    return bool(_CASH_TEXT.search(clean(description)))
 
 
 def category_for_mcc(mcc: str | None) -> str | None:

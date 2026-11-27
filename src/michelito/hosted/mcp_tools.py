@@ -46,6 +46,7 @@ class ReadTool:
     path: str  # with {name} for path parameters
     params: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     required: tuple[str, ...] = ()
+    defaults: Mapping[str, Any] = field(default_factory=dict)  # sent when the AI leaves them out
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -80,10 +81,38 @@ READ_TOOLS: tuple[ReadTool, ...] = (
     ReadTool(
         "get_month_summary",
         "Month summary",
-        "A month's spending and income by category, compared with the usual, with its "
-        "highlights. Defaults to the latest complete month.",
+        "A calendar month's spending and income by category, compared with the usual, with its "
+        "highlights. Defaults to the latest complete month. total_cents is the person's OWN "
+        "spending: it leaves out what others paid in shared expenses and transfers to third "
+        "parties, so it is not what a card billed. For a card's billing use get_account_billing.",
         "/api/summary",
         {"month": MONTH, "accounts": ACCOUNTS},
+    ),
+    ReadTool(
+        "get_account_billing",
+        "Card billing",
+        "What one credit card billed, read from its bank statements: the statements whose "
+        "closing date falls in from..to (at most 36 months; default: the 12 up to its newest "
+        "statement). "
+        "Each transaction goes to one fixed group by the statement itself (the person's "
+        "category corrections never move it): purchases, cash_advances, bank_fees (net of fee "
+        "reversals), refunds and payments, per statement and in totals per currency; "
+        "previous_balance + purchases + cash_advances + bank_fees - refunds - payments = "
+        "closing_balance. converted_dop_cents uses the BCRD rate of each closing month. Nothing "
+        "is pre-subtracted: net card purchases are usually purchases - refunds, but each bank's "
+        "target has its own rules. If complete is false, months are missing (missing): do not "
+        "present the total as the whole period.",
+        "/api/billing",
+        {
+            "account": {
+                "type": "string",
+                "maxLength": 100,
+                "description": "A credit card's key as list_accounts shows it.",
+            },
+            "from": MONTH,
+            "to": MONTH,
+        },
+        ("account",),
     ),
     ReadTool(
         "get_month_pace",
@@ -105,12 +134,21 @@ READ_TOOLS: tuple[ReadTool, ...] = (
     ReadTool(
         "list_transactions",
         "List transactions",
-        "A month's transactions (expenses, income and transfers) with category, account, "
-        "amount, note and links. Filter by text, category, kind or account. Use each row's "
-        "fingerprint to name it in other tools.",
+        "Transactions (expenses, income and transfers) with category, account, amount, note and"
+        " links, newest first, of one month (month; default the latest) or a range of months "
+        "(from/to, at most 36, not with month). Filter by text, category, kind or account. "
+        "Answers come in pages of `limit` rows (default 200): follow next_offset until it is "
+        "null; count and the totals are always of every matching row, so never add up pages. "
+        "searched says which months were looked in, also when nothing matched. To add up what a"
+        " card billed use get_account_billing instead. Use each row's fingerprint to name it in"
+        " other tools.",
         "/api/transactions",
         {
             "month": MONTH,
+            "from": MONTH,
+            "to": MONTH,
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            "offset": {"type": "integer", "minimum": 0},
             "q": {"type": "string", "maxLength": 200, "description": "Text in merchant/desc."},
             "category_id": {"type": "integer"},
             "kind": {"type": "string", "enum": ["expense", "income", "transfer"]},
@@ -121,6 +159,7 @@ READ_TOOLS: tuple[ReadTool, ...] = (
             },
             "accounts": ACCOUNTS,
         },
+        defaults={"limit": 200},
     ),
     ReadTool(
         "get_transaction",
@@ -382,7 +421,7 @@ def request_of(tool: ReadTool, checked: Mapping[str, Any]) -> tuple[str, dict[st
     path_names = set(_PATH_PARAM.findall(tool.path))
     path = _PATH_PARAM.sub(lambda m: str(checked[m.group(1)]), tool.path)
     query: dict[str, str] = {}
-    for name, value in checked.items():
+    for name, value in {**tool.defaults, **checked}.items():
         if name in path_names:
             continue
         if isinstance(value, bool):
