@@ -508,6 +508,8 @@ def _settle(
         except Exception as exc:  # noqa: BLE001 - only the class name is logged
             log.error("a forwarded statement could not be stored: %s", type(exc).__name__)
             state = uploads.UNREADABLE
+        if state == uploads.NO_LOAN:  # by mail there is no screen to say which loan is missing
+            state = uploads.UNSUPPORTED
     else:
         uploads.log_failure(examined.fingerprint)
     with conn:

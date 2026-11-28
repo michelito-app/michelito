@@ -27,6 +27,9 @@ export const REQUESTABLE_BANKS = [
 ] as const
 const SHARE = /^#share=([A-Za-z0-9_-]{16,64})$/
 
+/** The `kind` of a read that is a loan history, not an account statement. */
+const LOAN_KIND = 'loan'
+
 export type SupportedBank = (typeof SUPPORTED_BANKS)[number]
 export type RequestableBank = (typeof REQUESTABLE_BANKS)[number]
 export type FileStateName =
@@ -39,6 +42,7 @@ export type FileStateName =
   | 'unsupported'
   | 'unreadable'
   | 'too_complex'
+  | 'no_loan'
 
 export interface StatementRead {
   bank: string
@@ -134,18 +138,20 @@ export function bankName(bank: string): string {
 
 /** The masked account: a card or another account, with its last four characters. */
 export function accountMask(kind: string, identifier: string): string {
-  return kind === 'credit_card'
-    ? t('onboarding.account.card', { last4: identifier })
-    : t('onboarding.account.other', { last4: identifier })
+  if (kind === 'credit_card') return t('onboarding.account.card', { last4: identifier })
+  if (kind === LOAN_KIND) return t('onboarding.account.loan', { last4: identifier })
+  return t('onboarding.account.other', { last4: identifier })
 }
 
-/** What a finished file says about itself: bank · account · month · N transactions. */
+/** What a finished file says about itself: bank · account · month · N transactions (a loan
+ * history: its loan, the month of its last payment and how many payments it has). */
 export function readLine(read: StatementRead): string {
+  const count = { count: read.transactions }
   return [
     bankName(read.bank),
     accountMask(read.kind, read.identifier),
     monthPhrase(read.month),
-    t('common.transactions', { count: read.transactions }),
+    read.kind === LOAN_KIND ? t('onboarding.file.payments', count) : t('common.transactions', count),
   ].join(' · ')
 }
 
@@ -159,6 +165,7 @@ const STATE_KEYS = {
   unsupported: 'onboarding.file.unsupported',
   unreadable: 'onboarding.file.unreadable',
   too_complex: 'onboarding.file.tooComplex',
+  no_loan: 'onboarding.file.noLoan',
 } as const
 
 export function stateText(state: FileStateName): string {
@@ -170,7 +177,7 @@ export function opened(file: UploadFile): boolean {
 }
 
 export function failed(file: UploadFile): boolean {
-  return ['invalid', 'unsupported', 'unreadable', 'too_complex'].includes(file.state)
+  return ['invalid', 'unsupported', 'unreadable', 'too_complex', 'no_loan'].includes(file.state)
 }
 
 export function lockedFiles(job: Job): UploadFile[] {

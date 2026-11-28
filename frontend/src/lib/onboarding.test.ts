@@ -4,6 +4,7 @@ import {
   MAX_FILES,
   accountMask,
   bankName,
+  failed,
   filesProblem,
   lockedFiles,
   missingLine,
@@ -43,6 +44,21 @@ describe('what a file says', () => {
     expect(accountMask('savings', '4242')).toBe('Cuenta ···4242') // spanish-ui
     expect(bankName('unknown-bank')).toBe('unknown-bank')
     expect(stateText('squared')).toBe('✓ cuadró al centavo') // spanish-ui
+  })
+
+  it('says a loan history in payments, and when its loan is missing', () => {
+    const line = readLine({
+      bank: 'popular',
+      kind: 'loan',
+      identifier: '4567',
+      month: '2025-06',
+      transactions: 5,
+    })
+    expect(line).toBe('Popular · Préstamo ···4567 · junio 2025 · 5 pagos') // spanish-ui
+    expect(stateText('no_loan')).toContain('préstamo') // spanish-ui
+    expect(failed({ id: 1, name: 'loan.pdf', state: 'no_loan', bank: 'popular', reads: [] })).toBe(
+      true,
+    )
   })
 
   it('lists a missing month like the report', () => {

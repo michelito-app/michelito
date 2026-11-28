@@ -9,6 +9,11 @@ Possible statuses of a document:
   website printout with the same dates).
 - archived: not a PDF; it is kept but not parsed in phase 1.
 
+A loan statement (a parser of `analysis.loan_statements`, tried when no account parser
+recognizes the document) has no transactions: its payments go to the loan with its number.
+The document ends up `parsed`, `duplicate` (every payment was already there) or `error` (it
+does not square, or no loan has that number yet: `retry` reads it again once it exists).
+
 A website printout does not state its currency (a bare "$"): the one given when importing is
 used (`printout_currency`) or, failing that, the one given before for that account
 (`account_currency`); with neither, DOP. The given one is remembered for the account when the
@@ -39,7 +44,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from michelito import db
-from michelito.analysis import installment_store, live_match, loan_store, receipt_match
+from michelito.analysis import (
+    installment_store,
+    live_match,
+    loan_statements,
+    loan_store,
+    receipt_match,
+)
+from michelito.analysis.links import LinkError
 from michelito.config import ARCHIVE_ONLY
 from michelito.i18n import t
 from michelito.parsers import StatementParser, detect, labeler, popular_web, splitter
@@ -93,6 +105,14 @@ class _Unread:
     detail: str
 
 
+@dataclass(frozen=True)
+class _LoanDocument:
+    """A document that is a loan statement: its pages and the parser that recognized them."""
+
+    pages: tuple[Page, ...]
+    parser: loan_statements.Parser
+
+
 def ingest_statement(
     conn: sqlite3.Connection, document_id: int, parser: str, statement: Statement
 ) -> str:
@@ -119,6 +139,8 @@ def _process(
     if isinstance(found, _Unread):
         reason = _scrub(found.detail, password) or found.detail
         return _mark_unread(conn, row["id"], _Unread(found.status, reason))
+    if isinstance(found, _LoanDocument):
+        return _process_loan(conn, row["id"], found, password)
     pages, parser = found
     split = splitter(parser)
     if split is not None:
@@ -133,7 +155,7 @@ def _process(
 
 def _recognize(
     row: sqlite3.Row, password: str, read_pages: PageReader, archive_only: Collection[str]
-) -> _Unread | tuple[tuple[Page, ...], StatementParser]:
+) -> _Unread | _LoanDocument | tuple[tuple[Page, ...], StatementParser]:
     """Read the document and choose its parser."""
     if row["source"] in archive_only:
         return _Unread("archived", t("core.ingest.archived_source"))
@@ -147,9 +169,42 @@ def _recognize(
     except Exception as exc:  # a failing `matches` must not stop the rest of the run
         error = f"{type(exc).__name__}: {exc}"
         return _Unread("error", t("core.ingest.detect_failed", error=error))
-    if parser is None:
+    if parser is not None:
+        return pages, parser
+    try:
+        loan_parser = loan_statements.parser_for(pages)
+    except Exception as exc:  # like `detect`: a failing `matches` must not stop the run
+        error = f"{type(exc).__name__}: {exc}"
+        return _Unread("error", t("core.ingest.detect_failed", error=error))
+    if loan_parser is None:
         return _Unread("unsupported", t("core.ingest.unsupported"))
-    return pages, parser
+    return _LoanDocument(pages, loan_parser)
+
+
+def _process_loan(
+    conn: sqlite3.Connection, document_id: int, found: _LoanDocument, password: str
+) -> str:
+    """Parse a loan statement and put its payments on its loan; returns the final status."""
+    name = found.parser.NAME
+    try:
+        statement = found.parser.parse(found.pages)
+    except Exception as exc:  # an unexpected format must not stop the rest of the run
+        _mark(conn, document_id, "error", name, _scrub(f"{type(exc).__name__}: {exc}", password))
+        return "error"
+    try:
+        with conn:
+            _, added = loan_statements.store(conn, statement, f"document:{document_id}", _now())
+    except LinkError as exc:
+        _mark(conn, document_id, "error", name, str(exc))
+        return "error"
+    except sqlite3.IntegrityError as exc:  # like `_store_part`: it must not stop the run
+        _mark(conn, document_id, "error", name, f"IntegrityError: {exc}")
+        return "error"
+    if not added:
+        _mark(conn, document_id, "duplicate", name, t("core.ingest.loan_repeated"))
+        return "duplicate"
+    _mark(conn, document_id, "parsed", name, t("core.ingest.loan_stored", count=added))
+    return "parsed"
 
 
 def _mark_unread(conn: sqlite3.Connection, document_id: int, unread: _Unread) -> str:

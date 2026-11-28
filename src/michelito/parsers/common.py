@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+from michelito.analysis.loan_schedule import StatementLine
 from michelito.i18n import t
 
 DEBIT = "debit"
@@ -103,6 +104,14 @@ class Statement:
     @property
     def is_liability(self) -> bool:
         return self.kind == "credit_card"
+
+
+@dataclass(frozen=True)
+class LoanStatement:
+    """What a loan statement parser reads (see `analysis.loan_statements`)."""
+
+    number: str  # as printed; compared clean (`loan_match.clean_number`)
+    lines: tuple[StatementLine, ...]
 
 
 def is_amount(text: str) -> bool:

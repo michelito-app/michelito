@@ -849,3 +849,63 @@ POPULAR_HISTORICO_BROKEN_SPACES = popular_history(
     cut="12 NOV 2025",
     opening="6,000.00",
 )  # fmt: skip
+
+
+# Historial de préstamo del Popular (lo manda el oficial de cuentas): encabezado con el número,
+# el saldo de capital y la cancelación a la fecha, y una fila por movimiento con el monto y el
+# saldo después. Las filas viejas traen dos fechas numéricas y un código; las nuevas, una sola
+# fecha con el mes en letras.
+def popular_loan_history(
+    movements: tuple[str, ...],
+    *,
+    number: str = "1234567",
+    capital: str = "89,950.00",
+) -> tuple[Page, ...]:
+    return (
+        page(
+            "                    Historial Préstamo        15-Jul-2025",
+            f"          Préstamo: {number}            Moneda: RD$",
+            "            Nombre: FULANO DE TAL",
+            f"  Saldo de capital:        {capital}",
+            "           Interés:         (120.50)",
+            "              Mora:                -",
+            "Balance de Bolcillo:               -",
+            "            Seguro:                -",
+            "Cancelación en fecha:      89,829.50",
+            "Fch pst  Fch efc CT Descripción          Monto tran    Saldo de cuenta",
+            *movements,
+        ),
+    )
+
+
+POPULAR_LOAN_MOVEMENTS = (
+    " 5-03-25  5-03-25 34 DESEMBOLSO ADIC      120,000.00      120,000.00",
+    " 5-03-25  5-03-25 83 PAGO                   1,440.00      120,000.00",
+    " 5-03-25  5-03-25 83 PAGO                     560.00      120,000.00",
+    " 7-04-25  7-04-25 83 PAGO                  11,200.00      110,000.00",
+    "         5-May-25    PAGO                  11,100.00      100,000.00",
+    "         9-Jun-25    PAGO                   4,000.00       96,950.00",
+    "         9-Jun-25    PAGO                   7,000.00       89,950.00",
+    "        10-Jun-25    PAGO                     300.00       89,950.00",
+)
+POPULAR_LOAN_HISTORY = popular_loan_history(POPULAR_LOAN_MOVEMENTS)
+# El saldo impreso no es el de la última fila.
+POPULAR_LOAN_HISTORY_WRONG_BALANCE = popular_loan_history(
+    POPULAR_LOAN_MOVEMENTS, capital="80,000.00"
+)
+# Un pago que baja el capital más de lo que se pagó.
+POPULAR_LOAN_HISTORY_BROKEN_CHAIN = popular_loan_history(
+    (
+        "         5-May-25    DESEMBOLSO SIEBEL     50,000.00       50,000.00",
+        "         5-Jun-25    PAGO                   1,000.00       45,000.00",
+    ),
+    capital="45,000.00",
+)
+# Un movimiento que el parser no conoce.
+POPULAR_LOAN_HISTORY_UNKNOWN_ROW = popular_loan_history(
+    (
+        "         5-May-25    DESEMBOLSO SIEBEL     50,000.00       50,000.00",
+        "         5-Jun-25    AJUSTE                 1,000.00       49,000.00",
+    ),
+    capital="49,000.00",
+)

@@ -96,6 +96,5 @@ def test_a_statement_of_an_unknown_loan_is_refused(conn: sqlite3.Connection) -> 
         loan_statements.store(conn, statement, None, "2026-05-20T12:00:00+00:00")
 
 
-def test_no_loan_statement_parser_is_registered_yet() -> None:
-    # The format is learned from a real sample first (see the module docstring).
-    assert loan_statements.parser_for([["anything"]]) is None
+def test_an_unknown_document_has_no_loan_statement_parser() -> None:
+    assert loan_statements.parser_for(()) is None

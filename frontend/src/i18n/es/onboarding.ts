@@ -47,8 +47,12 @@ export const onboarding = {
   'onboarding.file.tooComplex':
     'Es demasiado largo o pesado para leerlo con seguridad (más de 50 páginas o demasiado contenido).',
   'onboarding.file.statements': { one: '1 estado', other: '{count} estados' },
+  'onboarding.file.payments': { one: '1 pago', other: '{count} pagos' },
+  'onboarding.file.noLoan':
+    'Es el historial de un préstamo que no has agregado: agrégalo con su número y súbelo otra vez.',
   'onboarding.account.card': 'Tarjeta ···{last4}',
   'onboarding.account.other': 'Cuenta ···{last4}',
+  'onboarding.account.loan': 'Préstamo ···{last4}',
 
   'onboarding.password.title': 'Algunos archivos tienen contraseña',
   'onboarding.password.lead':

@@ -9,6 +9,10 @@ any other document (`ingest.process_documents`, with a reader that hands back th
 memory), but only when at least one statement squared: a file that does not square leaves
 nothing behind.
 
+A loan statement (`analysis.loan_statements`, tried when no account parser recognizes the file)
+squares when its parser reads it: its payments then go to the loan with its number, and without
+such a loan nothing is kept (`NO_LOAN`).
+
 When a file fails, `Fingerprint` describes it **without any data from the statement**: the bank
 and parser (if recognized), the page count, the stage and the failing checks (e.g.
 `section1:balance`). It is what gets logged, so the case can be reproduced with a synthetic
@@ -28,11 +32,13 @@ from decimal import Decimal
 from pathlib import Path
 
 from michelito import db, importer, ingest
+from michelito.analysis import loan_statements
 from michelito.hosted import pdf_worker
 from michelito.parsers import StatementParser, detect, splitter
 from michelito.parsers.common import (
     CREDIT,
     DEBIT,
+    LoanStatement,
     Page,
     ParseError,
     Section,
@@ -53,6 +59,8 @@ LOCKED = "locked"  # it needs a password (or the one given did not open it)
 UNSUPPORTED = "unsupported"  # no parser recognizes it
 UNREADABLE = "unreadable"  # not a PDF, damaged, or a parser failed on it
 TOO_COMPLEX = "too_complex"  # too many pages, or opening it needed too much memory or time
+NO_LOAN = "no_loan"  # a loan statement that squares, of a loan the person has not added
+LOAN_KIND = "loan"  # a loan statement's `Read.kind`
 
 
 @dataclass(frozen=True)
@@ -80,8 +88,8 @@ class Read:
     bank: str
     kind: str
     identifier: str
-    month: str  # YYYY-MM of its closing date
-    transactions: int
+    month: str  # YYYY-MM of its closing date (a loan's: of its last payment)
+    transactions: int  # a loan's: its payments
 
 
 @dataclass(frozen=True)
@@ -93,6 +101,7 @@ class Examined:
     bank: str | None = None  # the bank, when the parser recognized it
     parts: int = 0
     reads: tuple[Read, ...] = field(default=())
+    loan: LoanStatement | None = None  # the file is a loan statement: what it says
 
 
 def examine(data: bytes, password: str, limits: pdf_worker.Limits | None = None) -> Examined:
@@ -108,13 +117,7 @@ def examine(data: bytes, password: str, limits: pdf_worker.Limits | None = None)
         return Examined(TOO_COMPLEX, fingerprint=Fingerprint("limits", checks=(exc.reason,)))
     except pdf_worker.Unreadable:
         return Examined(UNREADABLE, fingerprint=Fingerprint("open"))
-    try:
-        parser = detect(pages)
-    except Exception:  # a failing `matches` counts as not recognized
-        parser = None
-    if parser is None:
-        return Examined(UNSUPPORTED, pages, fingerprint=Fingerprint("detect", len(pages)))
-    return _parse_all(parser, pages)
+    return examine_pages(pages)
 
 
 def examine_pages(pages: tuple[Page, ...]) -> Examined:
@@ -123,9 +126,34 @@ def examine_pages(pages: tuple[Page, ...]) -> Examined:
         parser = detect(pages)
     except Exception:  # a failing `matches` counts as not recognized
         parser = None
-    if parser is None:
+    if parser is not None:
+        return _parse_all(parser, pages)
+    try:
+        loan_parser = loan_statements.parser_for(pages)
+    except Exception:  # a failing `matches` counts as not recognized
+        loan_parser = None
+    if loan_parser is None:
         return Examined(UNSUPPORTED, pages, fingerprint=Fingerprint("detect", len(pages)))
-    return _parse_all(parser, pages)
+    return _parse_loan(loan_parser, pages)
+
+
+def _parse_loan(parser: loan_statements.Parser, pages: tuple[Page, ...]) -> Examined:
+    """A loan statement squares if its parser reads it (it checks the balances itself)."""
+    bank = parser.INSTITUTION
+    try:
+        statement = parser.parse(pages)
+    except Exception as exc:  # an unexpected layout, or one that does not square
+        kind = type(exc).__name__ if isinstance(exc, ParseError | ValueError) else "error"
+        fingerprint = Fingerprint("parse", len(pages), bank, parser.NAME, (kind,))
+        return Examined(UNREADABLE, pages, fingerprint=fingerprint, bank=bank, parts=1)
+    read = Read(
+        bank=bank,
+        kind=LOAN_KIND,
+        identifier="".join(c for c in statement.number if c.isalnum())[-4:],
+        month=max(line.day for line in statement.lines).isoformat()[:7],
+        transactions=len(statement.lines),
+    )
+    return Examined(SQUARED, pages, bank=bank, parts=1, reads=(read,), loan=statement)
 
 
 def pages_json(pages: tuple[Page, ...]) -> bytes:
@@ -247,13 +275,16 @@ def store(
     conn: sqlite3.Connection, name: str, data: bytes, examined: Examined, now: datetime
 ) -> str:
     """Keep what squared (only call it with a `SQUARED` examination): `SQUARED`, or
-    `DUPLICATE` when the file or every statement in it was already stored.
+    `DUPLICATE` when the file or every statement in it was already stored. A loan statement of
+    a loan the person does not have is `NO_LOAN`, and nothing is kept.
 
     The same file uploaded before counts as a duplicate only if its statements are stored; a
     row left without them (an earlier attempt that failed half-way) is processed again. If the
     ingestion fails, a row this call registered is deleted again, so no orphan stays behind."""
     if examined.state != SQUARED:
         raise ValueError("only a statement that squares is stored")
+    if examined.loan is not None and loan_statements.loan_for(conn, examined.loan.number) is None:
+        return NO_LOAN
     registered = importer.register_upload(conn, name, data, now)
     document_id = registered.document_id
     if not registered.new:

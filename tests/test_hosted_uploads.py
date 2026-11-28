@@ -37,6 +37,8 @@ BHD_LOCKED = build(samples.BHD_TC_PAGES, PASSWORD)
 SAVINGS = build(samples.BHD_AHORRO_PAGES)
 WRONG_TOTAL = build((samples.POPULAR_DOP_WRONG_TOTAL,))
 UNKNOWN = build((samples.UNKNOWN,))
+LOAN = build(samples.POPULAR_LOAN_HISTORY)
+LOAN_WRONG = build(samples.POPULAR_LOAN_HISTORY_WRONG_BALANCE)
 
 
 def payload(*files: tuple[str, bytes]) -> dict:
@@ -214,6 +216,66 @@ def test_the_same_file_twice_is_a_duplicate(h: Hosted) -> None:
     again = upload(alice, ("copy.pdf", POPULAR))
     assert states(again) == {"copy.pdf": "duplicate"}
     assert again["squared"] == 1  # it already counts: the gate is open
+
+
+def add_loan(client: TestClient, number: str = "1234567") -> None:
+    body = {
+        "name": "Car loan",
+        "number": number,
+        "principal_cents": 12_000_000,
+        "rate_bp": 1200,
+        "term": 12,
+        "start_date": "2025-03-05",
+    }
+    assert client.post("/api/loans", json=body, headers=WRITE).status_code == 201
+
+
+def test_a_loan_history_puts_its_payments_on_the_loan(h: Hosted) -> None:
+    alice = h.sign_in(ALICE)
+    upload(alice, ("card.pdf", POPULAR))
+    add_loan(alice)
+
+    job = upload(alice, ("loan.pdf", LOAN))
+
+    assert states(job) == {"loan.pdf": "squared"}
+    assert job["files"][0]["reads"] == [
+        {
+            "bank": "popular",
+            "kind": "loan",
+            "identifier": "4567",
+            "month": "2025-06",
+            "transactions": 5,
+        }
+    ]
+    assert count(user_db(h, ALICE), "loan_statement_lines") == 5
+    (loan,) = alice.get("/api/loans").json()
+    assert loan["statement_months"] == 4
+    again = upload(alice, ("copy.pdf", LOAN))
+    assert states(again) == {"copy.pdf": "duplicate"}
+    assert count(user_db(h, ALICE), "loan_statement_lines") == 5
+
+
+def test_a_loan_history_without_its_loan_is_not_stored(h: Hosted) -> None:
+    alice = h.sign_in(ALICE)
+    upload(alice, ("card.pdf", POPULAR))
+    add_loan(alice, number="7777777")
+
+    job = upload(alice, ("loan.pdf", LOAN), ("bad.pdf", LOAN_WRONG))
+
+    assert states(job) == {"loan.pdf": "no_loan", "bad.pdf": "unreadable"}
+    assert job["files"][0]["reads"] == []
+    database = user_db(h, ALICE)
+    assert count(database, "loan_statement_lines") == 0
+    assert count(database, "documents") == 1  # only the card statement
+
+
+def test_a_loan_history_alone_does_not_open_the_gate(h: Hosted) -> None:
+    alice = h.sign_in(ALICE)
+
+    job = upload(alice, ("loan.pdf", LOAN))
+
+    assert states(job) == {"loan.pdf": "no_loan"}
+    assert alice.get("/api/onboarding").json()["open"] is False
 
 
 def test_a_job_belongs_to_its_account_only(h: Hosted) -> None:

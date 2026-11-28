@@ -20,6 +20,8 @@ MESSAGES: dict[str, str] = {
     "core.ingest.duplicate_period": "ya existe un estado para ese corte",
     "core.ingest.duplicate_printout": "ya existe una impresión igual",
     "core.ingest.stored": "{count} transacciones",
+    "core.ingest.loan_stored": "{count} pagos del préstamo",
+    "core.ingest.loan_repeated": "los pagos de ese préstamo ya estaban guardados",
     "core.ingest.no_statement": "no se encontró ningún estado en el documento",
     "core.ingest.parts_stored": "{parsed} de {total} estados guardados ({count} transacciones)",
     "core.ingest.parts_repeated": "repetidos: {labels}",
