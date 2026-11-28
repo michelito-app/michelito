@@ -64,6 +64,22 @@ def test_a_migration_mismatch_says_how_to_check_instead_of_a_traceback(
     assert "Traceback" not in err
 
 
+def test_a_database_from_a_newer_version_ends_with_a_message(
+    data_dir: Path, secrets, capsys
+) -> None:
+    from michelito import db  # noqa: PLC0415
+
+    assert cli.main(["report"]) == 0
+    with closing(sqlite3.connect(data_dir / "michelito.db")) as raw:
+        raw.execute(f"PRAGMA user_version = {db.SCHEMA_VERSION + 1}")
+        raw.commit()
+
+    assert cli.main(["report"]) == 3
+
+    err = capsys.readouterr().err
+    assert str(db.SCHEMA_VERSION + 1) in err and "Traceback" not in err
+
+
 def test_missing_secret_exits_with_hint(data_dir: Path, secrets, capsys) -> None:
     secrets.pop(vault.PDF_PASSWORD)
     assert cli.main(["parse"]) == 2

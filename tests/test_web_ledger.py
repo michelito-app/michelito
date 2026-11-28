@@ -774,6 +774,17 @@ def test_a_migration_mismatch_is_a_clear_message(
     assert "versión 19" in found.json()["detail"]  # spanish-ui
 
 
+def test_a_database_from_a_newer_version_answers_503(client: TestClient, db_path: Path) -> None:
+    with closing(sqlite3.connect(db_path)) as raw:
+        raw.execute(f"PRAGMA user_version = {db.SCHEMA_VERSION + 1}")
+        raw.commit()
+
+    found = client.get("/api/shared")
+
+    assert found.status_code == 503
+    assert "versión más nueva" in found.json()["detail"]  # spanish-ui
+
+
 def test_a_bank_debit_to_someone_can_be_a_payment_in_a_group(
     client: TestClient, db_path: Path
 ) -> None:

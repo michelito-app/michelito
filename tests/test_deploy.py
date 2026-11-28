@@ -76,6 +76,9 @@ compose)
 				done
 				exit 0
 			fi
+			if [[ $5 == michelito && $6 == check-accounts ]]; then
+				exit "${FAKE_ACCOUNTS_STATUS:-0}"
+			fi
 			exit 1
 		fi
 		code="${*: -1}"
@@ -494,3 +497,38 @@ def test_the_hosted_backup_runs_even_when_the_hosted_app_is_stopped(server: Path
     result = run(server, B)
     assert result.returncode == 0, result.stderr
     assert len(hosted_backups(server)) == 1
+
+
+def test_with_the_profile_every_account_database_is_opened(server: Path) -> None:
+    _enable_hosted(server)
+    result = run(server, A)
+    assert result.returncode == 0, result.stderr
+    assert "exec -T hosted michelito check-accounts" in calls(server)
+    assert "every account database opens" in result.stdout
+
+
+def test_an_account_that_does_not_open_fails_the_deploy_without_going_back(server: Path) -> None:
+    _enable_hosted(server)
+    assert run(server, A).returncode == 0
+    result = run(server, B, FAKE_ACCOUNTS_STATUS="1")
+    assert result.returncode == 1
+    assert "the account databases were not all opened" in result.stderr
+    # The others are already on the new schema: the new version stays, and A is the previous one.
+    assert running(server) == B and version(server) == B
+    assert run(server, "rollback").returncode == 0
+    assert running(server) == A
+
+
+def test_a_version_without_the_account_check_still_deploys(server: Path) -> None:
+    _enable_hosted(server)
+    result = run(server, A, FAKE_ACCOUNTS_STATUS="2")
+    assert result.returncode == 0, result.stderr
+    assert "this version has no account check" in result.stdout
+
+
+def test_an_account_check_that_cannot_run_fails_the_deploy(server: Path) -> None:
+    _enable_hosted(server)
+    result = run(server, A, FAKE_ACCOUNTS_STATUS="4")
+    assert result.returncode == 1
+    assert "status 4" in result.stdout
+    assert running(server) == A

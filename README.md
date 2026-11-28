@@ -496,6 +496,9 @@ Operations commands (in the hosted container they are the only ones that run, wi
   downloading anything else, then every checksum, unwraps every data key, opens every database
   and runs SQLCipher's and SQLite's integrity checks, all in a temporary folder next to the target
   that only takes its place once everything checked out. It warns when a newer backup exists.
+- `michelito check-accounts` (after each deploy, run by `deploy.sh`): opens every account's
+  database, which migrates it to the current schema, and names the accounts that did not open
+  (number and class of error only). A database newer than the running version is refused.
 - `michelito forwarding-check` (daily): emails each person whose forwarded statement is later
   than usual, once per late statement (data-free, see "Email forwarding").
 - `michelito ops-check`: emails the owner (`MICHELITO_OPS_EMAIL`, through the mailer) **only when

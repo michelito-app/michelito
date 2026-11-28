@@ -299,6 +299,13 @@ would stop running.
       layout").
    6. If it answers, it saves the one that was running in `previous-tag`, logs out of GHCR and
       removes old images (it keeps the current and the previous one).
+   7. With the hosted app on, it runs `michelito check-accounts` in the `hosted` container, which
+      opens every account's database. A database is migrated the first time it is opened, so
+      this migrates them all now instead of when each person comes back. If one does not open,
+      the new version **stays** and the script exits with an error after listing the accounts
+      (number and class of error only): the job fails. It fails too when the check cannot run or
+      takes more than 10 minutes; only a version from before the command skips it. See "When an account database does not
+      open" in section 6.
 4. It checks `https://demo.michelito.app/api/health` from outside. This check **only warns**: if it
    fails (DNS, certificate, Caddy), the job fails but the new version stays in place, because it
    already answered from inside. Check `docker compose logs caddy` and, if needed, roll back
@@ -335,6 +342,34 @@ but the admin can use that user with `sudo`.)
   sudo -u deploy env SSH_ORIGINAL_COMMAND=rollback /opt/michelito/deploy.sh </dev/null
   ```
 - To a specific version: `git revert` on `main`; CI and the deploy do the rest.
+
+### Going back across a schema change
+
+A database is stamped with the schema version of the last Michelito that migrated it, and a
+version refuses to open a database newer than itself (`NewerSchemaError`) instead of running on a
+schema it does not know. So when the version you go back to has an older schema, every account
+already opened by the newer one stops opening until you deploy forward again. `rollback` runs
+`michelito check-accounts` too and fails loudly in that case. To really go back, restore the
+pre-deploy backup (`/data/deploy-backups` in the hosted volume, section 10) along with the old
+version; whatever people changed in between is lost. Versions from before this guard do not
+refuse: they run their own migrations on the newer database and lower its stamp, so for those,
+restore the backup instead of only rolling back.
+
+### When an account database does not open
+
+The deploy failed at `check-accounts`, the new version is running, and the log names the
+accounts. Each migration is one transaction, so those databases are exactly as they were before
+the deploy, on the old schema; everyone else is on the new one and working. Do not roll back
+(that would lock out everyone else). Reproduce the failure with a synthetic database, fix the
+migration and deploy again: the next `check-accounts` migrates the accounts that were left
+behind. Run it by hand at any time:
+
+```bash
+sudo -u deploy docker compose --project-directory /opt/michelito exec -T hosted michelito check-accounts
+```
+
+`deploy.sh` is installed by hand (section 2): a change to it in the repository reaches the server
+only when you install the new file.
 
 ## 7. Backups
 

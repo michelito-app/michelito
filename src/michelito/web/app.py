@@ -195,6 +195,14 @@ def create_app(
             {"detail": t("core.migration_mismatch", detail=str(exc))}, status_code=503
         )
 
+    @app.exception_handler(db.NewerSchemaError)
+    async def newer_schema(request: Request, exc: db.NewerSchemaError) -> JSONResponse:  # noqa: ARG001
+        """The database is from a newer version (it was not touched): say so."""
+        return JSONResponse(
+            {"detail": t("core.newer_schema", stored=exc.stored, known=exc.known)},
+            status_code=503,
+        )
+
     def workspace() -> Workspace:
         """This request's database; without one (no demo session) none is opened."""
         found = CURRENT.get()

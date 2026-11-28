@@ -7,6 +7,7 @@
     michelito restore (--from-r2 | --from-dir DIR) --date D --data EMPTY_DIR
     michelito ops-check [--to EMAIL]
     michelito forwarding-check                              (late statements, daily)
+    michelito check-accounts                                (after a deploy: open every database)
     michelito pdf-worker --socket PATH                      (the `pdfworker` container)
     michelito seed-test-account --email E --stage STAGE     (test accounts only, made-up data)
 
@@ -28,6 +29,7 @@ from typing import Any
 from michelito import cli_hosted, config
 
 MODE_ENV = "MICHELITO_MODE"
+CHECK_COULD_NOT_RUN = 4  # `check-accounts`: neither "all open" (0) nor "one does not" (1)
 OPS_EMAIL_ENV = "MICHELITO_OPS_EMAIL"
 BACKUP_KEEP = 10
 
@@ -139,6 +141,12 @@ def add_commands(commands: Any) -> None:
     )
     _hosted_options(check)
     check.set_defaults(handler=cmd_ops_check, server=True)
+
+    accounts = commands.add_parser(
+        "check-accounts", help="open (and migrate) every account's database"
+    )
+    _hosted_options(accounts)
+    accounts.set_defaults(handler=cmd_check_accounts, server=True)
 
     late = commands.add_parser(
         "forwarding-check", help="email people whose forwarded statements are late"
@@ -442,6 +450,39 @@ def cmd_ops_check(args: argparse.Namespace, paths: config.Paths) -> int:
         return _error(f"the alert email could not be sent: {error}")
     print("The owner was emailed.")
     return 1
+
+
+# check-accounts
+
+
+def cmd_check_accounts(args: argparse.Namespace, paths: config.Paths) -> int:
+    """0: every database opened; 1: at least one did not; 4: the check could not run (2 is what
+    a version without this command answers, and `deploy.sh` tells them apart)."""
+    from michelito import db
+    from michelito.hosted.keys import MasterKeyError
+    from michelito.hosted.schema_check import check_accounts
+    from michelito.hosted.store import FILENAME, Store
+
+    directory = _hosted_dir(args, paths)
+    if directory is None:
+        return CHECK_COULD_NOT_RUN
+    if not (directory / FILENAME).is_file():
+        print("No accounts yet: nothing to open.")
+        return 0
+    try:
+        master = _master(args, directory)
+    except MasterKeyError as error:
+        return _error(str(error), CHECK_COULD_NOT_RUN)
+    done = check_accounts(Store(directory / FILENAME), master, directory)
+    for failure in done.failures:
+        print(f"- account {failure.account_id}: {failure.error}", file=sys.stderr)
+    if done.failures:
+        return _error(
+            f"{len(done.failures)} account database(s) could not be opened "
+            f"({done.opened} opened at schema {db.SCHEMA_VERSION})"
+        )
+    print(f"Opened {done.opened} account database(s) at schema {db.SCHEMA_VERSION}.")
+    return 0
 
 
 # forwarding-check

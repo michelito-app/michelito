@@ -16,6 +16,8 @@
 # its volume, keeps 10), write MICHELITO_TAG and MICHELITO_DIGEST to .env,
 # `docker compose up -d` and wait for /api/health (of both, with the "hosted" profile). If it does not answer, go back to the version
 # that was running (or, if it was the same one, to the previous one) and exit with an error.
+# Once it answers, with the "hosted" profile, open every account's database (which migrates it): if
+# one does not open, the new version stays and the deploy exits with an error at the end.
 # Finally log out of GHCR and remove old images (keeps the current and the previous one).
 # "rollback" goes back to the previous version (without pulling if its image is still here).
 set -Eeuo pipefail
@@ -25,6 +27,7 @@ trap '' HUP # if the SSH connection drops, the deploy still finishes (and its ro
 DIR=${MICHELITO_DIR:-/opt/michelito}
 WAIT=${MICHELITO_WAIT:-90} # seconds to wait for /api/health
 INTERVAL=${MICHELITO_INTERVAL:-3}
+ACCOUNTS_WAIT=${MICHELITO_ACCOUNTS_WAIT:-600} # seconds for `check-accounts` to open every database
 BACKUPS_TO_KEEP=10
 SHA_RE='[0-9a-f]{40}'
 DIGEST_RE='sha256:[0-9a-f]{64}'
@@ -36,7 +39,8 @@ die() {
 	exit "${2:-1}"
 }
 
-[[ $WAIT =~ ^[0-9]+$ && $INTERVAL =~ ^[0-9]+$ ]] || die "MICHELITO_WAIT/INTERVAL are not numbers" 2
+[[ $WAIT =~ ^[0-9]+$ && $INTERVAL =~ ^[0-9]+$ && $ACCOUNTS_WAIT =~ ^[0-9]+$ ]] ||
+	die "MICHELITO_WAIT/INTERVAL/ACCOUNTS_WAIT are not numbers" 2
 cd "$DIR" || die "$DIR does not exist" 2
 [[ -f .env ]] || die "$DIR/.env is missing" 2
 
@@ -322,6 +326,29 @@ elif [[ -n $current && ${current#* } != "$target_digest" ]]; then
 fi
 touch "$state_marker"
 
+# --- Account databases --------------------------------------------------------------------------
+# An account's database is migrated the first time it is opened, so /api/health says nothing about
+# them: `michelito check-accounts` opens them all now. One that does not open does NOT send the
+# deploy back: the others are already on the new schema, which the earlier version refuses to
+# open, so going back would lock everyone else out. The new version keeps running and the deploy
+# ends with an error (see docs/deployment.md, "When an account database does not open").
+accounts_failed=0
+check_accounts() {
+	hosted_enabled || return 0
+	local status=0
+	timeout "$ACCOUNTS_WAIT" docker compose exec -T hosted michelito check-accounts </dev/null ||
+		status=$?
+	case $status in
+	0) log "every account database opens" ;;
+	2) log "this version has no account check (check-accounts): skipped" ;; # argparse: unknown command
+	*)
+		accounts_failed=1
+		log "the account check ended with status $status (1: an account does not open; 124: it took more than ${ACCOUNTS_WAIT}s; otherwise it could not run)"
+		;;
+	esac
+}
+check_accounts
+
 # --- Cleanup -----------------------------------------------------------------------------------
 if ((logged_in)); then
 	docker logout ghcr.io >/dev/null 2>&1 || true
@@ -342,4 +369,7 @@ docker image ls "$IMAGE" --format '{{.Tag}}' | while IFS= read -r tag; do
 	esac
 done
 docker image prune -f >/dev/null 2>&1 || true
+if ((accounts_failed)); then
+	die "$target_sha is running, but the account databases were not all opened (see above)"
+fi
 log "done"

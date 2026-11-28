@@ -4,12 +4,13 @@ container accepts. Synthetic data, throwaway keys and loopback only."""
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date
 from pathlib import Path
 
 import pytest
 
-from michelito import cli, cli_ops
+from michelito import cli, cli_ops, db
 from michelito.demo import generate
 from michelito.hosted import s3
 from tests.fake_s3 import ACCESS, BUCKET, SECRET, fake_s3
@@ -149,6 +150,61 @@ def test_ops_check_emails_the_owner_only_on_failure(env, capsys) -> None:  # noq
     outbox = list((env["hosted"] / "outbox").glob("*.json"))
     assert len(outbox) == 1
     assert "owner was emailed" in capsys.readouterr().out
+
+
+def test_check_accounts_opens_every_database(env, capsys) -> None:  # noqa: ANN001
+    data = ["--data", str(env["hosted"])]
+    assert cli.main(["check-accounts", *data]) == 0
+    assert "No accounts yet" in capsys.readouterr().out
+    _import(env, capsys)
+
+    assert cli.main(["check-accounts", *data]) == 0
+
+    output = capsys.readouterr()
+    assert f"Opened 1 account database(s) at schema {db.SCHEMA_VERSION}" in output.out
+    for value in _secrets(env):
+        assert value not in output.out + output.err
+
+
+def test_check_accounts_names_the_account_that_does_not_open(
+    env, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    _import(env, capsys)
+    # As after going back to an earlier version: the database is newer than the code.
+    monkeypatch.setattr(db, "SCHEMA_VERSION", db.SCHEMA_VERSION - 1)
+
+    assert cli.main(["check-accounts", "--data", str(env["hosted"])]) == 1
+
+    output = capsys.readouterr()
+    assert "- account 1: NewerSchemaError" in output.err
+    assert "1 account database(s) could not be opened (0 opened" in output.err
+    for value in _secrets(env):
+        assert value not in output.out + output.err
+
+
+def test_check_accounts_tries_again_when_a_database_is_busy(
+    env, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    _import(env, capsys)
+    connect = db.connect
+    busy = [sqlite3.OperationalError("database is locked")]
+
+    def sometimes_busy(*args: object, **kwargs: object) -> sqlite3.Connection:
+        if busy:
+            raise busy.pop()
+        return connect(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(db, "connect", sometimes_busy)
+
+    assert cli.main(["check-accounts", "--data", str(env["hosted"])]) == 0
+    assert not busy
+
+
+def test_check_accounts_needs_the_master_key(env, capsys, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    _import(env, capsys)
+    monkeypatch.delenv("MICHELITO_MASTER_KEY_FILE")
+
+    assert cli.main(["check-accounts", "--data", str(env["hosted"])]) == 4
 
 
 def test_the_hosted_container_only_runs_server_commands(

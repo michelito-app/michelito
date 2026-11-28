@@ -94,6 +94,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except migrations_v19.MigrationMismatch as exc:
         print(t("core.migration_mismatch", detail=str(exc)), file=sys.stderr)
         return 3
+    except db.NewerSchemaError as exc:
+        print(t("core.newer_schema", stored=exc.stored, known=exc.known), file=sys.stderr)
+        return 3
 
 
 def _parser() -> argparse.ArgumentParser:

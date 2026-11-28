@@ -650,16 +650,41 @@ def connect(path: Path | str, key: bytes | None = None) -> sqlite3.Connection:
     return conn
 
 
+class NewerSchemaError(RuntimeError):
+    """The database was written by a newer Michelito than this one (after going back to an
+    earlier version, say). It is left untouched: this code does not know its schema."""
+
+    def __init__(self, stored: int, known: int) -> None:
+        super().__init__(
+            f"the database has schema {stored} and this version knows up to {known}: "
+            "run the newer version"
+        )
+        self.stored = stored
+        self.known = known
+
+
 def upgrade(conn: sqlite3.Connection) -> None:
-    """Bring an open connection to the current schema (what `connect` does on every open)."""
+    """Bring an open connection to the current schema (what `connect` does on every open).
+
+    It goes by the stored version: a database that is up to date is not touched (no schema
+    script, no write lock: reads do not wait for a writer), and one from a newer version is
+    refused with `NewerSchemaError`. So every schema change needs a new `SCHEMA_VERSION`
+    (`tests/test_schema_guard.py` holds that)."""
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    stored = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if stored > SCHEMA_VERSION:
+        raise NewerSchemaError(stored, SCHEMA_VERSION)
+    if stored == SCHEMA_VERSION:
+        return
     conn.executescript(SCHEMA)
     _migrate(conn)
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Bring a database created with an earlier schema up to date (idempotent)."""
+    """Bring a database created with an earlier schema up to date (idempotent). It only runs on
+    a database below `SCHEMA_VERSION` (`upgrade`): a new step, even one that only changes rows,
+    reaches the existing databases only with a new version number."""
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(statements)")}
     with conn:
         if "period_start" not in columns:

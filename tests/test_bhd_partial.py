@@ -172,6 +172,7 @@ def test_old_indexes_learn_the_bhd_printout(tmp_path: Path) -> None:
             "COALESCE(closing_balance_cents, 0), COALESCE(printed_debits_cents, 0), "
             "COALESCE(printed_credits_cents, 0), COALESCE(transaction_count, 0)) "
             "WHERE parser IN ('popular_web', 'banreservas_partial');"
+            f"PRAGMA user_version = {db.SCHEMA_VERSION - 1};"  # an up-to-date one is not migrated
         )
     for _ in range(2):  # idempotent
         with closing(db.connect(path)) as connection:

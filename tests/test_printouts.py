@@ -74,6 +74,8 @@ class TestStorage:
                 "CREATE UNIQUE INDEX statements_unique_period ON statements "
                 "(account_id, COALESCE(card_id, 0), currency, period_end);"
                 "ALTER TABLE statements DROP COLUMN transaction_count;"
+                # An up-to-date database is not migrated.
+                f"PRAGMA user_version = {db.SCHEMA_VERSION - 1};"
             )
         with closing(db.connect(path)) as conn:
             columns = {r["name"] for r in conn.execute("PRAGMA table_info(statements)")}
@@ -121,6 +123,7 @@ def test_printout_index_without_content_is_replaced(tmp_path: Path) -> None:
             "CREATE UNIQUE INDEX statements_unique_printout ON statements "
             "(account_id, currency, COALESCE(period_start, ''), period_end) "
             "WHERE parser = 'popular_web';"
+            f"PRAGMA user_version = {db.SCHEMA_VERSION - 1};"  # an up-to-date one is not migrated
         )
     with closing(db.connect(path)) as conn:
         index = conn.execute(
@@ -549,6 +552,7 @@ def test_old_indexes_learn_the_new_printout_parser(tmp_path: Path) -> None:
             "COALESCE(closing_balance_cents, 0), COALESCE(printed_debits_cents, 0), "
             "COALESCE(printed_credits_cents, 0), COALESCE(transaction_count, 0)) "
             "WHERE parser = 'popular_web';"
+            f"PRAGMA user_version = {db.SCHEMA_VERSION - 1};"  # an up-to-date one is not migrated
         )
     for _ in range(2):  # idempotent
         with closing(db.connect(path)) as conn:

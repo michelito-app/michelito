@@ -8,6 +8,10 @@ MESSAGES: dict[str, str] = {
         "cambiaría ({detail}). Quedó como estaba. Revisa una copia con "
         "«uv run python scripts/check_shared_migration.py <copia.db>» y avísanos."
     ),
+    "core.newer_schema": (
+        "Esta base la escribió una versión más nueva de Michelito (esquema {stored}; esta "
+        "versión conoce hasta el {known}). No se tocó: vuelve a la versión más nueva."
+    ),
     "analysis.ledger.name_required": "escribe un nombre",
     "analysis.ledger.text_too_long": "el texto tiene más de {max} letras",
     "analysis.ledger.unknown_contact": "persona desconocida: {id}",
